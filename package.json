@@ -1,15 +1,19 @@
 {
 	"name": "@artefacto/schemascript",
-	"module": "src/main.ts",
 	"type": "module",
 	"version": "0.0.1-alpha.1",
+	"module": "./dist/artefact/schemascript/index.js",
+	"types": "./dist/artefact/schemascript/index.d.ts",
+	"bin": {
+		"@artefacto/schemascript": "dist/main.ts"
+	},
 	"private": false,
 	"scripts": {
 		"fix": "bun run check",
 		"check": "bun x --bun @biomejs/biome check --fix .",
 		"format": "bun x --bun @biomejs/biome format --fix .",
 		"lint": "bun x --bun @biomejs/biome lint --fix .",
-		"build": "bun run scripts/build.ts",
+		"build": "bun run scripts/build.ts && bun x tsc",
 		"start": "bun run src/main.ts"
 	},
 	"devDependencies": {
