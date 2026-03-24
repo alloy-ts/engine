@@ -360,6 +360,431 @@ When ASE calls alloy:gui.button.create():
 This is RPC over IPC.
 ```
 
+
+---
+
+## 🏗️ Levels of Abstraction (Hierarchy)
+
+```
+┌─────────────────────────────────────────────────────┐
+│ Level 1: OS Kernel / Host Machine                   │
+│ (Linux, Windows, macOS, browser)                    │
+└─────────────────────────────┬───────────────────────┘
+                              │
+                ┌─────────────▼────────────────┐
+                │ Level 2: Isolation Boundary   │
+                │ ├─ Native: Direct OS access  │
+                │ ├─ OCI Container: Namespaces │
+                │ └─ Browser Sandbox           │
+                └─────────────┬────────────────┘
+                              │
+                ┌─────────────▼─────────────────────────┐
+                │ Level 3: AlloyScriptHost (Process)    │
+                │ ├─ Manages lifecycle                  │
+                │ ├─ Provides resources to ASE          │
+                │ └─ Example: AlloyExplorer, app binary │
+                └─────────────┬───────────────────────┘
+                              │
+                ┌─────────────▼──────────────────────┐
+                │ Level 4: AlloyScriptEngine (Runtime) │
+                │ ├─ JIT mode (WasmEdge + QuickJS)    │
+                │ ├─ AOT mode (native code)           │
+                │ └─ In-process component             │
+                └────────────────────────────────────┘
+```
+
+---
+
+## 📋 Definitions (Clear & Precise)
+
+### AlloyScriptHost
+
+**Definition:**
+
+```
+AlloyScriptHost = An application/process that:
+├─ Owns an OS process
+├─ Instantiates and manages AlloyScriptEngine
+├─ Provides WASI implementation
+├─ Manages lifecycle (startup, shutdown, cleanup)
+└─ Communicates with sidecars (AlloyWindow via IPC)
+
+Characteristics:
+├─ Same OS process as AlloyScriptEngine
+├─ Not isolated from itself
+├─ Direct memory access to ASE
+└─ Example: AlloyExplorer main process, app.exe
+```
+
+**Examples of AlloyScriptHost:**
+
+```
+1. AlloyExplorer (browser application)
+   └─ Process: alloyexplorer (Rust executable)
+      ├─ Owns AlloyScriptEngine instance
+      ├─ Runs AlloyExplorer UI
+      └─ Spawns child processes for each app
+
+2. Standalone Native App (AOT compiled)
+   └─ Process: myapp (native binary)
+      ├─ No AlloyScriptEngine (compiled away)
+      └─ Directly runs compiled code
+
+3. Standalone App With Runtime (JIT bundled)
+   └─ Process: myapp-jit (native binary + bundled runtime)
+      ├─ Owns AlloyScriptEngine
+      └─ Runs bytecode
+
+4. Cloudflare Worker (serverless)
+   └─ Process: worker runtime (provided by Cloudflare)
+      ├─ Owns AlloyScriptEngine
+      └─ Executes request handler
+
+5. Web Browser (running WASM)
+   └─ Process: browser (Chrome, Firefox, Safari)
+      ├─ Owns JavaScript engine
+      ├─ Owns WASM runtime (AlloyScriptEngine as WASM)
+      └─ Executes in browser sandbox
+```
+
+### AlloyScriptContainer (OCI Container)
+
+**Definition:**
+
+```
+AlloyScriptContainer = OCI container (Docker/Podman) that:
+├─ Isolates the entire AlloyScriptHost process
+├─ Provides resource limits (memory, CPU)
+├─ Restricts filesystem access
+├─ Limits system calls (seccomp)
+├─ Restricts network access
+└─ Enforces capability dropping
+
+Characteristics:
+├─ Separate OS-level isolation
+├─ Uses Linux namespaces (pid, network, fs, etc.)
+├─ Different from Host
+├─ Host runs INSIDE the Container
+└─ Multiple Hosts can run in different Containers
+```
+
+**Key Point:**
+
+```
+┌─ OS-level isolation boundary
+│
+AlloyScriptContainer (OCI)
+│
+└─────────────────────────────────┐
+                                  │
+    AlloyScriptHost (Process)     │ ← Host runs INSIDE Container
+    │
+    AlloyScriptEngine (Runtime)   │
+```
+
+---
+
+## 🎯 Host vs Container: Clear Hierarchy
+
+### Question: Is the Host the same as the Container?
+
+**No. They're different levels of abstraction.**
+
+```
+WRONG (Conflating levels):
+Container = Host
+Host ≠ Container
+
+CORRECT (Hierarchy):
+Host ⊂ Container  (Host is contained within Container)
+                  OR
+Host runs directly on OS (no Container)
+
+Example:
+┌─────────────────────────────────┐
+│ AlloyScriptContainer (OCI)      │ ← OS-level isolation
+├─────────────────────────────────┤
+│ AlloyScriptHost (Process)       │ ← Application-level
+├─────────────────────────────────┤
+│ AlloyScriptEngine (In-process)  │ ← Runtime
+└─────────────────────────────────┘
+```
+
+### Question: Are Host and Engine in the same process?
+
+**Yes. In the same process.**
+
+```
+AlloyScriptHost (Process)
+├─ Process ID: 1234
+├─ Memory space: shared
+├─ Threads: shared
+└─
+    AlloyScriptEngine (Runtime)
+    ├─ Part of same process
+    ├─ In-process component
+    ├─ No IPC to itself
+    └─ Direct function calls
+```
+
+### Question: Is Container in the same process as Host?
+
+**No. Container is OS-level isolation around the Host process.**
+
+```
+Host runs INSIDE Container:
+
+┌─ Container (OS-level namespace isolation)
+│  ├─ Container filesystem
+│  ├─ Container network namespace
+│  ├─ Container pid namespace
+│  │
+│  └─ Host Process (PID 1 inside container)
+│     ├─ AlloyScriptEngine
+│     ├─ AlloyWindow (if spawned as separate process in container)
+│     └─ App code
+│
+└─ Container enforces limits and isolation
+```
+
+---
+
+## 🔄 Architecture Levels (Comprehensive)
+
+### Level 1: No Isolation (Native)
+
+```
+┌─────────────────────────────────────────────┐
+│ OS Kernel (Linux, Windows, macOS)           │
+├─────────────────────────────────────────────┤
+│ AlloyScriptHost (native process)            │
+│ ├─ AlloyScriptEngine (JIT or AOT)          │
+│ ├─ AlloyWindow (separate native process)   │
+│ └─ IPC between Host and AlloyWindow        │
+└─────────────────────────────────────────────┘
+
+Direct OS access:
+✓ Full filesystem
+✓ All network
+✓ All capabilities
+✗ No isolation
+```
+
+### Level 2: Application-Level Sandboxing (JIT)
+
+```
+┌─────────────────────────────────────────────┐
+│ OS Kernel                                   │
+├─────────────────────────────────────────────┤
+│ AlloyScriptHost (process)                   │
+│ ├─ AlloyScriptEngine (JIT with limits)      │
+│ │  ├─ Memory: Limited (heap size)           │
+│ │  ├─ CPU: Limited (time quota)             │
+│ │  ├─ Filesystem: Restricted (sandboxed fs) │
+│ │  └─ Network: Restricted (allowlist)       │
+│ │                                            │
+│ ├─ AlloyWindow (separate process, untrusted)
+│ └─ Limited IPC (no escalation)              │
+└─────────────────────────────────────────────┘
+
+In-process sandboxing:
+✓ Memory limits
+✓ CPU time limits
+✗ OS-level isolation
+✗ Can breakout via AlloyWindow IPC
+```
+
+### Level 3: OS Container (OCI + JIT)
+
+```
+┌─────────────────────────────────────────────┐
+│ OS Kernel (Linux)                           │
+├─────────────────────────────────────────────┤
+│ OCI Container (namespaces, cgroups, seccomp)
+│ ├─ Filesystem isolation (rootfs overlay)    │
+│ ├─ Network isolation (veth)                 │
+│ ├─ PID namespace (separate init)            │
+│ ├─ Memory limit (cgroup)                    │
+│ ├─ CPU limit (cgroup)                       │
+│ ├─ Capabilities (drop=ALL)                  │
+│ └─ System calls (seccomp filter)            │
+│    │
+│    ├─ AlloyScriptHost (PID 1 in container) │
+│    │  ├─ AlloyScriptEngine                 │
+│    │  └─ AlloyWindow (if spawned)          │
+│    │
+│    └─ Restricted environment:               │
+│       ✗ Can't escape container              │
+│       ✗ Can't access host filesystem        │
+│       ✗ Can't access host network           │
+│       ✗ Limited capabilities                │
+└─────────────────────────────────────────────┘
+
+Full OS-level isolation:
+✓ Filesystem isolated
+✓ Network isolated
+✓ Process isolated
+✓ Resource limits enforced by kernel
+```
+
+### Level 4: Browser Sandbox (WASM)
+
+```
+┌────────────────────────────────────┐
+│ OS Kernel                          │
+├────────────────────────────────────┤
+│ Browser Process (Chrome, Firefox)  │
+├────────────────────────────────────┤
+│ Browser Sandbox (V8 isolate)       │
+│ ├─ WASM runtime                    │
+│ │  ├─ AlloyScriptEngine (WASM)    │
+│ │  ├─ Linear memory (isolated)     │
+│ │  └─ Table (isolated)             │
+│ │                                   │
+│ ├─ WASI Host (JavaScript)          │
+│ │  ├─ create_window() → JS         │
+│ │  ├─ draw_rect() → Canvas API     │
+│ │  └─ read_file() → File API       │
+│ │                                   │
+│ └─ Restricted by browser policy    │
+│    ✗ Can't access filesystem       │
+│    ✗ Can't access network (CORS)   │
+│    ✗ Can't access system calls     │
+└────────────────────────────────────┘
+
+Browser sandbox:
+✓ Memory isolated (WASM linear memory)
+✓ Network restricted (CORS)
+✓ Filesystem restricted (localStorage only)
+```
+
+---
+
+## 🐳 OCI Container Example (Detailed)
+
+```bash
+# Create AlloyScript app container
+
+podman create \
+  --name myapp-container \
+  --cap-drop=ALL \
+  --cap-add=NET_BIND_SERVICE \
+  --memory=512m \
+  --cpus=1.0 \
+  --pids-limit=100 \
+  --security-opt=no-new-privileges:true \
+  --security-opt=seccomp=restricted \
+  -e ALLOY_CAPABILITIES="net,fs:read,gui" \
+  -e ALLOY_MEMORY_MB=512 \
+  -v app.wasm:/app/app.wasm:ro \
+  -v /tmp/app-data:/app/data:rw \
+  -p 8080:8080 \
+  alloyruntime:latest
+```
+
+**Breakdown:**
+
+```
+podman create
+│
+├─ Container isolation:
+│  ├─ --cap-drop=ALL (drop all Linux capabilities)
+│  ├─ --cap-add=NET_BIND_SERVICE (only bind to ports)
+│  ├─ --security-opt=no-new-privileges (can't escalate)
+│  └─ --security-opt=seccomp (filter syscalls)
+│
+├─ Resource limits:
+│  ├─ --memory=512m (max 512 MB RAM)
+│  ├─ --cpus=1.0 (max 1 CPU core)
+│  └─ --pids-limit=100 (max 100 processes)
+│
+├─ AlloyScript-specific:
+│  ├─ ALLOY_CAPABILITIES="net,fs:read,gui"
+│  │  (app can use network, read filesystem, GUI)
+│  └─ ALLOY_MEMORY_MB=512 (JIT heap size)
+│
+├─ Volume mounts:
+│  ├─ -v app.wasm:/app/app.wasm:ro
+│  │  (app binary, read-only)
+│  └─ -v /tmp/app-data:/app/data:rw
+│     (working directory, read-write)
+│
+└─ Network:
+   └─ -p 8080:8080
+      (expose port 8080)
+```
+
+**What happens when container runs:**
+
+```
+1. Container starts with isolated:
+   ├─ Filesystem (only /app/data accessible)
+   ├─ Network (only port 8080 accessible)
+   ├─ Processes (PID namespace)
+   └─ Memory (512 MB limit)
+
+2. AlloyScriptHost starts (PID 1 in container)
+   ├─ Loads app.wasm (read-only)
+   ├─ Spawns AlloyScriptEngine
+   ├─ Spawns AlloyWindow (if needed)
+   └─ Runs in restricted environment
+
+3. App runs with constraints:
+   ├─ Can read: /app/app.wasm
+   ├─ Can write: /app/data (bind mount)
+   ├─ Can network: port 8080 only
+   ├─ Can use: NET, FS, GUI capabilities
+   └─ Cannot: escape container, escalate, access host
+```
+
+---
+
+## 📊 Summary Table: Host vs Container
+
+```
+┌──────────────┬────────────────────┬─────────────────────────┐
+│ Level        │ What It Is          │ Isolation               │
+├──────────────┼────────────────────┼─────────────────────────┤
+│ Host         │ OS Process          │ None (except OS-level)  │
+│              │ Runs AlloyScriptEngine
+│              │ Example: AlloyExplorer │
+├──────────────┼────────────────────┼─────────────────────────┤
+│ Container    │ OCI (Podman/Docker) │ OS-level (namespaces,   │
+│              │ Isolates Host       │ cgroups, seccomp)       │
+│              │ Resource limits     │                         │
+├──────────────┼────────────────────┼─────────────────────────┤
+│ Engine       │ In-process runtime  │ Application-level       │
+│              │ Inside Host         │ (JIT sandbox)           │
+├──────────────┼────────────────────┼─────────────────────────┤
+│ Sidecar      │ Separate process    │ Separate PID            │
+│ (AlloyWindow)│ Separate from Host  │ IPC communication       │
+└──────────────┴────────────────────┴─────────────────────────┘
+```
+
+---
+
+## ✅ Corrected Terminology
+
+```
+AlloyScriptHost
+└─ The application/process that runs AlloyScriptEngine
+   ├─ Can run directly on OS
+   ├─ Can run inside OCI Container
+   ├─ Can run in browser
+   └─ Can run on serverless platform
+
+AlloyScriptContainer
+└─ OCI container (Podman/Docker) that isolates Host
+   ├─ Provides OS-level security
+   ├─ Enforces resource limits
+   ├─ Restricts filesystem/network
+   └─ Optional (not always used)
+
+Relationship:
+├─ Host runs INSIDE Container (if Container is used)
+├─ Host can run WITHOUT Container
+└─ Container cannot run without Host
+```
 ---
 
 ## 🎯 What is an AlloyScript App?
