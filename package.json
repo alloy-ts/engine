@@ -1,5 +1,5 @@
 {
-	"name": "artefact",
+	"name": "@alloyscript/core",
 	"module": "src/main.ts",
 	"type": "module",
 	"private": true,
