@@ -1,8 +1,696 @@
 # AlloyScript
 
+AlloyScript is a **compiled, statically-typed programming language** with the following characteristics:
+
+```
+Language: AlloyScript
+├─ Type System: Static, type-safe (TypeScript-compatible)
+├─ Syntax: ECMAScript/TypeScript-based with AlloyScript extensions
+├─ Compilation: Multi-target (AOT native, JIT bytecode, WASM)
+├─ Standard Library: alloy:* modules (gui, fs, crypto, net, etc.)
+├─ Target Platforms: Desktop, web, cloud, embedded
+└─ Key Feature: Single source → multiple deployment targets
+```
+
+**Key Features:**
+
+```
+1. Type Safety
+   ├─ Structural typing + nominal typing
+   ├─ Compile-time type checking
+   └─ No undefined/null surprises
+
+2. Multi-Deployment
+   ├─ Compile to native (AOT)
+   ├─ Compile to bytecode (JIT)
+   ├─ Compile to WASM
+   └─ Run on any platform
+
+3. Standard Library (alloy:*)
+   ├─ alloy:gui (native UI)
+   ├─ alloy:fs (filesystem: local, IPFS, OPFS)
+   ├─ alloy:crypto (cryptography + DID)
+   ├─ alloy:net (networking)
+   ├─ alloy:auth (authentication)
+   └─ alloy:graphics (2D graphics)
+
+4. Platform Agnostic
+   ├─ No DOM API (uses alloy:gui instead)
+   ├─ No Node.js APIs (uses alloy:* instead)
+   ├─ Portable source code
+   └─ Native behavior per platform
+
+5. Web3 Ready
+   ├─ DID-based identity (built-in)
+   ├─ Cryptographic signing/verification
+   ├─ Content addressing (IPFS)
+   └─ Decentralized apps
+```
+
+## Why AlloyScript?
 
 
-AlloyScriptCore is the application runtime engine.
+Problems it solves:
+
+1. Fragmentation
+   Problem: JavaScript varies (browser, Node.js, Deno, edge)
+   Solution: Single language, multiple hosts
+   
+2. Cross-Platform Consistency
+   Problem: "Write once, debug everywhere"
+   Solution: Same source works on Windows, macOS, Linux, browser, cloud
+   
+3. Web3 Integration
+   Problem: DIDs, crypto, IPFS not standard in JS
+   Solution: Built-in to language
+   
+4. Performance
+   Problem: Interpreted JS is slow for apps
+   Solution: AOT compilation to native machine code
+   
+5. Security
+   Problem: JavaScript has too much power (DOM, Node.js, globals)
+   Solution: Sandboxed runtime with explicit permissions
+
+
+---
+
+### AlloyScriptEngine (Runtime)
+
+**What is AlloyScriptEngine?**
+
+AlloyScriptEngine is the **execution runtime** that interprets or executes AlloyScript code.
+
+```
+AlloyScriptEngine (Runtime)
+├─ Mode 1: JIT (Interpreted)
+│  ├─ WasmEdge (WASM VM) 
+│  ├─ JIT interpretation of WASM modules on the fly
+│  ├─ QuickJS (JavaScript interpreter)
+│  ├─ Bytecode interpreter
+│  └─ Dynamic code execution (evaluate API)
+│
+├─ Mode 2: AOT (Pre-compiled)
+│  ├─ WasmEdge (WASM VM)
+│  ├─ AOT pre-compiled WASM modules 
+│  ├─ No JS runtime
+│  ├─ Direct native machine code
+│  └─ Execution via OS
+│
+└─ WASI Interface
+   ├─ System call abstraction
+   ├─ Platform-agnostic API
+   └─ Host provides implementation
+```
+
+## Key Responsibilities:
+
+```
+1. Code Execution
+   ├─ Parse bytecode/AST
+   ├─ JIT compilation (if applicable)
+   ├─ Execute instructions
+   └─ Manage call stack
+
+2. Memory Management
+   ├─ Heap allocation
+   ├─ Garbage collection
+   └─ Linear memory (WASM)
+
+3. Standard Library Binding
+   ├─ alloy:* module APIs
+   ├─ IPC/RPC to sidecars
+   └─ System integration
+
+4. Sandboxing (JIT mode only)
+   ├─ Limited memory (heap size)
+   ├─ Limited CPU (time limits)
+   ├─ Limited filesystem access
+   └─ Limited network access
+```
+
+---
+
+### AlloyScriptHost (Host/Container)
+
+**What is AlloyScriptHost?**
+
+AlloyScriptHost is the **process/container that instantiates and manages AlloyScriptEngine**.
+
+```
+AlloyScriptHost (Host Container)
+├─ Responsibility: Own the process lifecycle
+├─ Runs: AlloyScriptEngine inside it
+├─ Provides: WASI implementation + platform integration
+├─ Manages: Sidecars (AlloyWindow, Alloy services)
+└─ Examples:
+   ├─ AlloyExplorer (browser host)
+   ├─ Standalone app launcher
+   ├─ Cloudflare Worker runtime
+   ├─ Custom server application
+   └─ Browser (WASM host)
+```
+
+**AlloyScriptHost is NOT the same as AlloyScriptEngine:**
+
+```
+AlloyScriptEngine (Runtime)
+└─ Executes code
+   ├─ Stateless (or limited state)
+   ├─ Fungible (replaces with new instance)
+   └─ Process: In-process component
+
+AlloyScriptHost (Container)
+└─ Owns the process
+   ├─ Lifecycle management
+   ├─ Unique (per app/tab/request)
+   └─ Process: Separate OS process
+```
+
+---
+
+### AlloyScriptCore (Sandboxed Abstraction)
+
+**What is AlloyScriptCore?**
+
+AlloyScriptCore is the **sandboxed runtime abstraction** that provides a WASI-like interface.
+
+```
+AlloyScriptCore (Sandboxed Abstraction Layer)
+├─ WASI Interface Definition
+│  ├─ System calls (fd_read, fd_write, etc.)
+│  ├─ File descriptor model
+│  ├─ Memory model
+│  └─ Permission model
+│
+├─ Multiple Implementations
+│  ├─ JIT: QuickJS (implements WASI)
+│  ├─ WASM: WasmEdge runtime
+│  ├─ Browser: Polyfill WASI via browser APIs
+│  └─ Native: Direct OS syscalls
+│
+└─ Guarantees
+   ├─ Code cannot escape sandbox
+   ├─ Only permitted resources accessible
+   ├─ Memory-safe execution
+   └─ Auditable behavior
+```
+
+**AlloyScriptCore vs AlloyScriptEngine:**
+
+```
+AlloyScriptCore = The abstraction (interface + contract)
+AlloyScriptEngine = The implementation (actual runtime)
+
+Example:
+├─ AlloyScriptCore = WASI spec
+├─ AlloyScriptEngine = WasmEdge + QuickJS (implements WASI)
+```
+
+---
+
+## 🏗️ Component Hierarchy
+
+```
+┌─────────────────────────────────────┐
+│ AlloyScriptHost (Process)           │
+│ (e.g., AlloyExplorer, Browser)      │
+├─────────────────────────────────────┤
+│ AlloyScriptEngine (Runtime)         │
+│ ├─ WasmEdge / QuickJS               │
+│ ├─ Bytecode interpreter             │
+│ └─ WASI implementation              │
+├─────────────────────────────────────┤
+│ AlloyScriptCore (Abstraction)       │
+│ ├─ WASI interface                   │
+│ ├─ File descriptor model            │
+│ └─ Permission model                 │
+├─────────────────────────────────────┤
+│ Sidecars (Optional)                 │
+│ ├─ AlloyWindow (GUI)                │
+│ ├─ AlloyGraphics (2D graphics)      │
+│ └─ System services                  │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 🔌 IPC/RPC Architecture
+
+### IPC Boundary & Ownership
+
+**Question: Who owns the IPC server?**
+
+**Answer: It depends on the sidecar type.**
+
+```
+Scenario 1: AlloyWindow as Native Sidecar (Desktop)
+
+AlloyScriptHost Process (owns lifecycle)
+├─ AlloyScriptEngine (JIT mode)
+│  ├─ Calls alloy:gui APIs
+│  └─ Makes IPC requests to AlloyWindow
+│
+└─ IPC Client (in-process with ASE)
+   └─ Sends messages to AlloyWindow
+
+AlloyWindow Process (separate)
+├─ IPC Server (listens for requests)
+├─ Creates native controls (HWND, NSView, GtkWidget)
+├─ Handles native OS events
+└─ Sends responses back via IPC
+
+Communication Channel:
+├─ Linux: AF_VSOCK (high-performance)
+├─ Windows: Named pipes
+├─ macOS: Unix sockets
+└─ All platforms: HTTP over localhost
+
+Message Protocol:
+├─ ASE → AlloyWindow: "create_button(label='Click')"
+├─ AlloyWindow → ASE: "button_created(id=5)"
+├─ OS → AlloyWindow: WM_COMMAND (click)
+└─ AlloyWindow → ASE: "button_clicked(id=5)"
+```
+
+```
+Scenario 2: AlloyWindow as WASI Module (Browser)
+
+Browser Process (AlloyScriptHost)
+├─ WASM runtime (AlloyScriptEngine)
+│  └─ AlloyWindow as WASM module
+│     ├─ Implements WASI for GUI operations
+│     ├─ Uses WebGL/Canvas for rendering
+│     └─ Uses Browser File API for filesystem
+│
+└─ No separate process needed
+   (AlloyWindow runs in same WASM sandbox)
+
+Message Protocol:
+├─ Direct function calls (no IPC)
+├─ JavaScript to WASM (synchronous)
+└─ No network overhead
+```
+
+### IPC Client vs IPC Server
+
+```
+IPC Architecture (Desktop)
+
+┌─────────────────────────────┐
+│ AlloyScriptHost             │
+│ ┌──────────────────────────┐│
+│ │ AlloyScriptEngine        ││
+│ │ ┌────────────────────┐   ││
+│ │ │ IPC Client         │   ││ ← Makes requests
+│ │ │ ├─ Send methods    │   ││
+│ │ │ ├─ Receive replies │   ││
+│ │ │ └─ Async handlers  │   ││
+│ │ └────────────────────┘   ││
+│ └──────────────────────────┘│
+│         ↓ IPC Pipe          │
+│  (AF_VSOCK, named pipe)     │
+└─────────────────────────────┘
+         ↓
+┌─────────────────────────────┐
+│ AlloyWindow (Separate)      │
+│ ┌──────────────────────────┐│
+│ │ IPC Server               ││ ← Listens for requests
+│ │ ├─ Accept connections    ││
+│ │ ├─ Process messages      ││
+│ │ ├─ Send responses        ││
+│ │ └─ Event dispatcher      ││
+│ └──────────────────────────┘│
+│ ┌──────────────────────────┐│
+│ │ Native Controls          ││
+│ │ ├─ HWND                  ││
+│ │ ├─ Event handlers        ││
+│ │ └─ Rendering             ││
+│ └──────────────────────────┘│
+└─────────────────────────────┘
+```
+
+**Key Point:** 
+- AlloyScriptEngine has IPC **Client** (requests GUI operations)
+- AlloyWindow has IPC **Server** (listens for requests)
+- They're **separate processes**
+
+### RPC (Remote Procedure Call)
+
+```
+RPC in AlloyScript Context
+
+When ASE calls alloy:gui.button.create():
+
+1. RPC Call (from ASE)
+   └─ IPC message: { method: "create_button", label: "Click" }
+   
+2. IPC Transport
+   └─ Sent over AF_VSOCK/named pipe
+   
+3. RPC Server (AlloyWindow)
+   └─ Receives, unmarshals, executes
+   
+4. RPC Response
+   └─ IPC message: { id: 5, type: "button", label: "Click" }
+   
+5. RPC Client (ASE)
+   └─ Receives, unmarshals, continues execution
+
+This is RPC over IPC.
+```
+
+---
+
+## 🎯 What is an AlloyScript App?
+
+### Definition
+
+**An AlloyScript App is any application written in AlloyScript that:**
+
+```
+├─ Has a defined entry point (function or module)
+├─ Runs on AlloyScriptEngine
+├─ Uses alloy:* standard library
+├─ Produces observable output or state change
+└─ Can be deployed to various environments
+```
+
+### Can an AlloyScript App Always Have GUI?
+
+**No.** AlloyScript apps fall into three categories:
+
+```
+1. GUI Applications (alloy:gui)
+   ├─ Uses <Window> component
+   ├─ Renders native controls
+   ├─ Handles user input
+   └─ Example: Password manager, text editor
+   
+2. CLI Applications (alloy:io, alloy:fs)
+   ├─ No GUI (headless)
+   ├─ Text input/output
+   ├─ Filesystem operations
+   └─ Example: File processor, data analyzer
+   
+3. Service Applications (alloy:net)
+   ├─ No GUI
+   ├─ HTTP/WebSocket server
+   ├─ Event-driven
+   └─ Example: API server, webhook handler
+```
+
+### Can a CLI Application Be an AlloyScript App?
+
+**Yes.** Example:
+
+```typescript
+// cli-app.as (AlloyScript CLI)
+
+import { alloyFs, alloyIo } from "alloy:*";
+
+export async function main(args: string[]) {
+    if (args.length === 0) {
+        console.log("Usage: myapp <file>");
+        return 1;
+    }
+    
+    const filePath = args[0];
+    const content = await alloyFs.read(filePath);
+    
+    console.log(`Read ${content.length} bytes`);
+    return 0;
+}
+```
+
+Compile:
+```bash
+alloy compile cli-app.as --mode aot --target binary-executable
+# → cli-app (standalone binary, no GUI)
+
+# OR
+alloy compile cli-app.as --mode jit --target alloy-script
+# → cli-app.as (bytecode, runs in AlloyExplorer shell)
+```
+
+---
+
+## ☁️ Can AlloyScript Run on Serverless Edge (Cloudflare Workers)?
+
+**Yes.** Example:
+
+```typescript
+// edge-worker.as (AlloyScript for Cloudflare)
+
+import { alloyNet, alloyCrypto } from "alloy:*";
+
+export async function handleRequest(request: Request): Promise<Response> {
+    const { method, url } = request;
+    
+    if (method === "POST") {
+        const body = await request.text();
+        const hash = await alloyCrypto.sha256(body);
+        
+        return new Response(
+            JSON.stringify({ hash }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+    }
+    
+    return new Response("OK", { status: 200 });
+}
+```
+
+Compile:
+```bash
+alloy compile edge-worker.as --mode aot --target wasi-wasm
+# → edge-worker.wasm
+
+# Deploy to Cloudflare Workers
+wrangler publish edge-worker.wasm
+```
+
+**Characteristics:**
+- No GUI (serverless)
+- Stateless (each request is independent)
+- Fast startup (WASM)
+- Portable (runs anywhere WASM is supported)
+
+---
+
+## 🌐 Can AlloyScript App Run in a Web Browser?
+
+**Yes, with AlloyWindow targeting WASI-WASM:**
+
+```
+AlloyScript GUI App (browser)
+
+1. Compile to WASM
+   $ alloy compile app.asx --target wasi-wasm
+   → app.wasm
+
+2. Create HTML glue code
+   index.html:
+   ├─ Load app.wasm
+   ├─ Implement WASI host
+   ├─ Map WASI calls to browser APIs
+   └─ Canvas for rendering
+
+3. AlloyWindow-WASM
+   ├─ WASI module (implements GUI operations)
+   ├─ Calls WASI host functions
+   │  ├─ create_window() → JavaScript
+   │  ├─ draw_button() → WebGL/Canvas
+   │  └─ handle_event() → DOM events
+   └─ User sees native-like GUI
+```
+
+**Example HTML Host:**
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AlloyScript App</title>
+    <style>
+        #canvas { width: 100%; height: 100vh; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <script>
+        // WASI Host Implementation
+        const wasiHost = {
+            fd_write: (fd, iovecs) => {
+                // Console output
+            },
+            
+            create_window: (title, width, height) => {
+                // Create canvas + setup rendering
+                return windowId;
+            },
+            
+            create_button: (windowId, label) => {
+                // Create button in canvas/WebGL
+                return buttonId;
+            },
+            
+            draw_rect: (x, y, width, height, color) => {
+                // Draw to WebGL
+            },
+            
+            handle_mouse_event: (type, x, y) => {
+                // Route to app
+            }
+        };
+        
+        // Load and run WASM
+        fetch('app.wasm')
+            .then(r => r.arrayBuffer())
+            .then(buf => WebAssembly.instantiate(buf, { env: wasiHost }))
+            .then(({ instance }) => instance.exports.main());
+    </script>
+</body>
+</html>
+```
+
+**Result:** AlloyScript GUI app running in browser, looks/behaves like native app.
+
+---
+
+## 💻 Can AlloyScript App Run in Local User-Space (Native)?
+
+**Yes. In fact, this is the PRIMARY deployment target.**
+
+```
+Local Native Execution (Desktop)
+
+Mode 1: AOT Compilation (Recommended)
+$ alloy compile app.asx --mode aot --target binary-executable
+→ app.exe (Windows) / app (macOS/Linux)
+
+Execution:
+./app  # Runs directly, no runtime needed
+
+Process:
+├─ AlloyScriptHost = the app process itself
+├─ AlloyScriptEngine = compiled away (no runtime)
+├─ AlloyWindow = compiled into machine code
+└─ All calls = native code
+
+Performance: Maximum
+Runtime Size: Zero
+```
+
+```
+Mode 2: JIT Compilation (Via AlloyExplorer)
+$ alloy compile app.asx --mode jit --target alloy-script
+→ app.as (bytecode)
+
+Execution:
+alloy open alloy://localhost:8000/app.as
+# Opens in AlloyExplorer
+
+Process Architecture:
+├─ AlloyExplorer (main browser)
+│  ├─ AlloyScriptEngine (JIT runtime)
+│  ├─ AlloyWindow (for browser UI)
+│  └─ IPC server for app
+│
+└─ App Process (spawned by AlloyExplorer)
+   ├─ AlloyScriptEngine (JIT runtime)
+   ├─ AlloyWindow (GUI sidecar)
+   └─ IPC client
+
+Performance: Good (JIT with caching)
+Runtime Size: ~75 MB (includes ASE)
+```
+
+```
+Mode 3: Self-Contained With Runtime
+$ alloy compile app.asx --mode jit --target binary-executable --bundle-runtime
+→ app-bundle.exe
+
+Execution:
+./app-bundle.exe  # Standalone, includes everything
+
+Bundle Contents:
+├─ AlloyScriptEngine
+├─ AlloyWindow
+└─ Bytecode
+
+Performance: Good
+Runtime Size: ~75 MB (embedded)
+```
+
+---
+
+## 📊 AlloyScript App Types (Complete Matrix)
+
+```
+┌──────────────────┬──────────┬──────────────┬──────────────────────┐
+│ App Type         │ Has GUI? │ Deployment   │ Host / Env           │
+├──────────────────┼──────────┼──────────────┼──────────────────────┤
+│ Desktop GUI      │ Yes      │ AOT binary   │ Local machine        │
+│ (AlloyExplorer)  │          │ or bytecode  │ (Windows/Mac/Linux)  │
+├──────────────────┼──────────┼──────────────┼──────────────────────┤
+│ CLI Tool         │ No       │ AOT binary   │ Local terminal       │
+│                  │          │ or bytecode  │                      │
+├──────────────────┼──────────┼──────────────┼──────────────────────┤
+│ Web Service      │ No       │ AOT or WASM  │ Docker, Kubernetes   │
+│                  │          │              │ or custom server     │
+├──────────────────┼──────────┼──────────────┼──────────────────────┤
+│ Serverless       │ No       │ WASM         │ Cloudflare Workers   │
+│ Edge Function    │          │              │ Vercel, AWS Lambda   │
+├──────────────────┼──────────┼──────────────┼──────────────────────┤
+│ Browser App      │ Yes      │ WASM         │ Web browser          │
+│ (via WASI)       │          │              │ (HTML host)          │
+├──────────────────┼──────────┼──────────────┼──────────────────────┤
+│ AlloyExplorer    │ Yes      │ Bytecode     │ AlloyExplorer host   │
+│ (in browser)     │          │              │ (browser app)        │
+└──────────────────┴──────────┴──────────────┴──────────────────────┘
+```
+
+---
+
+## ✅ Summary: AlloyScript Ecosystem
+
+```
+AlloyScript (Language)
+    └─ Type-safe, multi-target, Web3-ready
+
+AlloyScriptEngine (Runtime)
+    ├─ JIT: WasmEdge + QuickJS (interpreted)
+    ├─ AOT: Compiled native code (no runtime)
+    └─ WASM: Portable bytecode format
+
+AlloyScriptCore (Abstraction)
+    ├─ WASI interface
+    ├─ Sandboxing guarantees
+    └─ Platform agnostic
+
+AlloyScriptHost (Container)
+    ├─ AlloyExplorer (browser)
+    ├─ Cloudflare Worker (serverless)
+    ├─ Custom app server
+    ├─ Web browser (WASI host)
+    └─ Local desktop (standalone binary)
+
+Sidecars (Optional Services)
+    ├─ AlloyWindow (GUI rendering)
+    ├─ AlloyGraphics (2D graphics)
+    └─ Other services (logging, telemetry)
+
+AlloyScript Apps (all types)
+    ├─ GUI apps (desktop, browser)
+    ├─ CLI apps (terminal)
+    ├─ Web services (servers)
+    ├─ Edge functions (serverless)
+    └─ All runnable in any host that provides proper environment
+```
+
+
 
 
 ```
