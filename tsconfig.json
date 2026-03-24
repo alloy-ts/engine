@@ -19,7 +19,7 @@
 		"baseUrl": ".",
 		"paths": {
 			"@/*": ["src/*"],
-			"@artefact/*": ["src/artefact/*"]
+			"@alloyscript/*": ["src/alloyscript/*"]
 		},
 
 		// Best practices
