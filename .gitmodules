@@ -1,3 +1,6 @@
 [submodule "packages/mquickjs"]
 	path = packages/mquickjs
 	url = https://github.com/AlloyScript/mquickjs
+[submodule "packages/webview"]
+	path = packages/webview
+	url = https://github.com/AlloyScript/webview
