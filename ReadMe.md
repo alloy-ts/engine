@@ -1,5 +1,31 @@
 # AlloyScript
 
+The AlloyScript engine is a high-performance, secure JavaScript environment built using WebView as streamlined cross-platform JS runtime for desktop applications. It uses **Bun** for development and bundling, and a **C host program** for native capabilities.
+
+## Architecture
+
+1.  **TypeScript Library**: Provides typed APIs for SQLite, Spawn, and SecureEval.
+2.  **C Host Program**: A native wrapper that initialises a [WebView](docs/webview.md) window and exposes a bridge to the JS context.
+3.  **Bridge**: Communication between JS and C via `window.Alloy`.
+4.  **Secure Evaluation**: `window.eval` is replaced with `secureEval` which runs [MicroQuickJS](https://github.com/bellard/mquickjs) within an OCI-compatible, chainguarded containerized Linux kernel for ultimate isolation.
+5.  **SQLite Driver**: A high-performance driver with transactions, prepared statement caching, and `bigint` support.
+6.  **Native GUI Framework (`alloy:gui`)**: A declarative component framework (ASX) that wraps native OS controls (Win32/Cocoa/GTK) using the Yoga layout engine.
+
+## Security
+
+By default, the runtime replaces the browser's `eval` with a more restricted and secure version using MicroQuickJS. The original `eval` is renamed to `_forbidden_eval` to discourage its use.
+
+## Building
+
+Use `bun run build` to bundle the TS source and prepare the C host for compilation.
+The build script generates `build/bundle.c`, which contains the bundled JS source as a C string.
+
+## Testing
+
+Run tests with `bun test`. The test suite uses Bun's native features to mock the WebView environment and verify API behavior.
+
+## Introduction
+
 AlloyScript compiles a subset of TypeScript directly to native machine code, and produce a binary executable. It is a security-first local-first cross-platform application development platform runtime compiled (AoT + JIT), statically-typed programming language that is syntactacally compatible with your favarite ECMAScript/TypeScript, and a high-performance, cross-platform  application development. It combines the developer experience of TypeScript with the secure isolation of WebAssembly runtime (), and the performance of naer-native machine code.
 
 ```text
