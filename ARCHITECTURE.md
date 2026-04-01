@@ -2,9 +2,9 @@
 
 This document provides a detailed technical overview of the AlloyScript architecture, focusing on the host orchestrator, the execution environment, and the security model.
 
-## 🏗️ The Host Orchestrator (Rust)
+## 🏗️ The Host Orchestrator (C/C++)
 
-The `AlloyScriptHost` is a lightweight orchestrator implemented in Rust. It is responsible for managing the lifecycle of the application and enforcing capability-based security.
+The `AlloyScriptHost` is a lightweight orchestrator implemented in C/C++. It is responsible for managing the lifecycle of the application and enforcing capability-based security.
 
 ### Orchestrator Implementation Sketch
 
