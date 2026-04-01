@@ -1,13 +1,16 @@
 # AlloyScript
 
-The AlloyScript engine is a high-performance, secure JavaScript environment built using WebView as streamlined cross-platform JS runtime for desktop applications. It uses **Bun** for development and bundling, and a **C host program** for native capabilities.
+AlloyScript is a high-performance, dual-engine JavaScript runtime designed for security and native capabilities. It leverages **MicroQuickJS** for secure, isolated logic execution and **WebView** for native browser APIs and UI, all orchestrated by a secure C host.
 
 ## Architecture
 
-1.  **TypeScript Library**: Provides typed APIs for SQLite, Spawn, and SecureEval.
-2.  **C Host Program**: A native wrapper that initialises a [WebView](docs/webview.md) window and exposes a bridge to the JS context.
-3.  **Bridge**: Communication between JS and C via `window.Alloy`.
-4.  **Secure Evaluation**: `window.eval` is replaced with `secureEval` which runs [MicroQuickJS](https://github.com/bellard/mquickjs) within an OCI-compatible, chainguarded containerized Linux kernel for ultimate isolation.
+AlloyScript uses a unique **Dual-Engine** architecture:
+
+1.  **Core Logic (MicroQuickJS)**: A fast, minimal JS engine that executes all security-critical logic. It is isolated from the browser environment.
+2.  **Native Bridge (WebView)**: An unsafe WebView process used *only* to provide native browser APIs. It is treated as inherently hostile.
+3.  **Secure IPC (E2EE)**: All communication between the C host and the WebView is protected by **End-to-End Encryption (AES-GCM)**.
+4.  **Unified Bindings**: `alloy_bind_global` allows C/C++ functions to be exposed to both environments seamlessly.
+5.  **Secure Evaluation**: `secureEval` executes code exclusively in the MicroQuickJS runtime, isolated from the UI layer.
 5.  **SQLite Driver**: A high-performance driver with transactions, prepared statement caching, and `bigint` support.
 6.  **Native GUI Framework (`alloy:gui`)**: A declarative component framework (ASX) that wraps native OS controls (Win32/Cocoa/GTK) using the Yoga layout engine.
 

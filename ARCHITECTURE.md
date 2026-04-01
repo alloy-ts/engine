@@ -1,10 +1,24 @@
 # AlloyScript Architecture: Technical Deep Dive
 
-This document provides a detailed technical overview of the AlloyScript architecture, focusing on the host orchestrator, the execution environment, and the security model.
+AlloyScript implements a defense-in-depth security model using a dual-engine design and encrypted inter-process communication.
 
 ## 🏗️ The Host Orchestrator (C/C++)
 
-The `AlloyScriptHost` is a lightweight orchestrator implemented in C/C++. It is responsible for managing the lifecycle of the application and enforcing capability-based security.
+The `AlloyScriptHost` is the trusted core of the system. It manages both the **MicroQuickJS** and **WebView** engines.
+
+### Dual-Engine Design
+
+- **MicroQuickJS**: The primary execution engine for application logic. It runs in the same process as the host, providing high performance and direct access to secure C bindings.
+- **WebView**: A secondary, untrusted engine used for DOM/Browser APIs. It is treated as a hostile environment.
+
+### Secure IPC (E2EE)
+
+AlloyScript implements **End-to-End Encryption** for all communication between the C host and the WebView. At startup, a unique 256-bit AES session key is generated.
+
+1. **JS -> C**: Calls made via `window.Alloy.call()` are encrypted in the WebView using the `crypto.subtle` API.
+2. **C -> JS**: Results are decrypted in the host, processed, and the response is encrypted before being sent back to the WebView.
+
+This ensures that even if the WebView process is compromised, the attacker cannot sniff or spoof IPC messages without the session key.
 
 ### Orchestrator Implementation Sketch
 
