@@ -1,5 +1,5 @@
 {
-	"name": "@alloyscript/core",
+	"name": "@alloyscript/engine",
 	"module": "src/main.ts",
 	"type": "module",
 	"private": true,
