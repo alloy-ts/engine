@@ -1,0 +1,3 @@
+[submodule "packages/mquickjs"]
+	path = packages/mquickjs
+	url = https://github.com/AlloyScript/mquickjs
