@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include "engine.h"
 
-#define ALLOY_IPC_MAX_MSG_SIZE (4 * 1024 * 1024)
+#define ALLOY_IPC_MAX_MSG_SIZE (1 * 1024 * 1024) 
 #define ALLOY_IPC_NONCE_SIZE 12
 #define ALLOY_IPC_TAG_SIZE 16
 #define ALLOY_IPC_KEY_SIZE 32
@@ -28,6 +28,6 @@ typedef struct {
 int alloy_ipc_encrypt(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg);
-int alloy_ipc_receive(alloy_runtime_t *rt, const char *req, AlloyMessage *out);
+int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out);
 
 #endif

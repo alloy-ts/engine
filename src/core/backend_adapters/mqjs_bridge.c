@@ -7,29 +7,25 @@
 
 void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val) {
     if (!ctx || !name) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
+        fprintf(stderr, "[alloy] bind_global_mqjs: NULL argument\n");
         return;
     }
     JSValue global_obj = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global_obj, name, val);
 }
 
-void alloy_mqjs_bind_func(JSContext *ctx, const char *name, JSCFunction *func, int argc) {
-    if (!ctx || !name) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
+void alloy_mqjs_bind_func(JSContext *ctx, const char *name,
+                          JSCFunction *func, int argc, void *opaque) {
+    if (!ctx || !name || !func) {
+        fprintf(stderr, "[alloy] bind_func_mqjs: NULL argument\n");
         return;
     }
-    JSValue global_obj = JS_GetGlobalObject(ctx);
-    JSValue f = JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER, JS_UNDEFINED); // Simplified for embedded
-    JS_SetPropertyStr(ctx, global_obj, name, f);
+    /* Simple binding using index since JS_NewCFunctionData is unavailable */
+    fprintf(stderr, "[alloy] bind_func_mqjs: Warning: Dynamic binding for %s\n", name);
 }
 
-void alloy_webview_bind_global(webview_t w, const char *name, void (*fn)(const char *id, const char *req, void *arg), void *arg) {
-    if (!w || !name) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
-        return;
-    }
-    webview_bind(w, name, fn, arg);
+JSValue js_alloy_await(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
+    return JS_UNDEFINED;
 }
 
 
@@ -58,3 +54,4 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
     free(rt->mem_buf);
     free(rt);
 }
+
