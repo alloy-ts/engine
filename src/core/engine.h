@@ -21,6 +21,8 @@ typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);
 alloy_runtime_t *alloy_init(size_t mqjs_mem_size);
 void alloy_run(alloy_runtime_t *rt);
 void alloy_destroy(alloy_runtime_t *rt);
+alloy_runtime_t *alloy_engine_create(void);
+void alloy_engine_destroy(alloy_runtime_t *rt);
 
 /**
  * Binds a global function to both MicroQuickJS and WebView.
@@ -33,10 +35,23 @@ void alloy_bind_global(alloy_runtime_t *rt, const char *name, alloy_bind_fn_t fn
  */
 void alloy_return(alloy_runtime_t *rt, const char *id, int status, const char *result);
 
+
 /**
  * Securely evaluates JavaScript in the MicroQuickJS engine.
  */
 JSValue alloy_secure_eval(alloy_runtime_t *rt, const char *script);
+
+/* WebView Browser API bindings for MQJS */
+JSValue alloy_browser_proxy_fetch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_browser_proxy_crypto(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_browser_proxy_url(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_browser_proxy_text_encoder(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_browser_proxy_text_decoder(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_browser_proxy_performance(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+
+JSValue alloy_runtime_spawn(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_secure_eval_internal(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 
 #ifdef __cplusplus
 }
