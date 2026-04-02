@@ -1,9 +1,9 @@
 #ifndef ALLOY_MQJS_BRIDGE_H
 #define ALLOY_MQJS_BRIDGE_H
 
-#include <stddef.h>
 #include "../../packages/microquickjs/mquickjs.h"
 #include "../../packages/webview/core/include/webview/webview.h"
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {

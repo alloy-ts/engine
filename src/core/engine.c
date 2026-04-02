@@ -2,7 +2,7 @@
 #include "mqjs_stdlib.h"
 #include "bridge.h"
 #include "ipc.h"
-#include "../../packages/microquickjs/mquickjs_priv.h"
+#include "../../packages/mquickjs/mquickjs_priv.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

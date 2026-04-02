@@ -1,5 +1,5 @@
+#include "../../pacakges/mquickjs/mquickjs_priv.h"
 #include "bridge.h"
-#include "../microquickjs/mquickjs_priv.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
