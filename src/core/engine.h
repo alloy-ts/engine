@@ -1,5 +1,5 @@
-#ifndef ALLOYSCRIPT_H
-#define ALLOYSCRIPT_H
+#ifndef ALLOYSCRIPT_ENGINE_H
+#define ALLOYSCRIPT_ENGINE_H
 
 #include <stddef.h>
 #include "mquickjs.h"
