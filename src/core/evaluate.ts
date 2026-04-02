@@ -1,43 +1,56 @@
+import * as readline from "node:readline";
 import { Alloy } from "./runtime";
-import { AlloyTranspiler } from "./transpiler";
-import * as readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
 
 /**
- * Run a code string through the full dual-engine pipeline:
- *   transpile → MQJSEngine → optional WebView BrowserAPI
- * Resolves with the result value, or rejects with a structured error.
+ * Run a code string through the full dual-engine pipeline
  */
 export async function evaluate(code: string): Promise<any> {
-	const transpiler = new AlloyTranspiler();
 	try {
-		const transformed = transpiler.transformSync(code);
-		return Alloy.secureEval(transformed);
+		const result = Alloy.secureEval(code);
+		return result;
 	} catch (e: any) {
-		throw { error: "transpile_failed", message: e.message };
+		throw { error: e.error || "runtime_error", message: e.message };
 	}
 }
 
 /**
- * Start an interactive REPL on stdin/stdout.
- * Resolves when the user sends EOF (Ctrl-D) or types `.exit`.
+ * Start an interactive REPL on stdin/stdout (Requirement 9.4)
  */
 export async function startRepl(): Promise<void> {
-	const rl = readline.createInterface({ input, output });
-	console.log("AlloyScript Dual-Engine REPL");
+	console.log(`Welcome to AlloyScript v0.1.0 (Requirement 9.1)`);
+	const rl = readline.createInterface({
+		input: process.stdin,
+		output: process.stdout,
+		prompt: "alloy> ",
+	});
 
-	while (true) {
-		const line = await rl.question("alloy> ");
-		if (line === ".exit") break;
+	rl.prompt();
 
-		try {
-			const result = await evaluate(line);
-			console.log(result);
-		} catch (e: any) {
-			console.error(JSON.stringify(e));
-		}
-	}
+	return new Promise((resolve) => {
+		rl.on("line", async (line) => {
+			const trimmed = line.trim();
+			if (trimmed === ".exit") {
+				// Requirement 9.8
+				rl.close();
+				return;
+			}
 
-	rl.close();
-	(globalThis as any).AlloyInternal.destroy();
+			try {
+				const result = await evaluate(trimmed);
+				console.log(result);
+				// @ts-expect-error
+				globalThis._ = result;
+			} catch (e: any) {
+				console.error(e.message);
+				// @ts-expect-error
+				globalThis._error = e;
+			}
+			rl.prompt();
+		});
+
+		rl.on("close", () => {
+			console.log("\nGoodbye!");
+			resolve();
+		});
+	});
 }

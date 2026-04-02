@@ -1,9 +1,10 @@
 (function () {
-	var global = globalThis;
+	const global = globalThis;
 
-	var AlloyInternal = global.AlloyInternal;
+	// Internal bridge to the host (exposed via bind_global_mqjs)
+	const AlloyInternal = global.AlloyInternal;
 
-	var Alloy = {
+	const Alloy = {
 		/**
 		 * Binds a name and value to the MQJS global object.
 		 */
@@ -12,26 +13,28 @@
 				AlloyInternal.bindGlobal(name, value);
 			}
 		},
+
 		/**
 		 * Transpiles and evaluates user-supplied code securely.
 		 */
 		secureEval: function (code) {
 			try {
-				var transformed = Alloy.Transpiler.transformSync(code);
-				// Call native secureEval binding
+				const transformed = Alloy.Transpiler.transformSync(code);
 				return AlloyInternal.secureEval(transformed);
 			} catch (e) {
 				return { error: "transpile_failed", message: e.message };
 			}
 		},
+
 		/**
-		 * Spawns a process synchronously (Requirement 7.1).
+		 * Spawns a process synchronously.
 		 */
 		spawnSync: function (cmd, args, opts) {
 			return AlloyInternal.spawnSync(cmd, args, opts);
 		},
+
 		/**
-		 * Spawns a process asynchronously (Requirement 7.1).
+		 * Spawns a process asynchronously.
 		 */
 		spawn: function (cmd, args, opts) {
 			return new Promise(function (resolve, reject) {
@@ -41,10 +44,56 @@
 				});
 			});
 		},
+
+		/**
+		 * Register event listener.
+		 */
+		on: function (event, listener) {
+			AlloyInternal.on(event, listener);
+		},
+
+		/**
+		 * Deregister event listener.
+		 */
+		off: function (event, listener) {
+			AlloyInternal.off(event, listener);
+		},
+
+		/**
+		 * Emit event.
+		 */
+		emit: function (event) {
+			var args = Array.prototype.slice.call(arguments, 1);
+			AlloyInternal.emit(event, args);
+		},
+
+		/**
+		 * Returns the metadata object for current memory mappings.
+		 */
+		getMmap: function () {
+			return AlloyInternal.getMmap();
+		},
+
+		/**
+		 * Returns the actual bytes of a specific memory region (gated).
+		 */
+		readMmap: function (region) {
+			return AlloyInternal.readMmap(region);
+		},
+
+		/**
+		 * alloy:ffi re-export.
+		 */
+		ffi: undefined,
 	};
 
 	global.Alloy = Alloy;
 
+	// --- BrowserAPI Proxies ---
+
+	/**
+	 * Proxy for window.fetch.
+	 */
 	global.fetch = function (url, options) {
 		return new Promise(function (resolve, reject) {
 			// Forward call via IPC through AlloyInternal.bridgeCall
@@ -60,6 +109,9 @@
 		});
 	};
 
+	/**
+	 * Proxy for crypto.subtle.
+	 */
 	global.crypto = {
 		subtle: {
 			digest: function (algo, data) {
@@ -77,6 +129,9 @@
 		},
 	};
 
+	/**
+	 * Simple Response object for fetch results.
+	 */
 	var R = function Response(body, options) {
 		this._body = body;
 		this.status = options.status || 200;
@@ -90,6 +145,7 @@
 	};
 	global.Response = R;
 
+	// --- Other Standard Library Polyfills ---
 	if (!global.URL) {
 		global.URL = function URL(url, base) {
 			/* Proxy logic */
