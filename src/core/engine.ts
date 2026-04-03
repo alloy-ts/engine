@@ -198,23 +198,38 @@ export class File extends Blob {
  * Created with Alloy.file(path).
  */
 export class AlloyFile extends Blob {
-	#path: string;
+	#path?: string;
+	#fd?: number;
 
-	constructor(path: string) {
+	constructor(pathOrFd: string | number) {
 		super([]);
-		this.#path = path;
+		if (typeof pathOrFd === "string") {
+			this.#path = pathOrFd;
+		} else {
+			this.#fd = pathOrFd;
+		}
 	}
 
 	get path() {
 		return this.#path;
 	}
 
+	get fd() {
+		return this.#fd;
+	}
+
 	async text() {
-		return (globalThis as any).Alloy.readFile(this.#path);
+		if (this.#path) {
+			return (globalThis as any).Alloy.readFile(this.#path);
+		}
+		throw new Error("Cannot read text from file descriptor");
 	}
 
 	get size(): number {
-		return (globalThis as any).Alloy.getFileSize(this.#path);
+		if (this.#path) {
+			return (globalThis as any).Alloy.getFileSize(this.#path);
+		}
+		return 0;
 	}
 }
 

@@ -8,7 +8,7 @@
 typedef struct {
     AlloyJSEngine base;
     JSContext *ctx;
-    void *rt; // alloy_runtime_t
+    void *rt;
 } AlloyMQJSEngine;
 
 typedef struct {
@@ -17,11 +17,9 @@ typedef struct {
     void *rt;
 } AlloyMQJSBinding;
 
-static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue params) {
+JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue params) {
     AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
 
-    // Serialise argv to JSON
-    // Requirement 18.2: Uniform JSON string boundary
     JSValue global = JS_GetGlobalObject(ctx);
     JSValue json_obj = JS_GetPropertyStr(ctx, global, "JSON");
     JSValue stringify = JS_GetPropertyStr(ctx, json_obj, "stringify");
@@ -55,24 +53,41 @@ static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandle
     b->opaque = opaque;
     b->rt = e->rt;
 
-    // Use JS_CFUNC_generic_params to pass b as opaque
     JSValue params = JS_NewInt64(ctx, (int64_t)(uintptr_t)b);
 
-    // In our simplified host, we'll use a helper to register it.
-    // Requirement 1.5: Fix alloy_mqjs_bind_func
-
     JSValue global = JS_GetGlobalObject(ctx);
-    // Logic to set dotted name...
-    JSValue f = JS_NewCFunctionParams(ctx, 0 /* placeholder */, params); // Real impl would use index or data
-    JS_SetPropertyStr(ctx, global, name, f);
+    JSValue f = JS_NewCFunctionParams(ctx, 0, params);
+
+    // Support dotted names
+    char *token, *saveptr, *name_copy = strdup(name);
+    JSValue obj = JS_DupValue(ctx, global);
+    token = strtok_r(name_copy, ".", &saveptr);
+    while (token != NULL) {
+        const char *next_token = strtok_r(NULL, ".", &saveptr);
+        if (next_token == NULL) {
+            JS_SetPropertyStr(ctx, obj, token, f);
+            break;
+        } else {
+            JSValue next_obj = JS_GetPropertyStr(ctx, obj, token);
+            if (!JS_IsObject(ctx, next_obj)) {
+                next_obj = JS_NewObject(ctx);
+                JS_SetPropertyStr(ctx, obj, token, JS_DupValue(ctx, next_obj));
+            }
+            JS_FreeValue(ctx, obj);
+            obj = next_obj;
+        }
+        token = next_token;
+    }
+
+    JS_FreeValue(ctx, obj);
     JS_FreeValue(ctx, global);
+    free(name_copy);
 
     return 0;
 }
 
 static void mqjs_destroy_fn(AlloyJSEngine *engine) {
     AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
-    // Context is owned by rt
     free(e);
 }
 

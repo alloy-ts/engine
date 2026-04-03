@@ -1,6 +1,4 @@
 #include "../engine.h"
-#include "../mqjs_stdlib.h"
-#include "../shell/native_wit.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,20 +6,25 @@
 #include <sys/wait.h>
 #include <pthread.h>
 
-typedef struct {
-    char **dirs;
-    int    dir_count;
-} alloy_wasi_grants_t;
+// Forward declarations
+typedef struct { char **dirs; int dir_count; char **env_vars; int env_count; } alloy_wasi_grants_t;
+extern void alloy_shell_compute_grants(const char *script, JSValue opts, alloy_wasi_grants_t *out);
+extern void alloy_wasi_grants_free(alloy_wasi_grants_t *g);
 
 typedef struct {
     JSContext *ctx;
     JSValue resolving_funcs[2];
     char *script;
+    JSValue opts;
 } shell_thread_args_t;
 
 static void *shell_thread_fn(void *ptr) {
     shell_thread_args_t *args = (shell_thread_args_t *)ptr;
+    alloy_wasi_grants_t grants;
+    alloy_shell_compute_grants(args->script, args->opts, &grants);
 
+    // Construct wasmedge command
+    // wasmedge --dir <dirs> --env <vars> shell.wasm
     int pipe_in[2], pipe_out[2];
     pipe(pipe_in); pipe(pipe_out);
 
@@ -31,35 +34,48 @@ static void *shell_thread_fn(void *ptr) {
         dup2(pipe_out[1], STDOUT_FILENO);
         close(pipe_in[1]); close(pipe_out[0]);
 
-        char *spawn_argv[] = { "wasmedge", "--dir", ".", "shell.wasm", NULL };
+        char *spawn_argv[128];
+        int argc = 0;
+        spawn_argv[argc++] = "wasmedge";
+        for (int i = 0; i < grants.dir_count; i++) {
+            spawn_argv[argc++] = "--dir";
+            spawn_argv[argc++] = grants.dirs[i];
+        }
+        spawn_argv[argc++] = "shell.wasm";
+        spawn_argv[argc++] = NULL;
+
         execvp("wasmedge", spawn_argv);
         _exit(127);
     }
 
     close(pipe_in[0]); close(pipe_out[1]);
-    write(pipe_in[1], args->script, strlen(args->script));
+
+    // Pass script JSON to wasmedge
+    dprintf(pipe_in[1], "{\"script\": \"%s\"}", args->script);
     close(pipe_in[1]);
 
-    int status;
-    waitpid(pid, &status, 0);
+    // Read response JSON
+    char result_json[65536];
+    ssize_t n = read(pipe_out[0], result_json, sizeof(result_json) - 1);
+    if (n > 0) result_json[n] = '\0';
+    close(pipe_out[0]);
 
-    // Read stdout from pipe_out[0]...
+    waitpid(pid, NULL, 0);
 
-    // Requirement: Resolve/Reject Promise
-    // Note: JS_Call must be done on the main thread in MQJS.
-    // We should use alloy_event_emit to hydrate this back.
+    // In production: use alloy_event_emit to resolve the promise on the main thread
+    // For now, assume single-threaded mock or direct call.
 
-    // For now, simplified back to main thread or direct call if allowed by environment
-    // In Alloy, we use alloy_event_emit.
-
+    alloy_wasi_grants_free(&grants);
     free(args->script);
     free(args);
     return NULL;
 }
 
-JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
-    if (argc < 1) return JS_EXCEPTION;
+JSValue alloy_shell_run_internal(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    if (argc < 3) return JS_EXCEPTION;
+
     const char *script = JS_ToCString(ctx, argv[0], NULL);
+    JSValue opts = argv[2];
 
     JSValue promise, resolving_funcs[2];
     promise = JS_NewPromiseCapability(ctx, resolving_funcs);
@@ -69,6 +85,7 @@ JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *
     args->resolving_funcs[0] = JS_DupValue(ctx, resolving_funcs[0]);
     args->resolving_funcs[1] = JS_DupValue(ctx, resolving_funcs[1]);
     args->script = strdup(script);
+    args->opts = JS_DupValue(ctx, opts);
 
     pthread_t thread;
     pthread_create(&thread, NULL, shell_thread_fn, args);

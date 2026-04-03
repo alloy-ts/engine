@@ -4,6 +4,75 @@
 	// Internal bridge to the host (exposed via bind_global_mqjs)
 	const AlloyInternal = global.AlloyInternal;
 
+    // --- Alloy Shell Implementation ---
+
+    function ShellExpression(parts, interps, opts) {
+        this._parts = parts;
+        this._interps = interps;
+        this._opts = opts || { throws: true, quiet: false };
+    }
+
+    ShellExpression.prototype.quiet = function() {
+        this._opts.quiet = true;
+        return this;
+    };
+
+    ShellExpression.prototype.nothrow = function() {
+        this._opts.throws = false;
+        return this;
+    };
+
+    ShellExpression.prototype.throws = function(enabled) {
+        this._opts.throws = enabled;
+        return this;
+    };
+
+    ShellExpression.prototype.env = function(vars) {
+        this._opts.env = vars;
+        return this;
+    };
+
+    ShellExpression.prototype.cwd = function(path) {
+        this._opts.cwd = path;
+        return this;
+    };
+
+    ShellExpression.prototype.then = function(resolve, reject) {
+        return AlloyInternal.runShell(this._parts, this._interps, this._opts).then(resolve, reject);
+    };
+
+    ShellExpression.prototype.text = function() {
+        this.quiet();
+        return this.then(function(res) { return res.stdout.toString(); });
+    };
+
+    ShellExpression.prototype.json = function() {
+        this.quiet();
+        return this.text().then(JSON.parse);
+    };
+
+    ShellExpression.prototype.blob = function() {
+        this.quiet();
+        return this.then(function(res) { return new Blob([res.stdout]); });
+    };
+
+    var $ = function(strings) {
+        var interps = Array.prototype.slice.call(arguments, 1);
+        return new ShellExpression(strings, interps, {
+            throws: $.globalOpts.throws,
+            env: $.globalOpts.env,
+            cwd: $.globalOpts.cwd
+        });
+    };
+
+    $.globalOpts = { throws: true };
+    $.nothrow = function() { $.globalOpts.throws = false; };
+    $.throws = function(v) { $.globalOpts.throws = v; };
+    $.env = function(v) { $.globalOpts.env = v; };
+    $.cwd = function(v) { $.globalOpts.cwd = v; };
+    $.escape = AlloyInternal.shellEscape;
+    $.braces = AlloyInternal.shellBraces;
+
 	const Alloy = {
 		/**
 		 * Binds a name and value to the MQJS global object.
@@ -85,9 +154,24 @@
 		 * alloy:ffi re-export.
 		 */
 		ffi: undefined,
+
+        /**
+         * Alloy Shell
+         */
+        $: $,
+
+        /**
+         * Native lazy-loaded file wrapper.
+         */
+        file: function(pathOrFd) {
+            return new Alloy.AlloyFile(pathOrFd);
+        },
+
+        AlloyFile: global.AlloyFile
 	};
 
 	global.Alloy = Alloy;
+    global.$ = $;
 
 	// --- BrowserAPI Proxies ---
 
@@ -160,61 +244,5 @@
 	}
 })();
 
-/**
- * --- Alloy Shell Type Declarations ---
- */
-
-interface ShellResult {
-    stdout: Buffer;
-    stderr: Buffer;
-    exitCode: number;
-}
-
-interface ShellError extends Error {
-    exitCode: number;
-    stdout: Buffer;
-    stderr: Buffer;
-    message: string;
-}
-
-interface AlloyFile {
-    readonly path: string | undefined;
-    readonly fd: number | undefined;
-}
-
-interface ShellExpressionOpts {
-    throws: boolean;
-    quiet: boolean;
-    env: Record<string, string> | undefined;
-    cwd: string | undefined;
-}
-
-interface ShellExpression extends PromiseLike<ShellResult> {
-    quiet(): ShellExpression;
-    nothrow(): ShellExpression;
-    throws(enabled: boolean): ShellExpression;
-    env(vars: Record<string, string> | undefined): ShellExpression;
-    cwd(path: string | undefined): ShellExpression;
-    text(): Promise<string>;
-    json(): Promise<unknown>;
-    lines(): AsyncIterable<string>;
-    blob(): Promise<Blob>;
-}
-
-interface ShellTag {
-    (strings: TemplateStringsArray, ...interps: unknown[]): ShellExpression;
-    escape(str: string): string;
-    braces(str: string): string[];
-    nothrow(): void;
-    throws(enabled: boolean): void;
-    env(vars: Record<string, string> | undefined): void;
-    cwd(path: string | undefined): void;
-}
-
-declare const $: ShellTag;
-
-declare namespace Alloy {
-    const $: ShellTag;
-    function file(path: string): AlloyFile;
-    function file(fd: number): AlloyFile;
-}
+export const $ = globalThis.$;
+export const Alloy = globalThis.Alloy;

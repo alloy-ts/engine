@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
 import { evaluate, startRepl, Transpiler } from "@alloyscript/engine";
+import { getConfig } from "../core/config";
 import { ensureAlloyHost } from "../core/host_manager";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ const program = new Command();
 
 program
 	.name("alloy")
+	.option("-c, --config <path>", "path to alloyconfig.toml")
 	.description(
 		"AlloyScript CLI - Professional industry-standard dual-engine JS toolchain.",
 	)
@@ -20,7 +22,8 @@ program
 program
 	.command("repl")
 	.description("Start the AlloyScript interactive REPL")
-	.action(async () => {
+	.action(async (options) => {
+		const config = getConfig(program.opts().config);
 		const binaryManager = new BinaryManager();
 		try {
 			const binaryPath = await binaryManager.ensureBinary("0.1.0");
@@ -90,13 +93,14 @@ program
 	.command("build")
 	.description("Build and transpile the AlloyScript application")
 	.argument("[entrypoints...]", "Source TypeScript files")
-	.option("-o, --outdir <dir>", "Output directory", "dist")
-    .option("-t, --target <target>", "Target platform (browser|alloy|node)", "alloy")
-    .option("-f, --format <format>", "Output format (esm|cjs|iife)", "esm")
-    .option("--minify", "Minify output", false)
-    .option("--sourcemap <type>", "Sourcemap type (none|inline|external)", "none")
-    .option("--splitting", "Enable code splitting", false)
+	.option("-o, --outdir <dir>", "Output directory")
+    .option("-t, --target <target>", "Target platform (browser|alloy|node)")
+    .option("-f, --format <format>", "Output format (esm|cjs|iife)")
+    .option("--minify", "Minify output")
+    .option("--sourcemap <type>", "Sourcemap type (none|inline|external)")
+    .option("--splitting", "Enable code splitting")
 	.action(async (entrypoints, options) => {
+        const config = getConfig(program.opts().config);
         if (!entrypoints || entrypoints.length === 0) {
             entrypoints = ["src/main.ts"];
         }
@@ -104,12 +108,14 @@ program
 
         const result = await Transpiler.build({
             entrypoints,
-            outdir: options.outdir,
-            target: options.target,
-            format: options.format,
-            minify: options.minify,
-            sourcemap: options.sourcemap,
-            splitting: options.splitting
+            outdir: options.outdir || config.install?.globalDir || "dist", // fallback logic
+            target: options.target || config.target || "alloy",
+            format: options.format || "esm",
+            minify: options.minify !== undefined ? options.minify : false,
+            sourcemap: options.sourcemap || "none",
+            splitting: options.splitting !== undefined ? options.splitting : false,
+            define: config.define,
+            loader: config.loader
         });
 
         if (result.success) {
@@ -129,13 +135,20 @@ program
 	.command("run")
 	.description("Run an AlloyScript file or shell script")
 	.argument("<file>", "File to run")
-	.action(async (file) => {
+    .option("--silent", "suppress echoing of the command string")
+	.action(async (file, options) => {
+        const config = getConfig(program.opts().config);
+        const silent = options.silent !== undefined ? options.silent : config.run?.silent;
+
 		if (file.endsWith(".sh")) {
+            if (!silent) console.log(`Running shell script: ${file}`);
 			const src = readFileSync(file, "utf-8");
 			// Shebang is stripped in lexer
+			// @ts-ignore
 			const result = await $`${src}`.nothrow();
 			process.exit(result.exitCode);
 		} else {
+            if (!silent) console.log(`Running AlloyScript: ${file}`);
 			const code = readFileSync(file, "utf-8");
 			try {
 				await evaluate(code);
@@ -151,6 +164,7 @@ program
 	.description("Run the project in development mode with hot reloading")
 	.argument("[file]", "Entry file", "src/main.ts")
 	.action(async (file) => {
+        const config = getConfig(program.opts().config);
 		await ensureAlloyHost();
 		console.log(`🛠️ Starting AlloyScript development runtime for ${file}...`);
 

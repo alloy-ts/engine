@@ -11,7 +11,7 @@
 #include <sys/mman.h>
 
 // Forward declarations
-extern JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
+extern JSValue alloy_shell_run_internal(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
 extern JSValue alloy_shell_escape_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
 extern JSValue alloy_shell_braces_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
 
@@ -22,7 +22,6 @@ void alloy_bind_global(alloy_runtime_t *rt, const char *name, AlloyBindHandler h
 }
 
 static void browser_api_proxy_handler(void *opaque, const char *args_json, char *out_result, size_t result_size) {
-    // Forward to WebView via IPC
     snprintf(out_result, result_size, "{\"ok\": true, \"body\": \"\"}");
 }
 
@@ -43,7 +42,6 @@ alloy_runtime_t *alloy_engine_create(void) {
     rt->mqjs_engine = alloy_mqjs_engine_create(rt->mqjs_ctx, rt);
     rt->webview_engine = alloy_webview_engine_create(rt->webview, rt);
 
-    // Auto-registration loop for Browser APIs
     for (int i = 0; ALLOY_BROWSER_API_TABLE[i].js_name != NULL; i++) {
         alloy_bind_global(rt, ALLOY_BROWSER_API_TABLE[i].js_name, browser_api_proxy_handler, (void *)&ALLOY_BROWSER_API_TABLE[i]);
     }
@@ -51,25 +49,24 @@ alloy_runtime_t *alloy_engine_create(void) {
     JSContext *ctx = rt->mqjs_ctx;
     JSValue global_obj = JS_GetGlobalObject(ctx);
 
-    // Global aliases
     JS_SetPropertyStr(ctx, global_obj, "window", JS_DupValue(ctx, global_obj));
     JS_SetPropertyStr(ctx, global_obj, "globalThis", JS_DupValue(ctx, global_obj));
     JS_SetPropertyStr(ctx, global_obj, "self", JS_DupValue(ctx, global_obj));
     JS_SetPropertyStr(ctx, global_obj, "global", JS_DupValue(ctx, global_obj));
 
-    // Alloy namespace
     JSValue alloy_obj = JS_NewObject(ctx);
+    JSValue internal_obj = JS_NewObject(ctx);
 
-    // Shell registration (Requirement 14.1, 14.2)
-    JSValue shell_tag = JS_NewCFunction(ctx, alloy_shell_tag_fn, "$", 3);
-    JS_SetPropertyStr(ctx, shell_tag, "escape", JS_NewCFunction(ctx, alloy_shell_escape_fn, "escape", 1));
-    JS_SetPropertyStr(ctx, shell_tag, "braces", JS_NewCFunction(ctx, alloy_shell_braces_fn, "braces", 1));
+    JS_SetPropertyStr(ctx, internal_obj, "runShell", JS_NewCFunction(ctx, alloy_shell_run_internal, "runShell", 3));
+    JS_SetPropertyStr(ctx, internal_obj, "shellEscape", JS_NewCFunction(ctx, alloy_shell_escape_fn, "shellEscape", 1));
+    JS_SetPropertyStr(ctx, internal_obj, "shellBraces", JS_NewCFunction(ctx, alloy_shell_braces_fn, "shellBraces", 1));
 
-    JS_SetPropertyStr(ctx, global_obj, "$", JS_DupValue(ctx, shell_tag));
-    JS_SetPropertyStr(ctx, alloy_obj, "$", JS_DupValue(ctx, shell_tag));
+    JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", internal_obj);
+
+    JSValue shell_tag = JS_GetPropertyStr(ctx, global_obj, "$"); // If defined in runtime.ts
+    // Registration of static methods on $ should be done here if needed
 
     JS_SetPropertyStr(ctx, global_obj, "Alloy", alloy_obj);
-    JS_FreeValue(ctx, shell_tag);
     JS_FreeValue(ctx, global_obj);
 
     return rt;
