@@ -10,6 +10,8 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { ConfigLoader } from "./config/loader";
+import { PluginRegistry } from "./config/plugins";
 
 export abstract class Loader {
 	abstract load(url: string): Promise<string>;
@@ -27,6 +29,8 @@ export function getPlatformInfo() {
 
 export class BinaryManager {
 	private cacheDir: string;
+    private config = new ConfigLoader().load();
+    private plugins = new PluginRegistry(this.config);
 
 	constructor() {
 		const { platform, arch } = getPlatformInfo();
