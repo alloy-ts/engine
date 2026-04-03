@@ -1,0 +1,18 @@
+WASI_SDK_PATH ?= /opt/wasi-sdk
+CC = $(WASI_SDK_PATH)/bin/clang
+CFLAGS = -Wall -O2 --target=wasm32-wasi --sysroot=$(WASI_SDK_PATH)/share/wasi-sysroot
+LDFLAGS = -Wl,--export-all -Wl,--no-entry
+
+SRCS = lexer.c parser.c interpreter.c builtins.c pipe.c redirect.c escape.c main.c
+OBJS = $(SRCS:.c=.o)
+
+all: shell.wasm
+
+shell.wasm: $(OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	rm -f *.o shell.wasm

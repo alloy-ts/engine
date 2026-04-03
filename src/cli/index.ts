@@ -145,4 +145,20 @@ program
 		await run();
 	});
 
+program
+    .command("run", { isDefault: true })
+    .description("Execute an AlloyScript or shell file")
+    .argument("<file>", "File to execute")
+    .action(async (file) => {
+        if (file.endsWith('.sh')) {
+            const src = readFileSync(file, 'utf-8');
+            // @ts-ignore
+            const result = await (globalThis as any).$ `${src}`.nothrow();
+            process.exit(result.exitCode);
+        } else {
+            const code = readFileSync(file, 'utf-8');
+            await evaluate(code);
+        }
+    });
+
 program.parse();

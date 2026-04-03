@@ -1,0 +1,25 @@
+interface alloy-shell {
+    record stdio {
+        fd-in: s32,
+        fd-out: s32,
+        fd-err: s32,
+    }
+
+    record shell-opts {
+        throws: bool,
+        env: list<tuple<string, string>>,
+        cwd: string,
+    }
+
+    record shell-result {
+        stdout: list<u8>,
+        stderr: list<u8>,
+        exit-code: s32,
+    }
+
+    exec: func(script: string, opts: shell-opts) -> result<shell-result, string>;
+}
+
+world shell {
+    import alloy-shell;
+}
