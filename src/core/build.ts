@@ -52,7 +52,11 @@ export interface PluginBuild {
 export async function build(options: BuildOptions): Promise<BuildOutput> {
     const outputs: BuildArtifact[] = [];
     const logs: BuildMessage[] = [];
-    const transpiler = new Transpiler();
+    const transpiler = new Transpiler({
+        target: options.target,
+        define: options.define,
+        minifyWhitespace: typeof options.minify === 'boolean' ? options.minify : options.minify?.whitespace
+    });
 
     for (const entry of options.entrypoints) {
         try {

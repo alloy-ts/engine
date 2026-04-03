@@ -4,11 +4,17 @@ import { generate } from "astring";
 
 export type Loader = "js" | "jsx" | "ts" | "tsx";
 
+import type { AlloyConfig } from "./config";
+
 export interface TranspilerOptions {
 	loader?: Loader;
 	target?: "browser" | "alloy" | "node";
 	define?: Record<string, string>;
 	minifyWhitespace?: boolean;
+    jsx?: string;
+    jsxFactory?: string;
+    jsxFragment?: string;
+    jsxImportSource?: string;
 }
 
 export interface Import {
@@ -35,7 +41,15 @@ export class Transpiler {
         target: "browser",
         loader: loader,
         // @ts-ignore
-        define: this.options.define
+        define: this.options.define,
+        // @ts-ignore
+        jsx: this.options.jsx,
+        // @ts-ignore
+        jsxFactory: this.options.jsxFactory,
+        // @ts-ignore
+        jsxFragment: this.options.jsxFragment,
+        // @ts-ignore
+        jsxImportSource: this.options.jsxImportSource
     });
 
     let output = bunTranspiler.transformSync(code);
@@ -85,6 +99,14 @@ export class Transpiler {
     // Pass 3: MQJS compatibility (remaining ES6+ features)
 		output = output.replace(/\bconst\b/g, "var");
 		output = output.replace(/\blet\b/g, "var");
+
+    // Pass 3.1: meta.define replacement (Requirement 14)
+    if (this.options.define) {
+        for (const [key, value] of Object.entries(this.options.define)) {
+            const regex = new RegExp(`\\bmeta\\.define\\.${key}\\b`, 'g');
+            output = output.replace(regex, JSON.stringify(value));
+        }
+    }
 
     // Pass 4: Buildtime Shell execution (Requirement 23)
     // Find $ template literals and execute them if not whitelisted for runtime

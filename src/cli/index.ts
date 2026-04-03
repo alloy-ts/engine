@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { watch } from "node:fs";
 import { BinaryManager } from "../core/engine";
 import { spawn } from "node:child_process";
+import { ConfigLoader, ConfigValidator } from "../core/config";
 
 const program = new Command();
 
@@ -15,18 +16,37 @@ program
 	.description(
 		"AlloyScript CLI - Professional industry-standard dual-engine JS toolchain.",
 	)
-	.version("0.1.0");
+	.version("0.1.0")
+    .option("-c, --config <path>", "Path to alloyconfig.toml");
+
+function loadConfig() {
+    const opts = program.opts();
+    const config = ConfigLoader.load(process.cwd(), opts.config);
+    const { errors, warnings } = ConfigValidator.validate(config);
+
+    for (const warn of warnings) console.warn(`Warning: ${warn}`);
+    if (errors.length > 0) {
+        for (const err of errors) console.error(`Error: ${err}`);
+        process.exit(1);
+    }
+    return config;
+}
 
 program
 	.command("repl")
 	.description("Start the AlloyScript interactive REPL")
 	.action(async () => {
+        const config = loadConfig();
 		const binaryManager = new BinaryManager();
 		try {
 			const binaryPath = await binaryManager.ensureBinary("0.1.0");
 			console.log(`Launching AlloyScript REPL via ${binaryPath}...`);
 
-			const child = spawn(binaryPath, ["repl"], { stdio: "inherit" });
+            // Example override: pass logLevel if configured
+            const args = ["repl"];
+            if (config.logLevel) args.push("--log-level", config.logLevel);
+
+			const child = spawn(binaryPath, args, { stdio: "inherit" });
 			child.on("exit", (code) => process.exit(code || 0));
 		} catch (e: any) {
 			console.error(`Error: ${e.message}`);
@@ -88,21 +108,29 @@ program
 	.description("Build and transpile the AlloyScript application")
 	.argument("[entrypoint]", "Source TypeScript file", "src/main.ts")
 	.option("-o, --outdir <dir>", "Output directory", "dist")
-  .option("--target <target>", "Target (browser|alloy|node)", "alloy")
+  .option("--target <target>", "Target (browser|alloy|node)")
   .option("--format <format>", "Format (esm|cjs|iife)", "esm")
   .option("--minify", "Minify output", false)
   .option("--sourcemap <type>", "Sourcemap (none|inline|external)", "none")
   .option("--splitting", "Enable splitting", false)
 	.action(async (entrypoint, options) => {
+        const config = loadConfig();
 		console.log(`Building ${entrypoint}...`);
+
     const buildResult = await Alloy.build({
         entrypoints: [entrypoint],
-        outdir: options.outdir,
-        target: options.target as any,
+        outdir: options.outdir || config.install.globalBinDir, // Simplified
+        target: (options.target || config.target) as any,
         format: options.format as any,
         minify: options.minify,
         sourcemap: options.sourcemap as any,
-        splitting: options.splitting
+        splitting: options.splitting,
+        define: config.define,
+        // @ts-ignore
+        jsx: config.jsx,
+        jsxFactory: config.jsxFactory,
+        jsxFragment: config.jsxFragment,
+        jsxImportSource: config.jsxImportSource
     });
 
     if (buildResult.success) {
