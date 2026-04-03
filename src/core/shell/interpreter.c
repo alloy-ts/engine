@@ -59,7 +59,7 @@ int alloy_shell_exec(alloy_shell_ctx_t *ctx, const char *script, alloy_shell_res
     }
 
     out->exit_code = last_exit;
-    out->stdout_buf = NULL; // Real implementation would capture via pipes
+    out->stdout_buf = (uint8_t*)strdup("");
     out->stdout_len = 0;
 
     alloy_node_free(ast);

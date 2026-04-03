@@ -2,6 +2,27 @@
 
 Alloy Shell is a high-performance, secure shell scripting environment for AlloyScript. It provides a bash-like experience while maintaining strict security boundaries via a three-layer isolation hierarchy.
 
+## Buildtime Evaluation (Default)
+
+**Alloy Shell is a build-time plugin by default.** `$` template literals are resolved and executed at **buildtime** via the `Alloy.build()` plugin system. The stdout result is captured and inlined into the bundle as a static string literal.
+
+```typescript
+// During build, this is executed and replaced with "Hello, World"
+const greeting = await $`echo "Hello, World"`.text();
+```
+
+This model ensures zero runtime overhead and zero attack surface for static shell operations.
+
+## Runtime Execution (Opt-in)
+
+Specific commands can be opted into **runtime execution** via `useExecutable` in `alloyconfig.toml`. Those commands are deferred to runtime and spawn the full WIT-sandboxed process.
+
+```toml
+# alloyconfig.toml
+[shell]
+useExecutable = ["git", "docker"]
+```
+
 ## Usage
 
 The shell is available via the global `$` template tag.

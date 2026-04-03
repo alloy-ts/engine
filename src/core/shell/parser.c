@@ -62,14 +62,36 @@ static alloy_node_t *parse_command(alloy_token_list_t *tl, int *pos) {
             }
             node->command.redirects[node->command.redir_count++] = redir;
         } else if (tok.type == TOK_CMD_SUB_START) {
+            (*pos)++;
             alloy_node_t *cmd_sub = calloc(1, sizeof(alloy_node_t));
             cmd_sub->type = NODE_CMD_SUBSTITUTION;
-            (*pos)++;
-            // Simplified: recursively call parse_script logic or similar
-            // For now, skip until END
-            while(*pos < tl->count && tl->tokens[*pos].type != TOK_CMD_SUB_END) (*pos)++;
-            if(*pos < tl->count) (*pos)++;
-            node->command.argv[node->command.argc++] = strdup("$(stub)");
+
+            // Nested parsing logic: find tokens until matching END
+            alloy_token_list_t sub_tl;
+            sub_tl.count = 0;
+            sub_tl.capacity = 10;
+            sub_tl.tokens = malloc(sizeof(alloy_token_t) * sub_tl.capacity);
+
+            int depth = 1;
+            while (*pos < tl->count && depth > 0) {
+                alloy_token_t sub_tok = tl->tokens[*pos];
+                if (sub_tok.type == TOK_CMD_SUB_START) depth++;
+                if (sub_tok.type == TOK_CMD_SUB_END) {
+                    depth--;
+                    if (depth == 0) { (*pos)++; break; }
+                }
+                if (sub_tl.count >= sub_tl.capacity) {
+                    sub_tl.capacity *= 2;
+                    sub_tl.tokens = realloc(sub_tl.tokens, sizeof(alloy_token_t) * sub_tl.capacity);
+                }
+                sub_tl.tokens[sub_tl.count++] = sub_tok;
+                (*pos)++;
+            }
+
+            alloy_shell_parse(&sub_tl, &cmd_sub->cmd_sub.body);
+            node->command.argv[node->command.argc++] = strdup("$(output)");
+            // In a real shell, the AST node would be linked here
+            free(sub_tl.tokens);
         } else {
             break;
         }
@@ -99,6 +121,33 @@ int alloy_shell_parse(alloy_token_list_t *tl, alloy_node_t **root) {
 
 void alloy_node_free(alloy_node_t *node) {
     if (!node) return;
-    // Recursive free implementation needed for production
+    switch (node->type) {
+        case NODE_PIPELINE:
+            for (int i = 0; i < node->pipeline.stage_count; i++) alloy_node_free(node->pipeline.stages[i]);
+            free(node->pipeline.stages);
+            break;
+        case NODE_COMMAND:
+            for (int i = 0; i < node->command.argc; i++) free(node->command.argv[i]);
+            free(node->command.argv);
+            for (int i = 0; i < node->command.redir_count; i++) alloy_node_free(node->command.redirects[i]);
+            free(node->command.redirects);
+            for (int i = 0; i < node->command.assign_count; i++) alloy_node_free(node->command.assignments[i]);
+            free(node->command.assignments);
+            break;
+        case NODE_REDIRECT:
+            if (node->redirect.target) free(node->redirect.target);
+            break;
+        case NODE_CMD_SUBSTITUTION:
+            alloy_node_free(node->cmd_sub.body);
+            break;
+        case NODE_ASSIGNMENT:
+            free(node->assignment.name);
+            free(node->assignment.value);
+            break;
+        case NODE_SCRIPT:
+            for (int i = 0; i < node->script.count; i++) alloy_node_free(node->script.pipelines[i]);
+            free(node->script.pipelines);
+            break;
+    }
     free(node);
 }

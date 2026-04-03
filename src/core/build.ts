@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { shellBuildPlugin } from "./shell/shell_build_plugin";
 import { type Loader, Transpiler } from "./transpiler";
 
 export interface BuildOptions {
@@ -56,6 +57,11 @@ export interface PluginBuild {
 }
 
 export async function build(options: BuildOptions): Promise<BuildOutput> {
+	// Add shell build plugin by default
+	const plugins = options.plugins || [];
+	plugins.push(shellBuildPlugin());
+	options.plugins = plugins;
+
 	const outdir = options.outdir || "./dist";
 	if (!fs.existsSync(outdir)) fs.mkdirSync(outdir, { recursive: true });
 

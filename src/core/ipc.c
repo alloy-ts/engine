@@ -11,7 +11,7 @@ static const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 
 char *alloy_base64_encode(const uint8_t *input, int length) {
     int out_len = 4 * ((length + 2) / 3);
-    char *out = malloc(out_len + 1);
+    char *out = (char *)malloc(out_len + 1);
     if (!out) return NULL;
     for (int i = 0, j = 0; i < length;) {
         uint32_t octet_a = i < length ? input[i++] : 0;
@@ -123,8 +123,11 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
     char *p_b64 = alloy_base64_encode(msg->payload, msg->payload_len);
 
     char *json = NULL;
-    asprintf(&json, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
-             (unsigned long long)msg->seq, n_b64, t_b64, msg->type, p_b64);
+    if (asprintf(&json, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
+             (unsigned long long)msg->seq, n_b64, t_b64, msg->type, p_b64) < 0) {
+        free(n_b64); free(t_b64); free(p_b64);
+        return -1;
+    }
 
     char *cmd = NULL;
     asprintf(&cmd, "window.Alloy.handleMessage('%s')", json);

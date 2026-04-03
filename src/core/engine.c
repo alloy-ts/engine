@@ -48,10 +48,15 @@ alloy_runtime_t *alloy_engine_create(void) {
 
     rt->mem_size = 16 << 20;
     rt->mem_buf = mmap(NULL, rt->mem_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (rt->mem_buf == MAP_FAILED) { free(rt); return NULL; }
     rt->js_heap_prot = PROT_READ | PROT_WRITE;
 
     rt->mqjs_engine = alloy_mqjs_engine_create(rt->mem_size, rt);
     rt->webview_engine = alloy_webview_engine_create(rt);
+    if (!rt->mqjs_engine || !rt->webview_engine) {
+        alloy_engine_destroy(rt);
+        return NULL;
+    }
     rt->mqjs_ctx = alloy_mqjs_get_context(rt->mqjs_engine);
 
     RAND_bytes(rt->session_key, 32);
@@ -69,6 +74,7 @@ alloy_runtime_t *alloy_engine_create(void) {
 
     // 2. Bind aliases
     JSValue self = JS_GetGlobalObject(ctx);
+    if (JS_IsUndefined(self)) { JS_FreeValue(ctx, global_obj); return NULL; }
     JS_SetPropertyStr(ctx, global_obj, "window", JS_DupValue(ctx, self));
     JS_SetPropertyStr(ctx, global_obj, "globalThis", JS_DupValue(ctx, self));
     JS_SetPropertyStr(ctx, global_obj, "self", JS_DupValue(ctx, self));
