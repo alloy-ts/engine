@@ -7,21 +7,50 @@
 
 void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val) {
     if (!ctx || !name) {
-        fprintf(stderr, "[alloy] bind_global_mqjs: NULL argument\n");
+        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
         return;
     }
     JSValue global_obj = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global_obj, name, val);
+    JS_FreeValue(ctx, global_obj);
 }
 
-void alloy_mqjs_bind_func(JSContext *ctx, const char *name,
-                          JSCFunction *func, int argc, void *opaque) {
-    if (!ctx || !name || !func) {
-        fprintf(stderr, "[alloy] bind_func_mqjs: NULL argument\n");
+void alloy_mqjs_bind_func(JSContext *ctx, const char *name, int func_idx, JSValue params) {
+    if (!ctx || !name) {
+        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
         return;
     }
-    /* Simple binding using index since JS_NewCFunctionData is unavailable */
-    fprintf(stderr, "[alloy] bind_func_mqjs: Warning: Dynamic binding for %s\n", name);
+
+    JSValue obj = JS_GetGlobalObject(ctx);
+    char *token, *saveptr, *name_copy = strdup(name);
+    if (!name_copy) {
+        JS_FreeValue(ctx, obj);
+        return;
+    }
+    token = strtok_r(name_copy, ".", &saveptr);
+
+    while (token != NULL) {
+        const char *next_token = strtok_r(NULL, ".", &saveptr);
+        if (next_token == NULL) {
+            /* Last component: bind the function */
+            JSValue f = JS_NewCFunctionParams(ctx, func_idx, params);
+            JS_SetPropertyStr(ctx, obj, token, f);
+            break;
+        } else {
+            /* Intermediate component: ensure object exists */
+            JSValue next_obj = JS_GetPropertyStr(ctx, obj, token);
+            if (!JS_IsObject(ctx, next_obj)) {
+                next_obj = JS_NewObject(ctx);
+                JS_SetPropertyStr(ctx, obj, token, JS_DupValue(ctx, next_obj));
+            }
+            JS_FreeValue(ctx, obj);
+            obj = next_obj;
+        }
+        token = next_token;
+    }
+
+    JS_FreeValue(ctx, obj);
+    free(name_copy);
 }
 
 JSValue js_alloy_await(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {

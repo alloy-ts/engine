@@ -7,8 +7,16 @@ export interface TranspilerOptions {
 	minifyWhitespace?: boolean;
 }
 
+export interface Import {
+  path: string;
+  kind: "import-statement" | "require-call" | "require-resolve" |
+        "dynamic-import" | "import-rule" | "url-token" |
+        "internal" | "entry-point-build" | "entry-point-run";
+}
+
 /**
- * Implements a 3-pass pipeline for ES5 downlevelling and async/await polyfilling.
+ * Implements a pipeline for ES5 downlevelling and async/await polyfilling.
+ * Uses Bun.Transpiler for the first pass if available.
  */
 export class Transpiler {
 	constructor(private options: TranspilerOptions = {}) {}
@@ -16,26 +24,34 @@ export class Transpiler {
 	/**
 	 * Synchronous transpilation — same thread, no worker.
 	 */
-	transformSync(code: string, loader?: Loader): string {
-		// Use Bun's built-in Transpiler if available, else robust regex fallback
-		let output = code;
+	transformSync(code: string, loader: Loader = "ts"): string {
+    // Pass 1: TS/JSX -> ES5 (using Bun's built-in transpiler)
+    // @ts-ignore
+    const bunTranspiler = new Bun.Transpiler({
+        target: "browser",
+        loader: loader,
+        // @ts-ignore
+        define: this.options.define
+    });
 
-		// Rewrite 'async function' -> 'function*' and 'await' -> 'yield __alloy_await'
+    let output = bunTranspiler.transformSync(code);
+
+		// Pass 2: Async/await polyfill
 		output = output.replace(/\basync\s+function\b/g, "function*");
-		output = output.replace(/\bawait\s+/g, "yield __alloy_await ");
+    // Handle async arrow functions
+    output = output.replace(/\basync\s*\(([^)]*)\)\s*=>\s*\{/g, "function*($1) {");
+    output = output.replace(/\basync\s*\(([^)]*)\)\s*=>\s*([^;{),\]} ]+)/g, "function*($1) { return $2; }");
 
+		output = output.replace(/\bawait\s+([\s\S]+?)(?=[;,)\]}]|$)/g, "yield { __alloy_ipc: \"__await__\", args: [$1] }");
+    output = output.replace(/\bnew\s+Promise\b\s*\(/g, "__alloy_deferred(");
+
+    // Pass 3: MQJS compatibility (remaining ES6+ features not handled by Bun)
 		output = output.replace(/\bconst\b/g, "var");
 		output = output.replace(/\blet\b/g, "var");
-		output = output.replace(
-			/:\s*(number|string|boolean|any|void|unknown|never)(\[\])?/g,
-			"",
-		);
-		output = output.replace(
-			/\s+as\s+(number|string|boolean|any|void|unknown|never)(\[\])?/g,
-			"",
-		);
-		output = output.replace(/interface\s+\w+\s*\{[\s\S]*?\}/g, "");
-		output = output.replace(/type\s+\w+\s*=.*?;/g, "");
+
+    if (output.includes("__alloy_ipc") || output.includes("__alloy_deferred")) {
+        output = "var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n" + output;
+    }
 
 		return output;
 	}
@@ -50,14 +66,10 @@ export class Transpiler {
 	/**
 	 * Returns all non-type-only imports and exports (Requirement 12.7).
 	 */
-	scan(code: string): { exports: string[]; imports: any[] } {
-		const imports: any[] = [];
-		const exports: string[] = [];
-		const importRegex = /import\s+[\s\S]*?\s+from\s+['"](.*)['"]/g;
-		let match;
-		while ((match = importRegex.exec(code)) !== null) {
-			imports.push({ path: match[1], kind: "import-statement" });
-		}
-		return { exports, imports };
+	scan(code: string): { exports: string[]; imports: Import[] } {
+    // @ts-ignore
+    const bunTranspiler = new Bun.Transpiler({ loader: "ts" });
+    const { exports, imports } = bunTranspiler.scan(code);
+		return { exports, imports: imports.map(i => ({ ...i, kind: i.kind || "import-statement" })) };
 	}
 }
