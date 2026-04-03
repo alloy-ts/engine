@@ -153,4 +153,31 @@ program
 		await run();
 	});
 
+program
+	.command("run")
+	.description("Run a script file (.ts, .js, .sh)")
+	.argument("<file>", "Script file to run")
+	.action(async (file) => {
+		if (file.endsWith(".sh")) {
+			const { $ } = await import("@alloyscript/engine");
+			const script = readFileSync(file, "utf-8");
+			try {
+				const result = await $`${script}`.nothrow();
+				process.exit(result.exitCode);
+			} catch (e: any) {
+				console.error(`Shell Error: ${e.message}`);
+				process.exit(1);
+			}
+		} else {
+			const code = readFileSync(file, "utf-8");
+			try {
+				const result = await evaluate(code);
+				console.log(result);
+			} catch (e) {
+				console.error(e);
+				process.exit(1);
+			}
+		}
+	});
+
 program.parse();

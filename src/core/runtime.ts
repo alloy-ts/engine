@@ -85,9 +85,89 @@
 		 * alloy:ffi re-export.
 		 */
 		ffi: undefined,
+
+		/**
+		 * Alloy.Shell ($)
+		 */
+		$: undefined,
+
+		file: function (path_or_fd) {
+			return {
+				path: typeof path_or_fd === "string" ? path_or_fd : undefined,
+				fd: typeof path_or_fd === "number" ? path_or_fd : undefined,
+			};
+		},
 	};
 
 	global.Alloy = Alloy;
+
+	// --- ShellExpression Implementation ---
+	var ShellExpression = function (parts, interps) {
+		this._parts = parts;
+		this._interps = interps;
+		this._opts = { throws: true, quiet: false, env: undefined, cwd: undefined };
+	};
+
+	ShellExpression.prototype.quiet = function () {
+		this._opts.quiet = true;
+		return this;
+	};
+
+	ShellExpression.prototype.nothrow = function () {
+		this._opts.throws = false;
+		return this;
+	};
+
+	ShellExpression.prototype.throws = function (enabled) {
+		this._opts.throws = enabled !== false;
+		return this;
+	};
+
+	ShellExpression.prototype.env = function (vars) {
+		this._opts.env = vars;
+		return this;
+	};
+
+	ShellExpression.prototype.cwd = function (path) {
+		this._opts.cwd = path;
+		return this;
+	};
+
+	ShellExpression.prototype.text = function () {
+		this.quiet();
+		return this.then(function (res) {
+			return res.stdout;
+		});
+	};
+
+	ShellExpression.prototype.json = function () {
+		this.quiet();
+		return this.then(function (res) {
+			return JSON.parse(res.stdout);
+		});
+	};
+
+	ShellExpression.prototype.then = function (onResolve, onReject) {
+		var self = this;
+		var p = AlloyInternal.shellExec({
+			parts: self._parts,
+			interps: self._interps,
+			opts: self._opts,
+		});
+		return p.then(onResolve, onReject);
+	};
+
+	global.$ = function (parts) {
+		var interps = Array.prototype.slice.call(arguments, 1);
+		return new ShellExpression(parts, interps);
+	};
+	global.$.escape = function (str) {
+		return AlloyInternal.shellEscape(str);
+	};
+	global.$.braces = function (str) {
+		return AlloyInternal.shellBraces(str);
+	};
+	Alloy.$ = global.$;
 
 	// --- BrowserAPI Proxies ---
 

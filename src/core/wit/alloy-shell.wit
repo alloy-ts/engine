@@ -1,0 +1,29 @@
+package alloy:shell;
+
+interface shell {
+    enum tok-type {
+        word, assign, pipe, redir-in, redir-out, redir-append,
+        redir-err, redir-err-app, redir-both, redir-both-app,
+        redir-out2err, redir-err2out, cmd-sub-start, cmd-sub-end,
+        newline, semicolon, eof
+    }
+
+    record shell-opts {
+        throws: bool,
+        env: list<tuple<string, string>>,
+        cwd: option<string>
+    }
+
+    record shell-result {
+        stdout: list<u8>,
+        stderr: list<u8>,
+        exit-code: s32
+    }
+
+    exec: func(script: string, opts: shell-opts) -> shell-result;
+}
+
+world alloy-shell {
+    import shell;
+    export shell;
+}

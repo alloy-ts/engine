@@ -1,0 +1,14 @@
+CC=wasicc
+CFLAGS=-Wall -O2 --sysroot=$(WASI_SDK_PATH)/share/wasi-sysroot
+LDFLAGS=-Wl,--no-entry -Wl,--export-all
+
+OBJS=lexer.o parser.o escape.o pipe.o redirect.o builtins.o interpreter.o shell_main.o
+
+shell.wasm: $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	rm -f *.o shell.wasm

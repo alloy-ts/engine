@@ -1,9 +1,11 @@
 #include "engine.h"
+#include "backend_adapters/shell_bridge.h"
 #include "mqjs_stdlib.h"
 #include "bridge.h"
 #include "ipc.h"
 #include "browser_api_table.h"
 #include "backend_adapters/mqjs_bridge.h"
+#include "backend_adapters/shell_bridge.h"
 #include "../../packages/mquickjs/mquickjs_priv.h"
 #include "blake3/blake3.h"
 #include <stdio.h>
@@ -427,6 +429,8 @@ alloy_runtime_t *alloy_engine_create(void) {
     JS_SetPropertyStr(ctx, alloy_obj, "nextTick", JS_NewCFunction(ctx, alloy_runtime_next_tick, "nextTick", 1));
     JS_SetPropertyStr(ctx, global_obj, "Alloy", alloy_obj);
     JSValue internal_obj = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", internal_obj);
+    alloy_shell_bridge_init(rt);
     JS_SetPropertyStr(ctx, internal_obj, "parse", JS_NewCFunction(ctx, alloy_runtime_parse_validate, "parse", 1));
     JS_SetPropertyStr(ctx, internal_obj, "__alloy_await", JS_NewCFunction(ctx, alloy_runtime_await_helper, "__alloy_await", 1));
     JS_SetPropertyStr(ctx, internal_obj, "__alloy_deferred", JS_NewCFunction(ctx, alloy_runtime_deferred_helper, "__alloy_deferred", 1));
@@ -458,6 +462,42 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
 
 void alloy_run(alloy_runtime_t *rt) {
     while (!rt->shutdown) {
+        pthread_mutex_lock(&rt->shell_mutex);
+        alloy_shell_task_t *task = rt->shell_tasks;
+        if (task) {
+            rt->shell_tasks = task->next;
+            pthread_mutex_unlock(&rt->shell_mutex);
+
+            // Marshall result to JS
+            JSContext *ctx = rt->mqjs_ctx;
+            alloy_shell_result_raw_t *raw = (alloy_shell_result_raw_t *)task->result;
+
+            JSValue res_obj = JS_NewObject(ctx);
+            JS_SetPropertyStr(ctx, res_obj, "exitCode", JS_NewInt32(ctx, raw->exit_code));
+            JS_SetPropertyStr(ctx, res_obj, "stdout", JS_NewStringLen(ctx, raw->stdout_buf, raw->stdout_len));
+            JS_SetPropertyStr(ctx, res_obj, "stderr", JS_NewStringLen(ctx, raw->stderr_buf, raw->stderr_len));
+
+            JS_Call(ctx, task->resolving_funcs[0], JS_UNDEFINED, 1, &res_obj);
+
+            JS_FreeValue(ctx, task->resolving_funcs[0]);
+            JS_FreeValue(ctx, task->resolving_funcs[1]);
+            JS_FreeValue(ctx, res_obj);
+
+            // Correct free: only free once
+            free(raw->stdout_buf);
+            free(raw->stderr_buf);
+            free(raw);
+
+            // Free task and execution context (abstracted from shell_bridge.h)
+            alloy_shell_exec_ctx_t *exec_ctx = (alloy_shell_exec_ctx_t *)task->exec_ctx;
+            free(exec_ctx->script);
+            free(exec_ctx);
+            free(task);
+
+            pthread_mutex_lock(&rt->shell_mutex);
+        }
+        pthread_mutex_unlock(&rt->shell_mutex);
+
         alloy_poll_io(rt);
         while (rt->event_queue.count > 0) {
             AlloyEvent *ev = alloy_event_dequeue(rt);

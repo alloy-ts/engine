@@ -14,7 +14,16 @@ typedef struct alloy_runtime {
     webview_t webview;
     unsigned char session_key[32];
     void *mem_buf;
+    pthread_mutex_t shell_mutex;
+    struct alloy_shell_task *shell_tasks;
 } alloy_runtime_t;
+
+typedef struct alloy_shell_task {
+    void *exec_ctx;
+    void *result;
+    JSValue resolving_funcs[2];
+    struct alloy_shell_task *next;
+} alloy_shell_task_t;
 
 typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);
 
