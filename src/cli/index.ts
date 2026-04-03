@@ -98,10 +98,10 @@ program
     const buildResult = await Alloy.build({
         entrypoints: [entrypoint],
         outdir: options.outdir,
-        target: options.target,
-        format: options.format,
+        target: options.target as any,
+        format: options.format as any,
         minify: options.minify,
-        sourcemap: options.sourcemap,
+        sourcemap: options.sourcemap as any,
         splitting: options.splitting
     });
 

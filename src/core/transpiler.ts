@@ -15,7 +15,8 @@ export interface Import {
 }
 
 /**
- * Implements a 3-pass pipeline for ES5 downlevelling and async/await polyfilling.
+ * Implements a pipeline for ES5 downlevelling and async/await polyfilling.
+ * Uses Bun.Transpiler for the first pass if available.
  */
 export class Transpiler {
 	constructor(private options: TranspilerOptions = {}) {}
@@ -23,16 +24,28 @@ export class Transpiler {
 	/**
 	 * Synchronous transpilation — same thread, no worker.
 	 */
-	transformSync(code: string, loader?: Loader): string {
-		// Pass 1: TS/JSX -> ES5 (Stub for Bun.Transpiler)
-		let output = code;
+	transformSync(code: string, loader: Loader = "ts"): string {
+    // Pass 1: TS/JSX -> ES5 (using Bun's built-in transpiler)
+    // @ts-ignore
+    const bunTranspiler = new Bun.Transpiler({
+        target: "browser",
+        loader: loader,
+        // @ts-ignore
+        define: this.options.define
+    });
+
+    let output = bunTranspiler.transformSync(code);
 
 		// Pass 2: Async/await polyfill
 		output = output.replace(/\basync\s+function\b/g, "function*");
+    // Handle async arrow functions
+    output = output.replace(/\basync\s*\(([^)]*)\)\s*=>\s*\{/g, "function*($1) {");
+    output = output.replace(/\basync\s*\(([^)]*)\)\s*=>\s*([^;{),\]} ]+)/g, "function*($1) { return $2; }");
+
 		output = output.replace(/\bawait\s+([\s\S]+?)(?=[;,)\]}]|$)/g, "yield { __alloy_ipc: \"__await__\", args: [$1] }");
     output = output.replace(/\bnew\s+Promise\b\s*\(/g, "__alloy_deferred(");
 
-    // Pass 3: MQJS compatibility
+    // Pass 3: MQJS compatibility (remaining ES6+ features not handled by Bun)
 		output = output.replace(/\bconst\b/g, "var");
 		output = output.replace(/\blet\b/g, "var");
 
@@ -40,18 +53,6 @@ export class Transpiler {
     if (output.includes("__alloy_ipc") || output.includes("__alloy_deferred")) {
         output = "var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n" + output;
     }
-
-    // Typescript strip (crude)
-		output = output.replace(
-			/:\s*(number|string|boolean|any|void|unknown|never)(\[\])?/g,
-			"",
-		);
-		output = output.replace(
-			/\s+as\s+(number|string|boolean|any|void|unknown|never)(\[\])?/g,
-			"",
-		);
-		output = output.replace(/interface\s+\w+\s*\{[\s\S]*?\}/g, "");
-		output = output.replace(/type\s+\w+\s*=.*?;/g, "");
 
 		return output;
 	}
@@ -67,13 +68,9 @@ export class Transpiler {
 	 * Returns all non-type-only imports and exports (Requirement 12.7).
 	 */
 	scan(code: string): { exports: string[]; imports: Import[] } {
-		const imports: Import[] = [];
-		const exports: string[] = [];
-		const importRegex = /import\s+[\s\S]*?\s+from\s+['"](.*)['"]/g;
-		let match;
-		while ((match = importRegex.exec(code)) !== null) {
-			imports.push({ path: match[1], kind: "import-statement" });
-		}
-		return { exports, imports };
+    // @ts-ignore
+    const bunTranspiler = new Bun.Transpiler({ loader: "ts" });
+    const { exports, imports } = bunTranspiler.scan(code);
+		return { exports, imports: imports.map(i => ({ ...i, kind: i.kind || "import-statement" })) };
 	}
 }
