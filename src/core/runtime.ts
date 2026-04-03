@@ -1,10 +1,9 @@
 (function () {
-	const global = globalThis;
+	var global = globalThis;
 
-	// Internal bridge to the host (exposed via bind_global_mqjs)
-	const AlloyInternal = global.AlloyInternal;
+	var AlloyInternal = global.AlloyInternal;
 
-	const Alloy = {
+	var Alloy = {
 		/**
 		 * Binds a name and value to the MQJS global object.
 		 */
@@ -13,28 +12,26 @@
 				AlloyInternal.bindGlobal(name, value);
 			}
 		},
-
 		/**
 		 * Transpiles and evaluates user-supplied code securely.
 		 */
 		secureEval: function (code) {
 			try {
-				const transformed = Alloy.Transpiler.transformSync(code);
+				var transformed = Alloy.Transpiler.transformSync(code);
+				// Call native secureEval binding
 				return AlloyInternal.secureEval(transformed);
 			} catch (e) {
 				return { error: "transpile_failed", message: e.message };
 			}
 		},
-
 		/**
-		 * Spawns a process synchronously.
+		 * Spawns a process synchronously (Requirement 7.1).
 		 */
 		spawnSync: function (cmd, args, opts) {
 			return AlloyInternal.spawnSync(cmd, args, opts);
 		},
-
 		/**
-		 * Spawns a process asynchronously.
+		 * Spawns a process asynchronously (Requirement 7.1).
 		 */
 		spawn: function (cmd, args, opts) {
 			return new Promise(function (resolve, reject) {
@@ -44,56 +41,78 @@
 				});
 			});
 		},
-
 		/**
-		 * Register event listener.
+		 * Shell template literal tag (Requirement 1.1).
 		 */
-		on: function (event, listener) {
-			AlloyInternal.on(event, listener);
-		},
+		$: (function () {
+			var $ = function (parts) {
+				var interps = Array.prototype.slice.call(arguments, 1);
+				var script = parts[0];
+				for (var i = 0; i < interps.length; i++) {
+					var val = interps[i];
+					if (typeof val === "string") {
+						script += $.escape(val);
+					} else {
+						script += val;
+					}
+					script += parts[i + 1];
+				}
 
-		/**
-		 * Deregister event listener.
-		 */
-		off: function (event, listener) {
-			AlloyInternal.off(event, listener);
-		},
+				var expr = {
+					_script: script,
+					_throws: true,
+					then: function (onFulfilled, onRejected) {
+						return new Promise(function (resolve, reject) {
+							try {
+								var res = AlloyInternal.shell(script);
+								if (expr._throws && res.exitCode !== 0) {
+									reject(res);
+								} else {
+									resolve(res);
+								}
+							} catch (e) {
+								reject(e);
+							}
+						}).then(onFulfilled, onRejected);
+					},
+					nothrow: function () {
+						expr._throws = false;
+						return expr;
+					},
+				};
+				return expr;
+			};
 
-		/**
-		 * Emit event.
-		 */
-		emit: function (event) {
-			var args = Array.prototype.slice.call(arguments, 1);
-			AlloyInternal.emit(event, args);
-		},
+			/**
+			 * Escape shell metacharacters (Requirement 6.4).
+			 */
+			$.escape = function (str) {
+				return AlloyInternal.shellEscape(str);
+			};
 
-		/**
-		 * Returns the metadata object for current memory mappings.
-		 */
-		getMmap: function () {
-			return AlloyInternal.getMmap();
-		},
+			/**
+			 * Expand brace expressions (Requirement 13).
+			 */
+			$.braces = function (str) {
+				/* Simple JS implementation of brace expansion */
+				if (!str.includes("{")) return [str];
+				var match = str.match(/\{([^}]+)\}/);
+				if (!match) return [str];
+				var parts = match[1].split(",");
+				var result = [];
+				for (var i = 0; i < parts.length; i++) {
+					result.push(str.replace(match[0], parts[i]));
+				}
+				return result;
+			};
 
-		/**
-		 * Returns the actual bytes of a specific memory region (gated).
-		 */
-		readMmap: function (region) {
-			return AlloyInternal.readMmap(region);
-		},
-
-		/**
-		 * alloy:ffi re-export.
-		 */
-		ffi: undefined,
+			return $;
+		})(),
 	};
 
 	global.Alloy = Alloy;
+	global.$ = Alloy.$;
 
-	// --- BrowserAPI Proxies ---
-
-	/**
-	 * Proxy for window.fetch.
-	 */
 	global.fetch = function (url, options) {
 		return new Promise(function (resolve, reject) {
 			// Forward call via IPC through AlloyInternal.bridgeCall
@@ -109,9 +128,6 @@
 		});
 	};
 
-	/**
-	 * Proxy for crypto.subtle.
-	 */
 	global.crypto = {
 		subtle: {
 			digest: function (algo, data) {
@@ -129,9 +145,6 @@
 		},
 	};
 
-	/**
-	 * Simple Response object for fetch results.
-	 */
 	var R = function Response(body, options) {
 		this._body = body;
 		this.status = options.status || 200;
@@ -145,7 +158,6 @@
 	};
 	global.Response = R;
 
-	// --- Other Standard Library Polyfills ---
 	if (!global.URL) {
 		global.URL = function URL(url, base) {
 			/* Proxy logic */
