@@ -1,0 +1,29 @@
+package alloy:shell;
+
+interface shell {
+    enum error {
+        command-not-found,
+        permission-denied,
+        execution-failed,
+    }
+
+    record shell-result {
+        exit-code: s32,
+        stdout: list<u8>,
+        stderr: list<u8>,
+    }
+
+    record shell-options {
+        throws: bool,
+        env: list<tuple<string, string>>,
+        cwd: option<string>,
+        quiet: bool,
+    }
+
+    execute: func(script: string, opts: shell-options) -> result<shell-result, error>;
+}
+
+world alloy-shell {
+    import shell;
+    export shell;
+}

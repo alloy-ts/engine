@@ -159,3 +159,62 @@
 		};
 	}
 })();
+
+/**
+ * --- Alloy Shell Type Declarations ---
+ */
+
+interface ShellResult {
+    stdout: Buffer;
+    stderr: Buffer;
+    exitCode: number;
+}
+
+interface ShellError extends Error {
+    exitCode: number;
+    stdout: Buffer;
+    stderr: Buffer;
+    message: string;
+}
+
+interface AlloyFile {
+    readonly path: string | undefined;
+    readonly fd: number | undefined;
+}
+
+interface ShellExpressionOpts {
+    throws: boolean;
+    quiet: boolean;
+    env: Record<string, string> | undefined;
+    cwd: string | undefined;
+}
+
+interface ShellExpression extends PromiseLike<ShellResult> {
+    quiet(): ShellExpression;
+    nothrow(): ShellExpression;
+    throws(enabled: boolean): ShellExpression;
+    env(vars: Record<string, string> | undefined): ShellExpression;
+    cwd(path: string | undefined): ShellExpression;
+    text(): Promise<string>;
+    json(): Promise<unknown>;
+    lines(): AsyncIterable<string>;
+    blob(): Promise<Blob>;
+}
+
+interface ShellTag {
+    (strings: TemplateStringsArray, ...interps: unknown[]): ShellExpression;
+    escape(str: string): string;
+    braces(str: string): string[];
+    nothrow(): void;
+    throws(enabled: boolean): void;
+    env(vars: Record<string, string> | undefined): void;
+    cwd(path: string | undefined): void;
+}
+
+declare const $: ShellTag;
+
+declare namespace Alloy {
+    const $: ShellTag;
+    function file(path: string): AlloyFile;
+    function file(fd: number): AlloyFile;
+}

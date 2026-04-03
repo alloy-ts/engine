@@ -1,0 +1,12 @@
+WASM_CC = /opt/wasi-sdk/bin/clang
+WASM_CFLAGS = --target=wasm32-wasi -Wall -g -O2
+WASM_LDFLAGS = -Wl,--no-entry -Wl,--export=alloy_shell_main
+
+SRCS = main.c lexer.c parser.c escape.c pipe.c redirect.c builtins.c interpreter.c
+OBJS = $(SRCS:.c=.o)
+
+shell.wasm: $(SRCS)
+	$(WASM_CC) $(WASM_CFLAGS) $(SRCS) -o shell.wasm $(WASM_LDFLAGS)
+
+clean:
+	rm -f *.o shell.wasm

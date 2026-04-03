@@ -126,6 +126,27 @@ program
 	});
 
 program
+	.command("run")
+	.description("Run an AlloyScript file or shell script")
+	.argument("<file>", "File to run")
+	.action(async (file) => {
+		if (file.endsWith(".sh")) {
+			const src = readFileSync(file, "utf-8");
+			// Shebang is stripped in lexer
+			const result = await $`${src}`.nothrow();
+			process.exit(result.exitCode);
+		} else {
+			const code = readFileSync(file, "utf-8");
+			try {
+				await evaluate(code);
+			} catch (e) {
+				console.error(e);
+				process.exit(1);
+			}
+		}
+	});
+
+program
 	.command("dev")
 	.description("Run the project in development mode with hot reloading")
 	.argument("[file]", "Entry file", "src/main.ts")
