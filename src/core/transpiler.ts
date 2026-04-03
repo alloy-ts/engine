@@ -1,3 +1,7 @@
+import * as acorn from "acorn";
+import * as walk from "acorn-walk";
+import { generate } from "astring";
+
 export type Loader = "js" | "jsx" | "ts" | "tsx";
 
 export interface TranspilerOptions {
@@ -16,7 +20,7 @@ export interface Import {
 
 /**
  * Implements a pipeline for ES5 downlevelling and async/await polyfilling.
- * Uses Bun.Transpiler for the first pass if available.
+ * Uses Bun.Transpiler for the first pass and AST transformation for async/await.
  */
 export class Transpiler {
 	constructor(private options: TranspilerOptions = {}) {}
@@ -36,21 +40,54 @@ export class Transpiler {
 
     let output = bunTranspiler.transformSync(code);
 
-		// Pass 2: Async/await polyfill
-		output = output.replace(/\basync\s+function\b/g, "function*");
-    // Handle async arrow functions
-    output = output.replace(/\basync\s*\(([^)]*)\)\s*=>\s*\{/g, "function*($1) {");
-    output = output.replace(/\basync\s*\(([^)]*)\)\s*=>\s*([^;{),\]} ]+)/g, "function*($1) { return $2; }");
+		// Pass 2: Async/await polyfill via AST transformation
+    const ast = acorn.parse(output, { ecmaVersion: 'latest', sourceType: 'script' });
 
-		output = output.replace(/\bawait\s+([\s\S]+?)(?=[;,)\]}]|$)/g, "yield { __alloy_ipc: \"__await__\", args: [$1] }");
-    output = output.replace(/\bnew\s+Promise\b\s*\(/g, "__alloy_deferred(");
+    let needsHelpers = false;
 
-    // Pass 3: MQJS compatibility (remaining ES6+ features not handled by Bun)
+    walk.full(ast, (node: any) => {
+        if (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression') {
+            if (node.async) {
+                node.async = false;
+                node.generator = true;
+                needsHelpers = true;
+            }
+        }
+        if (node.type === 'AwaitExpression') {
+            node.type = 'YieldExpression';
+            node.argument = {
+                type: 'ObjectExpression',
+                properties: [
+                    {
+                        type: 'Property',
+                        kind: 'init',
+                        key: { type: 'Identifier', name: '__alloy_ipc' },
+                        value: { type: 'Literal', value: '__await__' }
+                    },
+                    {
+                        type: 'Property',
+                        kind: 'init',
+                        key: { type: 'Identifier', name: 'args' },
+                        value: { type: 'ArrayExpression', elements: [node.argument] }
+                    }
+                ]
+            };
+            needsHelpers = true;
+        }
+        if (node.type === 'NewExpression' && node.callee.name === 'Promise') {
+            node.callee.name = '__alloy_deferred';
+            needsHelpers = true;
+        }
+    });
+
+    output = generate(ast);
+
+    // Pass 3: MQJS compatibility (remaining ES6+ features)
 		output = output.replace(/\bconst\b/g, "var");
 		output = output.replace(/\blet\b/g, "var");
 
     // Inject helpers
-    if (output.includes("__alloy_ipc") || output.includes("__alloy_deferred")) {
+    if (needsHelpers) {
         output = "var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n" + output;
     }
 
