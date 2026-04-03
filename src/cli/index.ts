@@ -105,6 +105,7 @@ program
 	.option("--minify", "Minify output", false)
 	.option("--sourcemap <type>", "Sourcemap type (none|inline|external)", "none")
 	.option("--splitting", "Enable code splitting", false)
+	.option("--config <path>", "Path to alloyconfig.toml")
 	.action(async (entrypoints, options) => {
 		if (!entrypoints || entrypoints.length === 0) {
 			entrypoints = ["src/main.ts"];

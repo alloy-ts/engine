@@ -20,6 +20,14 @@ typedef struct {
     alloy_runtime_t *rt;
 } AlloyMQJSBinding;
 
+// Global table for generic_params dispatch (Requirement 18.3)
+static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params);
+
+static const JSCFunctionDef alloy_c_function_table[] = {
+    { { .generic_params = alloy_mqjs_dispatch }, JS_NULL, JS_CFUNC_generic_params, 0, 0 },
+    { { .generic = NULL }, JS_NULL, 0, 0, 0 }
+};
+
 static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params) {
     AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
 
@@ -71,10 +79,8 @@ static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandle
 
     JSValue params = JS_NewInt64(e->ctx, (int64_t)(uintptr_t)b);
 
-    // In a real stdlib we'd have a way to register this.
-    // For now we assume next_idx is handled.
-    static int next_idx = JS_CFUNCTION_USER + 20;
-    JSValue fn = JS_NewCFunctionParams(e->ctx, next_idx++, params);
+    // Use index 0 from alloy_c_function_table which points to alloy_mqjs_dispatch
+    JSValue fn = JS_NewCFunctionParams(e->ctx, 0, params);
 
     JSValue global = JS_GetGlobalObject(e->ctx);
     JS_SetPropertyStr(e->ctx, global, name, fn);
@@ -127,8 +133,12 @@ AlloyJSEngine *alloy_mqjs_engine_create(size_t mem_size, alloy_runtime_t *rt) {
     e->mem_buf = malloc(mem_size);
     e->rt = rt;
 
-    // Use stdlib if available
-    e->ctx = JS_NewContext(e->mem_buf, mem_size, &js_stdlib);
+    // Create alloy-specific stdlib wrapper
+    static JSSTDLibraryDef alloy_stdlib;
+    memcpy(&alloy_stdlib, &js_stdlib, sizeof(js_stdlib));
+    alloy_stdlib.c_function_table = alloy_c_function_table;
+
+    e->ctx = JS_NewContext(e->mem_buf, mem_size, &alloy_stdlib);
     JS_SetContextOpaque(e->ctx, rt);
     return (AlloyJSEngine *)e;
 }

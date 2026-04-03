@@ -1,7 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ConfigLoader } from "./config/loader";
 import { shellBuildPlugin } from "./shell/shell_build_plugin";
 import { type Loader, Transpiler } from "./transpiler";
+import { Linker } from "./linker";
 
 export interface BuildOptions {
 	entrypoints: string[];
@@ -57,43 +59,43 @@ export interface PluginBuild {
 }
 
 export async function build(options: BuildOptions): Promise<BuildOutput> {
+	const configLoader = new ConfigLoader();
+	const config = configLoader.load({
+		cliFlags: options as any,
+	});
+
 	// Add shell build plugin by default
 	const plugins = options.plugins || [];
 	plugins.push(shellBuildPlugin());
 	options.plugins = plugins;
 
-	const outdir = options.outdir || "./dist";
+	const outdir = options.outdir || config.install?.globalDir || "./dist";
 	if (!fs.existsSync(outdir)) fs.mkdirSync(outdir, { recursive: true });
 
 	const outputs: BuildArtifact[] = [];
 	const logs: BuildMessage[] = [];
-	const transpiler = new Transpiler();
+	const linker = new Linker();
 
-	for (const entry of options.entrypoints) {
-		try {
-			const fullPath = path.resolve(entry);
-			const content = fs.readFileSync(fullPath, "utf-8");
-			const loader = path.extname(entry).slice(1) as Loader;
-			const transformed = transpiler.transformSync(content, loader);
+	try {
+		const bundle = await linker.link(options.entrypoints, {
+			minify: typeof options.minify === "boolean" ? options.minify : !!options.minify,
+			treeShaking: true,
+		});
 
-			const outPath = path.join(
-				outdir,
-				path.basename(entry, path.extname(entry)) + ".js",
-			);
-			fs.writeFileSync(outPath, transformed);
+		const outPath = path.join(outdir, "bundle.js");
+		fs.writeFileSync(outPath, bundle);
 
-			outputs.push({
-				path: outPath,
-				kind: "entry-point",
-				size: transformed.length,
-				text: () => Promise.resolve(transformed),
-				arrayBuffer: () =>
-					Promise.resolve(new TextEncoder().encode(transformed).buffer),
-			});
-		} catch (e: unknown) {
-			const error = e as { message?: string };
-			logs.push({ level: "error", message: error.message || String(e) });
-		}
+		outputs.push({
+			path: outPath,
+			kind: "entry-point",
+			size: bundle.length,
+			text: () => Promise.resolve(bundle),
+			arrayBuffer: () =>
+				Promise.resolve(new TextEncoder().encode(bundle).buffer),
+		});
+	} catch (e: unknown) {
+		const error = e as { message?: string };
+		logs.push({ level: "error", message: error.message || String(e) });
 	}
 
 	return {
