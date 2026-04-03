@@ -1,9 +1,15 @@
+#define _GNU_SOURCE
 #include "ipc.h"
 #include <openssl/evp.h>
+#include <sys/mman.h>
 #include <openssl/rand.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "../../packages/mquickjs/mquickjs.h"
+
+#define JS_ParseJSON(ctx, buf, len, filename) JS_Parse(ctx, buf, len, filename, JS_EVAL_JSON)
+#define JS_ToUint64(ctx, pres, val) JS_ToNumber(ctx, (double*)pres, val)
 
 static char *base64_encode(const uint8_t *input, int length) {
     static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -75,7 +81,7 @@ int alloy_ipc_encrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
 
 int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
     if (msg->seq <= rt->ipc_state.last_inbound_seq) {
-        fprintf(stderr, "[alloy] IPC rejection: Replay attempt (seq %llu)\n", msg->seq);
+        fprintf(stderr, "[alloy] IPC rejection: Replay attempt (seq %lu)\n", (unsigned long)msg->seq);
         return ALLOY_ERR_REPLAY;
     }
     if (msg->payload_len > ALLOY_IPC_MAX_MSG_SIZE) return ALLOY_ERR_MSG_TOO_LARGE;
@@ -100,7 +106,7 @@ int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
         rt->ipc_state.last_inbound_seq = msg->seq;
         return 0;
     }
-    fprintf(stderr, "[alloy] IPC rejection: Auth failed (seq %llu)\n", msg->seq);
+    fprintf(stderr, "[alloy] IPC rejection: Auth failed (seq %lu)\n", (unsigned long)msg->seq);
     return ALLOY_ERR_AUTH_FAILED;
 }
 
@@ -112,8 +118,8 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
     char *payload_b64 = base64_encode(msg->payload, msg->payload_len);
 
     char *json = NULL;
-    asprintf(&json, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
-             msg->seq, nonce_b64, tag_b64, msg->type, payload_b64);
+    asprintf(&json, "{\"seq\":%lu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
+             (unsigned long)msg->seq, nonce_b64, tag_b64, msg->type, payload_b64);
 
     char *js_call = NULL;
     asprintf(&js_call, "window.Alloy.handleMessage('%s')", json);
@@ -151,6 +157,11 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     JSValue payload_val = JS_GetPropertyStr(ctx, val, "payload");
 
     if (JS_IsUndefined(seq_val) || JS_IsUndefined(nonce_val) || JS_IsUndefined(tag_val) || JS_IsUndefined(type_val) || JS_IsUndefined(payload_val)) {
+        JS_FreeValue(ctx, seq_val);
+        JS_FreeValue(ctx, nonce_val);
+        JS_FreeValue(ctx, tag_val);
+        JS_FreeValue(ctx, type_val);
+        JS_FreeValue(ctx, payload_val);
         JS_FreeValue(ctx, val);
         mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
         fprintf(stderr, "[alloy] IPC rejection: Missing required fields\n");
@@ -163,6 +174,11 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     if (out->type != ALLOY_MSG_BROWSER_API_REQUEST &&
         out->type != ALLOY_MSG_BROWSER_API_RESPONSE &&
         out->type != ALLOY_MSG_KEY_RENEGOTIATE) {
+        JS_FreeValue(ctx, seq_val);
+        JS_FreeValue(ctx, nonce_val);
+        JS_FreeValue(ctx, tag_val);
+        JS_FreeValue(ctx, type_val);
+        JS_FreeValue(ctx, payload_val);
         JS_FreeValue(ctx, val);
         mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
         fprintf(stderr, "[alloy] IPC rejection: Unknown type %u\n", out->type);
@@ -182,7 +198,7 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     memcpy(out->nonce, nonce, 12);
     memcpy(out->tag, tag, 16);
 
-    JS_FreeCString(ctx, n_b64); JS_FreeCString(ctx, t_b64); JS_FreeCString(ctx, p_b64);
+    JS_FreeCString(ctx, n_b64, NULL); JS_FreeCString(ctx, t_b64, NULL); JS_FreeCString(ctx, p_b64, NULL);
     JS_FreeValue(ctx, seq_val); JS_FreeValue(ctx, nonce_val); JS_FreeValue(ctx, tag_val);
     JS_FreeValue(ctx, type_val); JS_FreeValue(ctx, payload_val); JS_FreeValue(ctx, val);
 
@@ -203,10 +219,14 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
         JSValue id_val = JS_GetPropertyStr(ctx, resp_val, "id");
         JSValue ok_val = JS_GetPropertyStr(ctx, resp_val, "ok");
         if (JS_IsUndefined(id_val) || JS_IsUndefined(ok_val)) {
+            JS_FreeValue(ctx, id_val);
+            JS_FreeValue(ctx, ok_val);
             JS_FreeValue(ctx, resp_val);
             mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
             return ALLOY_ERR_BAD_SCHEMA;
         }
+        JS_FreeValue(ctx, id_val);
+        JS_FreeValue(ctx, ok_val);
         JS_FreeValue(ctx, resp_val);
         mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
     }

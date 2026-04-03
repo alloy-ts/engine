@@ -16,6 +16,14 @@ typedef enum {
     ALLOY_MSG_KEY_RENEGOTIATE = 3,
 } AlloyMessageType;
 
+typedef enum {
+    ALLOY_ERR_MSG_TOO_LARGE = -1,
+    ALLOY_ERR_REPLAY = -2,
+    ALLOY_ERR_AUTH_FAILED = -3,
+    ALLOY_ERR_BAD_SCHEMA = -4,
+    ALLOY_ERR_UNKNOWN_TYPE = -5,
+} AlloyError;
+
 typedef struct {
     uint64_t seq;
     uint8_t nonce[ALLOY_IPC_NONCE_SIZE];

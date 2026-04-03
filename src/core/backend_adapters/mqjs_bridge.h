@@ -1,20 +1,17 @@
 #ifndef ALLOY_MQJS_BRIDGE_H
 #define ALLOY_MQJS_BRIDGE_H
 
-#include "../../packages/microquickjs/mquickjs.h"
-#include "../../packages/webview/core/include/webview/webview.h"
-#include <stddef.h>
+#include "../js_engine.h"
+#include "../../packages/mquickjs/mquickjs.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val);
+AlloyJSEngine* alloy_mqjs_engine_create(JSContext *ctx);
 
-void alloy_mqjs_bind_func(JSContext *ctx, const char *name, JSCFunction *func, int argc);
-
-void alloy_webview_bind_global(webview_t w, const char *name, 
-                               void (*fn)(const char *id, const char *req, void *arg), void *arg);
+void JS_FreeValue(JSContext *ctx, JSValue v);
+void JS_FreeCString(JSContext *ctx, const char *s, void *p);
 
 #ifdef __cplusplus
 }
