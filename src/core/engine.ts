@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto";
 import {
-	mkdir,
-	chmod,
-	unlink,
 	access,
-	readFile,
-	writeFile,
+	chmod,
 	existsSync,
+	mkdir,
 	mkdirSync,
+	readFile,
 	readFileSync,
+	unlink,
+	writeFile,
 } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 export abstract class Loader {
 	abstract load(url: string): Promise<string>;

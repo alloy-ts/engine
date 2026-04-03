@@ -1,10 +1,24 @@
 # AlloyScript Architecture: Technical Deep Dive
 
-AlloyScript implements a defense-in-depth security model using a dual-engine design and encrypted inter-process communication.
+AlloyScript implements a defense-in-depth security model using a dual-engine design, encrypted inter-process communication, and a multi-layered shell isolation subsystem.
 
 ## 🏗️ The Host Orchestrator (C/C++)
 
-The `AlloyScriptHost` is the trusted core of the system. It manages both the **MicroQuickJS** and **WebView** engines.
+The `AlloyScriptHost` is the trusted core of the system. It manages the lifecycle of all execution environments and enforces security boundaries.
+
+### JS Engine Abstraction (`AlloyJSEngine`)
+
+To support multiple execution targets (Native, Browser, Wasm), the host uses a unified `AlloyJSEngine` vtable. This decouples the runtime logic from specific engine implementations (MicroQuickJS, WebView, or WasmEdge).
+
+```c
+struct AlloyJSEngine {
+    int (*call_fn)(AlloyJSEngine *engine, const char *name, const char *args_json, char **out_result);
+    int (*eval_fn)(AlloyJSEngine *engine, const char *source, const char *filename, char **out_result);
+    int (*bind_fn)(AlloyJSEngine *engine, const char *name, AlloyBindHandler handler, void *opaque);
+    int (*emit_fn)(AlloyJSEngine *engine, const char *event_name, const char *payload_json);
+    void (*destroy_fn)(AlloyJSEngine *engine);
+};
+```
 
 ### Dual-Engine Design
 
@@ -13,133 +27,91 @@ The `AlloyScriptHost` is the trusted core of the system. It manages both the **M
 
 ### Secure IPC (E2EE)
 
-AlloyScript implements **End-to-End Encryption** for all communication between the C host and the WebView. At startup, a unique 256-bit AES session key is generated.
+AlloyScript implements **End-to-End Encryption** for all communication between the C host and the WebView. At startup, a unique 256-bit AES session key is generated and pinned in RAM (`mlock`).
 
-1. **JS -> C**: Calls made via `window.Alloy.call()` are encrypted in the WebView using the `crypto.subtle` API.
-2. **C -> JS**: Results are decrypted in the host, processed, and the response is encrypted before being sent back to the WebView.
+1. **MQJS -> WebView**: Requests are serialized to JSON, encrypted via AES-256-GCM in the host, and sent to the WebView sidecar.
+2. **WebView -> MQJS**: Results are decrypted, authenticated, and validated against a strict schema before being returned to user code.
 
-This ensures that even if the WebView process is compromised, the attacker cannot sniff or spoof IPC messages without the session key.
+---
 
-### Orchestrator Implementation Sketch
+## 🐚 Alloy Shell: Three-Layer Isolation
 
-```rust
-// Simple orchestrator that manages Podman containers and RPC dispatching
+The Alloy Shell (`$`) operates under a **hostile OS threat model**. It assumes the underlying OS might be compromised and uses three layers of isolation for local-first execution.
 
-pub struct AlloyScriptHost {
-    podman_client: PodmanClient,
-    ipc_server: IpcServer,
-    capability_manager: CapabilityManager,
-}
+### Isolation Hierarchy
 
-impl AlloyScriptHost {
-    pub async fn run_app(&self, app_bundle: &Path) -> Result<()> {
-        let config = AppConfig::load(app_bundle)?;
+```text
+Layer 0: HostProcess (AlloyScript C runtime — trusted)
+  │
+  ├── Layer 1: WasmEdge + WASI/WIT
+  │     └── shell.wasm (Bytecode verified before execution)
+  │           │
+  │           └── Layer 2: OCI Container (Linux Kernel Isolation)
+  │                 └── Default image: cgr.dev/chainguard/alpine-base
+  │                 └── Signature verification via Sigstore/cosign
+```
 
-        // Create Podman container with resource limits and restricted capabilities
-        let container = self.podman_client.create_container(
-            PodmanCreateOptions {
-                image: "localhost/alloyos:latest",
-                name: config.app_id.clone(),
-                memory: config.memory_limit.unwrap_or(512 * 1024 * 1024),
-                cpus: config.cpu_limit.unwrap_or(1.0),
-                cap_drop: vec!["ALL"],
-                security_opt: vec!["no-new-privileges=true".into()],
-                mounts: vec![
-                    Mount { source: app_bundle.display().to_string(), target: "/app", read_only: true },
-                    Mount { source: format!("/tmp/alloy-{}", config.app_id), target: "/data", read_only: false },
-                ],
-                ..Default::default()
-            },
-        ).await?;
+### WIT Interface (`alloy:shell`)
 
-        self.podman_client.start(&container).await?;
-        Ok(())
-    }
+The `alloy:shell` WIT interface is the canonical contract for all shell operations. It defines the `exec` function and associated options/results.
+
+```wit
+interface shell {
+    record shell-opts { throws: bool, env: list<tuple<string, string>>, cwd: string }
+    exec: func(script: string, opts: shell-opts) -> result<shell-result, string>;
 }
 ```
+
+### Enforcement Mechanisms
+
+| Mode | Enforcement | Primitives |
+| :--- | :--- | :--- |
+| **Local (Wasm)** | WasmEdge | WASI capability grants (`--dir`, `--env`). |
+| **Local (Native)**| Host Kernel | Namespaces (PID, Mount, Net), Seccomp-BPF, Seatbelt (macOS). |
+| **Server** | Host C Runtime | Whitelist hashtable enforcement. |
+
+---
 
 ## 🛡️ Double Sandboxing Execution Flow
 
-The security of AlloyScript relies on two independent layers of isolation.
+The security of AlloyScript relies on two independent layers of isolation for every capability.
 
 ```text
 ┌─────────────────────────────────────────────┐
-│ 1. AlloyScript Host (Rust Orchestrator)     │
-│    - Parses application bundle              │
-│    - Spawns OCI container via Podman        │
-│    - Listens for RPC calls via Unix socket  │
+│ 1. AlloyScript Host (C Orchestrator)        │
+│    - Verifies binary integrity (BLAKE3)     │
+│    - Spawns isolated processes/containers   │
+│    - Manages AES-GCM session keys           │
 └──────────────────┬──────────────────────────┘
                    ↓
 ┌─────────────────────────────────────────────┐
-│ 2. OCI Container (OS-level Sandbox)         │
+│ 2. OCI Container (Layer 2 Sandbox)          │
 │    - Isolated PID, Network, and FS namespaces│
 │    - Resource limits (cgroups)              │
-│    - System call filtering (seccomp)        │
+│    - Chainguard minimal base images         │
 └──────────────────┬──────────────────────────┘
                    ↓
 ┌─────────────────────────────────────────────┐
-│ 3. WasmEdge + QuickJS (WASM Sandbox)        │
+│ 3. WasmEdge + WASI (Layer 1 Sandbox)        │
 │    - Linear memory isolation                │
-│    - No direct syscalls (WASI/WIT only)     │
-│    - Capability-based imports               │
+│    - Capability-based security              │
+│    - WIT boundary enforcement               │
 └──────────────────┬──────────────────────────┘
                    ↓
 ┌─────────────────────────────────────────────┐
-│ 4. Application (Bytecode)                   │
-│    - Executes in memory-safe environment    │
-│    - Interaction requires RPC via Host      │
+│ 4. Shell Interpreter (shell.wasm)           │
+│    - Safe string interpolation (no-injection)│
+│    - Cross-platform builtins                │
 └─────────────────────────────────────────────┘
 ```
 
-### Sandbox Responsibilities
+### Binary Self-Attestation
 
-| Layer | Enforced By | Isolation Features |
-| :--- | :--- | :--- |
-| **OS Sandbox** | Linux Kernel / Podman | PID namespaces, Network namespaces, Chroot/OverlayFS, cgroups, seccomp filters. |
-| **WASM Sandbox**| WasmEdge / WIT | Linear memory, Type safety, Disallowance of arbitrary pointer arithmetic, Import/Export control. |
+The HostProcess verifies its own integrity at startup using **BLAKE3**. It reads its own binary, zeros the embedded hash field, and compares the result against a pre-computed hash stored in `.rodata`.
 
-## 📦 Container Environment (Dockerfile)
+## 📦 Container Environment
 
-The base image for AlloyScript applications is designed to be minimal and secure.
+In `local-first` mode, every capability invocation runs in a fresh, ephemeral OCI container. Images are verified using **Sigstore/cosign** keyless verification before start.
 
-```dockerfile
-# Dockerfile: AlloyOS base image (Hardened)
-
-FROM cgr.dev/chainguard/base:latest
-
-# Install WasmEdge and dependencies
-RUN apk add --no-cache ca-certificates libssl3 libstdc++ glibc
-RUN curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v 0.13.5
-
-# Copy runtime components
-COPY qjs-wasi.wasm /usr/local/lib/wasmedge/
-
-# Entry point executes the application via WasmEdge
-ENTRYPOINT ["/usr/local/bin/wasmedge"]
-CMD ["/app/app.wasm"]
-```
-
-## 🔌 RPC Dispatcher Logic
-
-When an application needs to access host services (like the GUI), it makes an RPC call. The Host validates the application's capabilities before forwarding the request.
-
-```rust
-impl IpcDispatcher {
-    pub async fn dispatch(&self, request: RpcRequest) -> Result<RpcResponse> {
-        match request.method.as_str() {
-            "alloy:gui/create-window" => {
-                if !self.has_capability(Capability::GuiAccess) {
-                    return Err("GUI access denied".into());
-                }
-                self.forward_to_alloy_gui(request).await
-            }
-            "alloy:net/connect-tcp" => {
-                // Check fine-grained network capabilities (hosts, ports)
-                self.validate_network_access(&request).await?;
-                self.forward_to_network_service(request).await
-            }
-            _ => Err(format!("Unknown method: {}", request.method).into()),
-        }
-    }
-}
-```
+- **Backend**: `apple/container` on macOS/iOS, `podman` on Linux/Windows.
+- **Images**: Prefer verified Chainguard images (`cgr.dev/chainguard/...`).

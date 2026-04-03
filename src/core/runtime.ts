@@ -1,4 +1,4 @@
-(function () {
+(() => {
 	const global = globalThis;
 
 	// Internal bridge to the host (exposed via bind_global_mqjs)
@@ -8,7 +8,7 @@
 		/**
 		 * Binds a name and value to the MQJS global object.
 		 */
-		bind_global: function (name, value) {
+		bind_global: (name, value) => {
 			if (AlloyInternal && AlloyInternal.bindGlobal) {
 				AlloyInternal.bindGlobal(name, value);
 			}
@@ -17,7 +17,7 @@
 		/**
 		 * Transpiles and evaluates user-supplied code securely.
 		 */
-		secureEval: function (code) {
+		secureEval: (code) => {
 			try {
 				const transformed = Alloy.Transpiler.transformSync(code);
 				return AlloyInternal.secureEval(transformed);
@@ -29,33 +29,30 @@
 		/**
 		 * Spawns a process synchronously.
 		 */
-		spawnSync: function (cmd, args, opts) {
-			return AlloyInternal.spawnSync(cmd, args, opts);
-		},
+		spawnSync: (cmd, args, opts) => AlloyInternal.spawnSync(cmd, args, opts),
 
 		/**
 		 * Spawns a process asynchronously.
 		 */
-		spawn: function (cmd, args, opts) {
-			return new Promise(function (resolve, reject) {
-				AlloyInternal.spawn(cmd, args, opts, function (err, res) {
+		spawn: (cmd, args, opts) =>
+			new Promise((resolve, reject) => {
+				AlloyInternal.spawn(cmd, args, opts, (err, res) => {
 					if (err) reject(err);
 					else resolve(res);
 				});
-			});
-		},
+			}),
 
 		/**
 		 * Register event listener.
 		 */
-		on: function (event, listener) {
+		on: (event, listener) => {
 			AlloyInternal.on(event, listener);
 		},
 
 		/**
 		 * Deregister event listener.
 		 */
-		off: function (event, listener) {
+		off: (event, listener) => {
 			AlloyInternal.off(event, listener);
 		},
 
@@ -70,67 +67,97 @@
 		/**
 		 * Returns the metadata object for current memory mappings.
 		 */
-		getMmap: function () {
-			return AlloyInternal.getMmap();
-		},
+		getMmap: () => AlloyInternal.getMmap(),
 
 		/**
 		 * Returns the actual bytes of a specific memory region (gated).
 		 */
-		readMmap: function (region) {
-			return AlloyInternal.readMmap(region);
-		},
+		readMmap: (region) => AlloyInternal.readMmap(region),
 
 		/**
 		 * alloy:ffi re-export.
 		 */
 		ffi: undefined,
 
-        /**
-         * Alloy Shell template tag.
-         */
-        $: global.$
+		/**
+		 * Alloy Shell template tag.
+		 */
+		$: global.$ as ShellTag,
 	};
 
 	global.Alloy = Alloy;
+
+	export interface ShellResult {
+        stdout:   Buffer;
+        stderr:   Buffer;
+        exitCode: number;
+        process:  any;
+    }
+
+	export interface ShellError extends Error {
+        exitCode: number;
+        stdout:   Buffer;
+        stderr:   Buffer;
+        message:  string;
+    }
+
+	export interface ShellExpression extends PromiseLike<ShellResult> {
+        quiet():              ShellExpression;
+        nothrow():            ShellExpression;
+        throws(enabled: boolean): ShellExpression;
+        env(vars: Record<string, string> | undefined): ShellExpression;
+        cwd(path: string | undefined): ShellExpression;
+        text():  Promise<string>;
+        json():  Promise<unknown>;
+        lines(): AsyncIterable<string>;
+        blob():  Promise<Blob>;
+    }
+
+	export interface ShellTag {
+        (strings: TemplateStringsArray, ...interps: unknown[]): ShellExpression;
+        escape(str: string): string;
+        braces(str: string): string[];
+        nothrow(): void;
+        throws(enabled: boolean): void;
+        env(vars: Record<string, string> | undefined): void;
+        cwd(path: string | undefined): void;
+    }
 
 	// --- BrowserAPI Proxies ---
 
 	/**
 	 * Proxy for window.fetch.
 	 */
-	global.fetch = function (url, options) {
-		return new Promise(function (resolve, reject) {
+	global.fetch = (url, options) =>
+		new Promise((resolve, reject) => {
 			// Forward call via IPC through AlloyInternal.bridgeCall
 			AlloyInternal.bridgeCall(
 				"fetch",
 				{ url: url, options: options },
-				function (err, res) {
+				(err, res) => {
 					if (err) reject(err);
 					else
 						resolve(new Response(res.body, { status: res.status, ok: res.ok }));
 				},
 			);
 		});
-	};
 
 	/**
 	 * Proxy for crypto.subtle.
 	 */
 	global.crypto = {
 		subtle: {
-			digest: function (algo, data) {
-				return new Promise(function (resolve, reject) {
+			digest: (algo, data) =>
+				new Promise((resolve, reject) => {
 					AlloyInternal.bridgeCall(
 						"crypto.subtle.digest",
 						{ algo: algo, data: data },
-						function (err, res) {
+						(err, res) => {
 							if (err) reject(err);
 							else resolve(res);
 						},
 					);
-				});
-			},
+				}),
 		},
 	};
 
@@ -158,9 +185,7 @@
 	}
 	if (!global.performance) {
 		global.performance = {
-			now: function () {
-				return AlloyInternal.performanceNow();
-			},
+			now: () => AlloyInternal.performanceNow(),
 		};
 	}
 })();
