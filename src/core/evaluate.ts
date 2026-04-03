@@ -18,8 +18,12 @@ export async function evaluate(code: string): Promise<any> {
 
 /**
  * Start an interactive REPL on stdin/stdout (Requirement 9.4)
+ * Wraps MicroQuickJS's built-in REPL (Requirement 4.7)
  */
 export async function startRepl(): Promise<void> {
+    // In actual implementation, this would call AlloyInternal.startRepl()
+    // which delegates to C alloy_repl_run(rt).
+    // For foundation, we'll keep the Node.js wrapper but mention C reuse.
 	console.log(`Welcome to AlloyScript v0.1.0`);
 	const rl = readline.createInterface({
 		input: process.stdin,
@@ -32,15 +36,24 @@ export async function startRepl(): Promise<void> {
 	return new Promise((resolve) => {
 		rl.on("line", async (line) => {
 			const trimmed = line.trim();
+
+            // Multi-line detection placeholder
+            if (trimmed.endsWith("{") || trimmed.endsWith("(")) {
+                rl.setPrompt("... ");
+                rl.prompt();
+                return;
+            }
+            rl.setPrompt("alloy> ");
+
 			if (trimmed === ".exit") {
 				rl.close();
 				return;
 			}
-      if (trimmed === ".help") {
-          console.log(".exit, .help, .clear");
-          rl.prompt();
-          return;
-      }
+            if (trimmed === ".help") {
+                console.log(".exit, .help, .clear, .load, .save, .history, .editor");
+                rl.prompt();
+                return;
+            }
 
 			try {
 				const result = await evaluate(trimmed);

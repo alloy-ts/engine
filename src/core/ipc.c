@@ -207,6 +207,12 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
             mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
             return ALLOY_ERR_BAD_SCHEMA;
         }
+
+        // Wire IPC response delivery into the event loop (Requirement 15.9)
+        JSValue payload_jsval = JS_NewStringLen(ctx, (char *)out->payload, out->payload_len);
+        alloy_event_emit(rt, "message", payload_jsval);
+        JS_FreeValue(ctx, payload_jsval);
+
         JS_FreeValue(ctx, resp_val);
         mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
     }

@@ -3,11 +3,17 @@
 
 #include "../../packages/mquickjs/mquickjs.h"
 #include "../../packages/webview/core/include/webview/webview.h"
+#include "../js_engine.h"
 #include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct alloy_runtime;
+
+AlloyJSEngine *alloy_mqjs_engine_create(JSContext *ctx, struct alloy_runtime *rt);
+AlloyJSEngine *alloy_webview_engine_create(webview_t w, struct alloy_runtime *rt);
 
 void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val);
 

@@ -82,9 +82,13 @@ typedef struct {
     bool             js_arena_protected;
 } AlloyMmapSnapshot;
 
+#include "js_engine.h"
+
 typedef struct alloy_runtime {
-    JSContext *mqjs_ctx;
-    webview_t webview;
+    AlloyJSEngine    *mqjs_engine;     // trusted primary — MQJS vtable
+    AlloyJSEngine    *webview_engine;  // untrusted secondary — WebView vtable
+    JSContext *mqjs_ctx; // Still useful for some internal MQJS calls
+    webview_t webview;   // Still useful for internal webview calls
     void *mem_buf;
     size_t js_heap_size;
     int js_heap_prot;

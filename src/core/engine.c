@@ -93,29 +93,26 @@ static char *base64_encode(const uint8_t *input, int length);
 static uint8_t *base64_decode(const char *input, int length, int *out_len);
 
 static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue opaque) {
-    const AlloyBrowserAPIEntry *entry = (const AlloyBrowserAPIEntry *)(uintptr_t)(opaque & ~1);
-    alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
+    AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(opaque);
+    const AlloyBrowserAPIEntry *entry = (const AlloyBrowserAPIEntry *)b->opaque;
+    alloy_runtime_t *rt = b->rt;
+
     if (!rt) return JS_EXCEPTION;
-    if (rt->webview == NULL) return JS_NewString(ctx, "{\"error\": \"webview_unavailable\"}");
+    if (rt->webview_engine == NULL) return JS_NewString(ctx, "{\"error\": \"webview_unavailable\"}");
+
+    // Serialise args to JSON
+    JSValue args_array = JS_NewArray(ctx, argc);
+    for (int i = 0; i < argc; i++) JS_SetPropertyUint32(ctx, args_array, i, JS_DupValue(ctx, argv[i]));
 
     JSValue global_obj = JS_GetGlobalObject(ctx);
     JSValue json_obj = JS_GetPropertyStr(ctx, global_obj, "JSON");
     JSValue stringify = JS_GetPropertyStr(ctx, json_obj, "stringify");
-    JSValue args_array = JS_NewArray(ctx, argc);
-    for (int i = 0; i < argc; i++) JS_SetPropertyUint32(ctx, args_array, i, JS_DupValue(ctx, argv[i]));
     JSValue args_json_val = JS_Call(ctx, stringify, json_obj, 1, &args_array);
     const char *args_json = JS_ToCString(ctx, args_json_val, NULL);
 
-    char request_id[32];
-    snprintf(request_id, sizeof(request_id), "req-%llu", rt->ipc_state.next_outbound_seq);
-
-    AlloyMessage msg;
-    msg.type = ALLOY_MSG_BROWSER_API_REQUEST;
-    char *payload = NULL;
-    asprintf(&payload, "{\"api\":\"%s\",\"id\":\"%s\",\"args\":%s}", entry->js_name, request_id, args_json);
-    msg.payload_len = strlen(payload);
-    msg.payload = (uint8_t *)payload;
-    alloy_ipc_send(rt, &msg);
+    // Call through the WebView engine abstraction
+    char *result_json = NULL;
+    alloy_engine_call(rt->webview_engine, entry->webview_method, args_json, &result_json);
 
     JS_FreeCString(ctx, args_json);
     JS_FreeValue(ctx, args_json_val);
@@ -123,44 +120,12 @@ static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, in
     JS_FreeValue(ctx, stringify);
     JS_FreeValue(ctx, json_obj);
     JS_FreeValue(ctx, global_obj);
-    free(payload);
 
-    while (!rt->shutdown) {
-        alloy_poll_io(rt);
-        if (rt->event_queue.count > 0) {
-            AlloyEvent *ev = alloy_event_dequeue(rt);
-            if (strcmp(ev->name, "message") == 0) {
-                JSValue resp_payload = ev->args[0];
-                JSValue global = JS_GetGlobalObject(ctx);
-                JSValue json = JS_GetPropertyStr(ctx, global, "JSON");
-                JSValue parse = JS_GetPropertyStr(ctx, json, "parse");
-                JSValue resp = JS_Call(ctx, parse, json, 1, &resp_payload);
+    // Deserialise result
+    JSValue result = JS_ParseJSON(ctx, result_json, strlen(result_json), "<result>");
+    free(result_json);
 
-                JSValue id_val = JS_GetPropertyStr(ctx, resp, "id");
-                const char *id = JS_ToCString(ctx, id_val, NULL);
-                if (id && strcmp(id, request_id) == 0) {
-                    JSValue body = JS_GetPropertyStr(ctx, resp, "body");
-                    JS_FreeCString(ctx, id);
-                    JS_FreeValue(ctx, id_val);
-                    JS_FreeValue(ctx, resp);
-                    JS_FreeValue(ctx, parse);
-                    JS_FreeValue(ctx, json);
-                    JS_FreeValue(ctx, global);
-                    free(ev->name);
-                    return body;
-                }
-                // simplified: if not matching id, we lose it (or should we re-queue?)
-                JS_FreeCString(ctx, id);
-                JS_FreeValue(ctx, id_val);
-                JS_FreeValue(ctx, resp);
-                JS_FreeValue(ctx, parse);
-                JS_FreeValue(ctx, json);
-                JS_FreeValue(ctx, global);
-            }
-            free(ev->name);
-        }
-    }
-    return JS_UNDEFINED;
+    return result;
 }
 
 JSValue alloy_runtime_atob(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
@@ -214,32 +179,39 @@ JSValue alloy_runtime_report_error(JSContext *ctx, JSValue this_val, int argc, J
 
 JSValue alloy_runtime_spawn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     if (argc < 1) return JS_ThrowTypeError(ctx, "Missing command");
-    JSCStringBuf buf;
-    const char *cmd = JS_ToCString(ctx, argv[0], &buf);
+    const char *cmd = JS_ToCString(ctx, argv[0], NULL);
     if (!cmd) return JS_EXCEPTION;
+
     JSValue res = JS_NewObject(ctx);
     pid_t pid = fork();
-    if (pid == 0) { execlp(cmd, cmd, (char *)NULL); _exit(127); }
-    else if (pid > 0) {
+    if (pid == 0) {
+        // Child: handle args etc. Simplified for foundation.
+        execlp(cmd, cmd, (char *)NULL);
+        _exit(127);
+    } else if (pid > 0) {
         JS_SetPropertyStr(ctx, res, "pid", JS_NewInt32(ctx, pid));
         JS_SetPropertyStr(ctx, res, "stdout", JS_NULL);
         JS_SetPropertyStr(ctx, res, "stderr", JS_NULL);
         JS_SetPropertyStr(ctx, res, "exitCode", JS_NULL);
+        JS_FreeCString(ctx, cmd);
         return res;
+    } else {
+        JS_FreeCString(ctx, cmd);
+        return JS_ThrowInternalError(ctx, "fork failed: %s", strerror(errno));
     }
-    else return JS_ThrowInternalError(ctx, "fork failed: %s", strerror(errno));
 }
 
 JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     if (argc < 1) return JS_ThrowTypeError(ctx, "Missing command");
-    JSCStringBuf buf;
-    const char *cmd = JS_ToCString(ctx, argv[0], &buf);
+    const char *cmd = JS_ToCString(ctx, argv[0], NULL);
     if (!cmd) return JS_EXCEPTION;
+
     int status = system(cmd);
     JSValue res = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, res, "exitCode", JS_NewInt32(ctx, WEXITSTATUS(status)));
     JS_SetPropertyStr(ctx, res, "stdout", JS_NULL);
     JS_SetPropertyStr(ctx, res, "stderr", JS_NULL);
+    JS_FreeCString(ctx, cmd);
     return res;
 }
 
@@ -269,10 +241,273 @@ JSValue alloy_runtime_parse_validate(JSContext *ctx, JSValue this_val, int argc,
     return JS_NULL;
 }
 
-JSValue alloy_runtime_await_helper(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
-JSValue alloy_runtime_deferred_helper(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
-JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
-JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
+JSValue alloy_runtime_await_helper(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    if (argc < 1) return JS_EXCEPTION;
+    JSValue gen = argv[0];
+    JSValue next_name = JS_NewAtom(ctx, "next");
+    JSValue next_func = JS_GetProperty(ctx, gen, next_name);
+    JS_FreeAtom(ctx, next_name);
+
+    if (!JS_IsFunction(ctx, next_func)) {
+        JS_FreeValue(ctx, next_func);
+        return JS_DupValue(ctx, gen);
+    }
+
+    JSValue val = JS_UNDEFINED;
+    alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
+
+    while (!rt->shutdown) {
+        JSValue res = JS_Call(ctx, next_func, gen, 1, &val);
+        JS_FreeValue(ctx, val);
+        if (JS_IsException(res)) {
+            JS_FreeValue(ctx, next_func);
+            return res;
+        }
+
+        JSValue done_val = JS_GetPropertyStr(ctx, res, "done");
+        bool done = JS_ToBool(ctx, done_val);
+        JS_FreeValue(ctx, done_val);
+
+        JSValue value = JS_GetPropertyStr(ctx, res, "value");
+        JS_FreeValue(ctx, res);
+
+        if (done) {
+            JS_FreeValue(ctx, next_func);
+            return value;
+        }
+
+        // yielded { __alloy_ipc: "...", args: [...] }
+        JSValue ipc_name_val = JS_GetPropertyStr(ctx, value, "__alloy_ipc");
+        if (JS_IsUndefined(ipc_name_val)) {
+            val = value; // Regular yield
+            continue;
+        }
+
+        const char *api = JS_ToCString(ctx, ipc_name_val, NULL);
+        JSValue args_val = JS_GetPropertyStr(ctx, value, "args");
+        char *args_json = alloy_mqjs_to_json(ctx, args_val);
+        JS_FreeValue(ctx, args_val);
+        JS_FreeCString(ctx, api);
+        JS_FreeValue(ctx, ipc_name_val);
+        JS_FreeValue(ctx, value);
+
+        // Drive IPC synchronously (Requirement 4.5)
+        char *result_json = NULL;
+        alloy_engine_call(rt->webview_engine, api, args_json, &result_json);
+        free(args_json);
+
+        val = JS_ParseJSON(ctx, result_json, strlen(result_json), "<ipc_res>");
+        free(result_json);
+    }
+
+    JS_FreeValue(ctx, next_func);
+    return JS_UNDEFINED;
+}
+
+JSValue alloy_runtime_deferred_helper(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    // Synchronous deferred wrapper
+    // Drives executor immediately
+    if (argc < 1) return JS_EXCEPTION;
+    JSValue executor = argv[0];
+
+    // In MQJS sync model, this just calls the executor
+    // and returns a mock promise-like object
+    JSValue res = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, res, "then", JS_NewCFunction(ctx, alloy_runtime_await_helper, "then", 1));
+
+    JSValue resolve = JS_NewObject(ctx); // dummy
+    JSValue reject = JS_NewObject(ctx); // dummy
+    JSValue args[2] = { resolve, reject };
+    JS_Call(ctx, executor, JS_UNDEFINED, 2, args);
+    JS_FreeValue(ctx, resolve); JS_FreeValue(ctx, reject);
+
+    return res;
+}
+static void alloy_mmap_hash_stable_regions(AlloyMmapSnapshot *snap) {
+    blake3_hasher h;
+
+    // Hash .text contents
+    for (int i = 0; i < snap->count; i++) {
+        if (snap->regions[i].kind == ALLOY_REGION_CODE && snap->regions[i].readable) {
+            blake3_hasher_init(&h);
+            blake3_hasher_update(&h, (void*)snap->regions[i].start, snap->regions[i].size);
+            blake3_hasher_finalize(&h, snap->blake3_text, 32);
+            break;
+        }
+    }
+
+    // Hash .rodata contents
+    for (int i = 0; i < snap->count; i++) {
+        if (snap->regions[i].kind == ALLOY_REGION_RODATA && snap->regions[i].readable) {
+            blake3_hasher_init(&h);
+            blake3_hasher_update(&h, (void*)snap->regions[i].start, snap->regions[i].size);
+            blake3_hasher_finalize(&h, snap->blake3_rodata, 32);
+            break;
+        }
+    }
+
+    // Hash .text + .rodata concatenated
+    blake3_hasher_init(&h);
+    bool has_text = false, has_rodata = false;
+    for (int i = 0; i < snap->count; i++) {
+        if (snap->regions[i].kind == ALLOY_REGION_CODE && snap->regions[i].readable) {
+            blake3_hasher_update(&h, (void*)snap->regions[i].start, snap->regions[i].size);
+            has_text = true;
+        }
+        if (snap->regions[i].kind == ALLOY_REGION_RODATA && snap->regions[i].readable) {
+            blake3_hasher_update(&h, (void*)snap->regions[i].start, snap->regions[i].size);
+            has_rodata = true;
+        }
+    }
+    if (has_text || has_rodata) {
+        blake3_hasher_finalize(&h, snap->blake3_text_rodata, 32);
+    } else {
+        memset(snap->blake3_text_rodata, 0, 32);
+    }
+}
+
+int alloy_mmap_enumerate(alloy_runtime_t *rt, AlloyMmapSnapshot *snap) {
+#if defined(__linux__)
+    FILE *f = fopen("/proc/self/maps", "r");
+    if (!f) return -1;
+    char line[512];
+    snap->count = 0;
+
+    while (fgets(line, sizeof(line), f) && snap->count < ALLOY_MMAP_MAX_REGIONS) {
+        AlloyMmapRegion *r = &snap->regions[snap->count];
+        uintptr_t start, end;
+        char perms[8], file[256] = "";
+        int fields = sscanf(line, "%lx-%lx %4s %*x %*s %*d %255[^\n]", &start, &end, perms, file);
+
+        r->start = start;
+        r->size  = end - start;
+        strncpy(r->perms, perms, sizeof(r->perms));
+        r->readable   = perms[0] == 'r';
+        r->writable   = perms[1] == 'w';
+        r->executable = perms[2] == 'x';
+
+        // Classify region
+        if (strcmp(file, "[stack]") == 0) {
+            r->kind = ALLOY_REGION_STACK;
+            strncpy(r->name, "[stack]", sizeof(r->name));
+            r->stable = false;
+        } else if (strcmp(file, "[heap]") == 0) {
+            r->kind = ALLOY_REGION_HEAP;
+            strncpy(r->name, "[heap]", sizeof(r->name));
+            r->stable = false;
+        } else if (strcmp(file, "[vdso]") == 0) {
+            r->kind = ALLOY_REGION_VDSO;
+            strncpy(r->name, "[vdso]", sizeof(r->name));
+            r->stable = false;
+        } else if (start == (uintptr_t)rt->mem_buf) {
+            r->kind = ALLOY_REGION_JS_ARENA;
+            strncpy(r->name, "js_arena", sizeof(r->name));
+            r->stable = false;
+        } else if (r->executable && strlen(file) > 0) {
+            r->kind = ALLOY_REGION_CODE;
+            strncpy(r->name, ".text", sizeof(r->name));
+            strncpy(r->file, file, sizeof(r->file));
+            r->stable = true;
+        } else if (!r->writable && !r->executable && strlen(file) > 0) {
+            r->kind = ALLOY_REGION_RODATA;
+            strncpy(r->name, ".rodata", sizeof(r->name));
+            strncpy(r->file, file, sizeof(r->file));
+            r->stable = true;
+        } else if (r->writable && strlen(file) > 0) {
+            r->kind = ALLOY_REGION_DATA;
+            strncpy(r->name, ".data", sizeof(r->name));
+            r->stable = false;
+        } else {
+            r->kind = ALLOY_REGION_ANON;
+            strncpy(r->name, "anon", sizeof(r->name));
+            r->stable = false;
+        }
+        snap->count++;
+    }
+    fclose(f);
+#else
+    // Mock for other platforms
+    snap->count = 0;
+#endif
+
+    snap->aslr_offset = 0; // Simplified
+    alloy_mmap_hash_stable_regions(snap);
+    snap->js_arena_protected = (rt->js_heap_prot == PROT_NONE);
+
+    return 0;
+}
+
+static char *hex_encode(const uint8_t *data, size_t len) {
+    char *hex = malloc(len * 2 + 1);
+    for (size_t i = 0; i < len; i++) sprintf(hex + i * 2, "%02x", data[i]);
+    hex[len * 2] = '\0';
+    return hex;
+}
+
+JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
+    AlloyMmapSnapshot snap;
+    alloy_mmap_enumerate(rt, &snap);
+
+    JSValue res = JS_NewObject(ctx);
+    JSValue regions = JS_NewArray(ctx, snap.count);
+    for (int i = 0; i < snap.count; i++) {
+        JSValue r = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, r, "name", JS_NewString(ctx, snap.regions[i].name));
+        JS_SetPropertyStr(ctx, r, "start", JS_NewFloat64(ctx, (double)snap.regions[i].start));
+        JS_SetPropertyStr(ctx, r, "size", JS_NewFloat64(ctx, (double)snap.regions[i].size));
+        JS_SetPropertyStr(ctx, r, "perms", JS_NewString(ctx, snap.regions[i].perms));
+        JS_SetPropertyStr(ctx, r, "readable", JS_NewBool(ctx, snap.regions[i].readable));
+        JS_SetPropertyStr(ctx, r, "writable", JS_NewBool(ctx, snap.regions[i].writable));
+        JS_SetPropertyStr(ctx, r, "executable", JS_NewBool(ctx, snap.regions[i].executable));
+        JS_SetPropertyStr(ctx, r, "stable", JS_NewBool(ctx, snap.regions[i].stable));
+        JS_SetPropertyUint32(ctx, regions, i, r);
+    }
+    JS_SetPropertyStr(ctx, res, "regions", regions);
+
+    JSValue blake3 = JS_NewObject(ctx);
+    char *text_h = hex_encode(snap.blake3_text, 32);
+    char *rodata_h = hex_encode(snap.blake3_rodata, 32);
+    char *both_h = hex_encode(snap.blake3_text_rodata, 32);
+    JS_SetPropertyStr(ctx, blake3, "text", JS_NewString(ctx, text_h));
+    JS_SetPropertyStr(ctx, blake3, "rodata", JS_NewString(ctx, rodata_h));
+    JS_SetPropertyStr(ctx, blake3, "textAndRodata", JS_NewString(ctx, both_h));
+    free(text_h); free(rodata_h); free(both_h);
+    JS_SetPropertyStr(ctx, res, "blake3", blake3);
+
+    JS_SetPropertyStr(ctx, res, "jsArenaProtected", JS_NewBool(ctx, snap.js_arena_protected));
+    JS_SetPropertyStr(ctx, res, "aslrOffset", JS_NewFloat64(ctx, (double)snap.aslr_offset));
+
+    return res;
+}
+
+JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
+    const char *name = JS_ToCString(ctx, argv[0], NULL);
+
+    AlloyMmapSnapshot snap;
+    alloy_mmap_enumerate(rt, &snap);
+
+    for (int i = 0; i < snap.count; i++) {
+        if (strcmp(snap.regions[i].name, name) == 0) {
+            if (!snap.regions[i].readable) {
+                JS_FreeCString(ctx, name);
+                return JS_ThrowRangeError(ctx, "region is not readable");
+            }
+            if (snap.regions[i].kind == ALLOY_REGION_JS_ARENA && snap.js_arena_protected) {
+                JS_FreeCString(ctx, name);
+                return JS_ThrowRangeError(ctx, "js_arena is currently protected");
+            }
+
+            JSValue buf = JS_NewArrayBufferCopy(ctx, (uint8_t *)snap.regions[i].start, snap.regions[i].size);
+            JS_FreeCString(ctx, name);
+            return buf;
+        }
+    }
+
+    JS_FreeCString(ctx, name);
+    return JS_ThrowRangeError(ctx, "region not found");
+}
 
 void alloy_event_emit(alloy_runtime_t *rt, const char *name, JSValue arg) {
     for (int i = 0; i < 32; i++) {
@@ -300,7 +535,17 @@ AlloyEvent *alloy_event_dequeue(alloy_runtime_t *rt) {
     return ev;
 }
 
-void alloy_poll_io(alloy_runtime_t *rt) {}
+void alloy_poll_io(alloy_runtime_t *rt) {
+    // Check for pending WebView callbacks/events
+    if (rt->webview) {
+        // webview_poll is hypothetical for some backends,
+        // usually webview_run blocks. In a cooperative loop:
+        // webview_dispatch(rt->webview);
+    }
+
+    // Check timers
+    // Simplified timer check for foundation
+}
 
 void alloy_drain_next_tick(alloy_runtime_t *rt) {
     while (rt->next_tick_count > 0) {
@@ -391,30 +636,21 @@ int alloy_self_attest(void) {
     return diff == 0 ? 0 : -1;
 }
 
-alloy_runtime_t *alloy_engine_create(void) {
-    alloy_runtime_t *rt = calloc(1, sizeof(alloy_runtime_t));
-    if (!rt) return NULL;
-    rt->js_heap_size = 16 << 20;
-    rt->mem_buf = mmap(NULL, rt->js_heap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    rt->mqjs_ctx = JS_NewContext(rt->mem_buf, rt->js_heap_size, &js_stdlib);
-    JS_SetContextOpaque(rt->mqjs_ctx, rt);
-    mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
-    rt->webview = webview_create(0, NULL);
-    webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
-    RAND_bytes(rt->ipc_state.session_key, 32);
-    mlock(rt->ipc_state.session_key, 32);
-    rt->ipc_state.next_outbound_seq = 1;
-    rt->ipc_state.last_inbound_seq = 0;
+void alloy_engine_bootstrap(alloy_runtime_t *rt) {
     JSContext *ctx = rt->mqjs_ctx;
     mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
-    JSValue global_obj = JS_GetGlobalObject(ctx);
+
+    // Auto-registration loop over ALLOY_BROWSER_API_TABLE
     for (int i = 0; ALLOY_BROWSER_API_TABLE[i].js_name != NULL; i++) {
-        alloy_mqjs_bind_func(ctx, ALLOY_BROWSER_API_TABLE[i].js_name, (JSCFunction *)alloy_browser_proxy_dispatch, (void *)&ALLOY_BROWSER_API_TABLE[i]);
+        alloy_engine_bind(rt->mqjs_engine, ALLOY_BROWSER_API_TABLE[i].js_name, (AlloyBindHandler)alloy_browser_proxy_dispatch, (void *)&ALLOY_BROWSER_API_TABLE[i]);
     }
+
+    JSValue global_obj = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global_obj, "window", JS_DupValue(ctx, global_obj));
     JS_SetPropertyStr(ctx, global_obj, "globalThis", JS_DupValue(ctx, global_obj));
     JS_SetPropertyStr(ctx, global_obj, "self", JS_DupValue(ctx, global_obj));
     JS_SetPropertyStr(ctx, global_obj, "global", JS_DupValue(ctx, global_obj));
+
     JSValue alloy_obj = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, alloy_obj, "spawn", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 11, JS_NULL));
     JS_SetPropertyStr(ctx, alloy_obj, "spawnSync", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 12, JS_NULL));
@@ -425,12 +661,15 @@ alloy_runtime_t *alloy_engine_create(void) {
     JS_SetPropertyStr(ctx, alloy_obj, "off", JS_NewCFunction(ctx, alloy_runtime_off, "off", 2));
     JS_SetPropertyStr(ctx, alloy_obj, "emit", JS_NewCFunction(ctx, alloy_runtime_emit, "emit", 2));
     JS_SetPropertyStr(ctx, alloy_obj, "nextTick", JS_NewCFunction(ctx, alloy_runtime_next_tick, "nextTick", 1));
+    JS_SetPropertyStr(ctx, alloy_obj, "target", JS_NewString(ctx, rt->target == ALLOY_TARGET_BROWSER ? "browser" : "native"));
     JS_SetPropertyStr(ctx, global_obj, "Alloy", alloy_obj);
+
     JSValue internal_obj = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, internal_obj, "parse", JS_NewCFunction(ctx, alloy_runtime_parse_validate, "parse", 1));
     JS_SetPropertyStr(ctx, internal_obj, "__alloy_await", JS_NewCFunction(ctx, alloy_runtime_await_helper, "__alloy_await", 1));
     JS_SetPropertyStr(ctx, internal_obj, "__alloy_deferred", JS_NewCFunction(ctx, alloy_runtime_deferred_helper, "__alloy_deferred", 1));
     JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", internal_obj);
+
     JS_SetPropertyStr(ctx, global_obj, "atob", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 17, JS_NULL));
     JS_SetPropertyStr(ctx, global_obj, "btoa", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 18, JS_NULL));
     JS_SetPropertyStr(ctx, global_obj, "structuredClone", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 19, JS_NULL));
@@ -442,8 +681,56 @@ alloy_runtime_t *alloy_engine_create(void) {
     JS_SetPropertyStr(ctx, global_obj, "confirm", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 25, JS_NULL));
     JS_SetPropertyStr(ctx, global_obj, "prompt", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 26, JS_NULL));
     JS_SetPropertyStr(ctx, global_obj, "reportError", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 27, JS_NULL));
+
     JS_FreeValue(ctx, global_obj);
     mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
+}
+
+void alloy_webview_watchdog(webview_t w, void *arg) {
+    alloy_runtime_t *rt = (alloy_runtime_t *)arg;
+    fprintf(stderr, "[alloy] WebViewProcess terminated unexpectedly\n");
+
+    // Attempt restart
+    rt->webview = webview_create(0, NULL);
+    if (rt->webview) {
+        webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
+        // Re-inject bootstrap JS with session key (simplified here)
+        rt->webview_engine = alloy_webview_engine_create(rt->webview, rt);
+        alloy_engine_bootstrap(rt);
+    } else {
+        fprintf(stderr, "[alloy] WebViewProcess restart failed — entering degraded mode\n");
+        rt->webview_engine = NULL;
+    }
+}
+
+alloy_runtime_t *alloy_engine_create(void) {
+    alloy_runtime_t *rt = calloc(1, sizeof(alloy_runtime_t));
+    if (!rt) return NULL;
+
+    rt->target = ALLOY_TARGET_NATIVE;
+    rt->js_heap_size = 16 << 20;
+    rt->mem_buf = mmap(NULL, rt->js_heap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    rt->mqjs_ctx = JS_NewContext(rt->mem_buf, rt->js_heap_size, &js_stdlib);
+    JS_SetContextOpaque(rt->mqjs_ctx, rt);
+    rt->mqjs_engine = alloy_mqjs_engine_create(rt->mqjs_ctx, rt);
+
+    mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
+
+    rt->webview = webview_create(0, NULL);
+    if (rt->webview) {
+        webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
+        rt->webview_engine = alloy_webview_engine_create(rt->webview, rt);
+        // webview_set_exit_callback(rt->webview, alloy_webview_watchdog, rt); // Platform specific or hypothetical
+    }
+
+    RAND_bytes(rt->ipc_state.session_key, 32);
+    mlock(rt->ipc_state.session_key, 32);
+    rt->ipc_state.next_outbound_seq = 1;
+    rt->ipc_state.last_inbound_seq = 0;
+
+    alloy_engine_bootstrap(rt);
+
     return rt;
 }
 
@@ -458,20 +745,38 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
 
 void alloy_run(alloy_runtime_t *rt) {
     while (!rt->shutdown) {
+        // 1. Poll OS I/O (non-blocking)
         alloy_poll_io(rt);
+
+        // 2. Drain event queue
         while (rt->event_queue.count > 0) {
             AlloyEvent *ev = alloy_event_dequeue(rt);
+
+            // Open JS heap for this dispatch
             mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
+
             JSValue res = JS_Call(rt->mqjs_ctx, ev->listener, JS_UNDEFINED, ev->argc, ev->args);
+
+            // Close JS heap immediately after dispatch
             mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
-            if (JS_IsException(res)) alloy_event_emit(rt, "error", JS_GetException(rt->mqjs_ctx));
+
+            if (JS_IsException(res)) {
+                alloy_event_emit(rt, "error", JS_GetException(rt->mqjs_ctx));
+            }
+
             JS_FreeValue(rt->mqjs_ctx, res);
             JS_FreeValue(rt->mqjs_ctx, ev->listener);
             for (int i = 0; i < ev->argc; i++) JS_FreeValue(rt->mqjs_ctx, ev->args[i]);
             free(ev->name);
         }
+
+        // 3. nextTick queue (runs before next I/O poll)
         alloy_drain_next_tick(rt);
-        if (rt->event_queue.count == 0) webview_run(rt->webview);
+
+        // If no more events, run webview loop which might block
+        if (rt->event_queue.count == 0 && rt->webview) {
+            webview_run(rt->webview);
+        }
     }
 }
 
