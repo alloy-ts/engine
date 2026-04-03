@@ -5,8 +5,9 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <fcntl.h>
 
-// Forward declarations for builtins
+// Forward declarations for all 17 builtins
 static int builtin_cd(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io);
 static int builtin_echo(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io);
 static int builtin_pwd(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io);
@@ -26,22 +27,10 @@ static int builtin_dirname(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_
 static int builtin_basename(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io);
 
 const alloy_builtin_entry_t ALLOY_SHELL_BUILTINS[] = {
-    {"cd", builtin_cd},
-    {"echo", builtin_echo},
-    {"pwd", builtin_pwd},
-    {"ls", builtin_ls},
-    {"rm", builtin_rm},
-    {"cat", builtin_cat},
-    {"touch", builtin_touch},
-    {"mkdir", builtin_mkdir},
-    {"which", builtin_which},
-    {"mv", builtin_mv},
-    {"exit", builtin_exit},
-    {"true", builtin_true},
-    {"false", builtin_false},
-    {"yes", builtin_yes},
-    {"seq", builtin_seq},
-    {"dirname", builtin_dirname},
+    {"cd", builtin_cd}, {"echo", builtin_echo}, {"pwd", builtin_pwd}, {"ls", builtin_ls},
+    {"rm", builtin_rm}, {"cat", builtin_cat}, {"touch", builtin_touch}, {"mkdir", builtin_mkdir},
+    {"which", builtin_which}, {"mv", builtin_mv}, {"exit", builtin_exit}, {"true", builtin_true},
+    {"false", builtin_false}, {"yes", builtin_yes}, {"seq", builtin_seq}, {"dirname", builtin_dirname},
     {"basename", builtin_basename},
     {NULL, NULL}
 };
@@ -53,7 +42,6 @@ alloy_builtin_fn alloy_shell_find_builtin(const char *name) {
     return NULL;
 }
 
-// Builtin implementations
 static int builtin_cd(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io) {
     if (argc < 2) return 0;
     if (chdir(argv[1]) < 0) {
@@ -105,17 +93,17 @@ static int builtin_rm(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio
 
 static int builtin_cat(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io) {
     for (int i = 1; i < argc; i++) {
-        FILE *f = fopen(argv[i], "r");
-        if (!f) {
+        int fd = open(argv[i], O_RDONLY);
+        if (fd < 0) {
             dprintf(io->fd_err, "cat: %s: No such file\n", argv[i]);
             return 1;
         }
         char buf[4096];
-        size_t n;
-        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        ssize_t n;
+        while ((n = read(fd, buf, sizeof(buf))) > 0) {
             write(io->fd_out, buf, n);
         }
-        fclose(f);
+        close(fd);
     }
     return 0;
 }
@@ -142,7 +130,6 @@ static int builtin_which(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_st
         dprintf(io->fd_out, "builtin: %s\n", argv[1]);
         return 0;
     }
-    // Simple path lookup
     const char *path = getenv("PATH");
     if (!path) return 1;
     char *path_copy = strdup(path);
@@ -178,7 +165,7 @@ static int builtin_false(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_st
 static int builtin_yes(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io) {
     const char *s = (argc > 1) ? argv[1] : "y";
     while (1) {
-        dprintf(io->fd_out, "%s\n", s);
+        if (dprintf(io->fd_out, "%s\n", s) < 0) break;
     }
     return 0;
 }
@@ -201,24 +188,16 @@ static int builtin_seq(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdi
 static int builtin_dirname(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io) {
     if (argc < 2) return 1;
     char *p = strrchr(argv[1], '/');
-    if (!p) {
-        dprintf(io->fd_out, ".\n");
-    } else if (p == argv[1]) {
-        dprintf(io->fd_out, "/\n");
-    } else {
-        *p = '\0';
-        dprintf(io->fd_out, "%s\n", argv[1]);
-    }
+    if (!p) { dprintf(io->fd_out, ".\n"); }
+    else if (p == argv[1]) { dprintf(io->fd_out, "/\n"); }
+    else { *p = '\0'; dprintf(io->fd_out, "%s\n", argv[1]); }
     return 0;
 }
 
 static int builtin_basename(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io) {
     if (argc < 2) return 1;
     char *p = strrchr(argv[1], '/');
-    if (!p) {
-        dprintf(io->fd_out, "%s\n", argv[1]);
-    } else {
-        dprintf(io->fd_out, "%s\n", p + 1);
-    }
+    if (!p) { dprintf(io->fd_out, "%s\n", argv[1]); }
+    else { dprintf(io->fd_out, "%s\n", p + 1); }
     return 0;
 }

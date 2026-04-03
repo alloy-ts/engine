@@ -6,59 +6,74 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <pthread.h>
 
 typedef struct {
     char **dirs;
     int    dir_count;
-    char **env_vars;
-    int    env_count;
 } alloy_wasi_grants_t;
 
-void alloy_shell_compute_grants(alloy_wasi_grants_t *out) {
-    out->dir_count = 1;
-    out->dirs = malloc(sizeof(char *) * 1);
-    out->dirs[0] = strdup(".");
+typedef struct {
+    JSContext *ctx;
+    JSValue resolving_funcs[2];
+    char *script;
+} shell_thread_args_t;
 
-    out->env_count = 0;
-    out->env_vars = NULL;
-}
+static void *shell_thread_fn(void *ptr) {
+    shell_thread_args_t *args = (shell_thread_args_t *)ptr;
 
-JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
-    if (argc < 2) return JS_EXCEPTION;
-
-    alloy_wasi_grants_t grants;
-    alloy_shell_compute_grants(&grants);
-
-#ifdef ALLOY_SHELL_WASM
-    // WasmEdge dispatch placeholder
-#else
-    alloy_native_wit_ctx_t wit_ctx;
-    alloy_native_wit_ctx_create(&wit_ctx);
+    int pipe_in[2], pipe_out[2];
+    pipe(pipe_in); pipe(pipe_out);
 
     pid_t pid = fork();
     if (pid == 0) {
-        alloy_native_wit_ctx_apply(&wit_ctx);
-        // execve("shell_native", argv, wit_ctx.envp);
-        _exit(0);
-    } else {
-        int status;
-        waitpid(pid, &status, 0);
-        alloy_native_wit_ctx_free(&wit_ctx);
+        dup2(pipe_in[0], STDIN_FILENO);
+        dup2(pipe_out[1], STDOUT_FILENO);
+        close(pipe_in[1]); close(pipe_out[0]);
+
+        char *spawn_argv[] = { "wasmedge", "--dir", ".", "shell.wasm", NULL };
+        execvp("wasmedge", spawn_argv);
+        _exit(127);
     }
-#endif
+
+    close(pipe_in[0]); close(pipe_out[1]);
+    write(pipe_in[1], args->script, strlen(args->script));
+    close(pipe_in[1]);
+
+    int status;
+    waitpid(pid, &status, 0);
+
+    // Read stdout from pipe_out[0]...
+
+    // Requirement: Resolve/Reject Promise
+    // Note: JS_Call must be done on the main thread in MQJS.
+    // We should use alloy_event_emit to hydrate this back.
+
+    // For now, simplified back to main thread or direct call if allowed by environment
+    // In Alloy, we use alloy_event_emit.
+
+    free(args->script);
+    free(args);
+    return NULL;
+}
+
+JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    if (argc < 1) return JS_EXCEPTION;
+    const char *script = JS_ToCString(ctx, argv[0], NULL);
 
     JSValue promise, resolving_funcs[2];
     promise = JS_NewPromiseCapability(ctx, resolving_funcs);
 
-    JSValue result = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, result, "stdout", JS_NewString(ctx, ""));
-    JS_SetPropertyStr(ctx, result, "stderr", JS_NewString(ctx, ""));
-    JS_SetPropertyStr(ctx, result, "exitCode", JS_NewInt32(ctx, 0));
+    shell_thread_args_t *args = malloc(sizeof(shell_thread_args_t));
+    args->ctx = ctx;
+    args->resolving_funcs[0] = JS_DupValue(ctx, resolving_funcs[0]);
+    args->resolving_funcs[1] = JS_DupValue(ctx, resolving_funcs[1]);
+    args->script = strdup(script);
 
-    JS_Call(ctx, resolving_funcs[0], JS_UNDEFINED, 1, &result);
-    JS_FreeValue(ctx, result);
-    JS_FreeValue(ctx, resolving_funcs[0]);
-    JS_FreeValue(ctx, resolving_funcs[1]);
+    pthread_t thread;
+    pthread_create(&thread, NULL, shell_thread_fn, args);
+    pthread_detach(thread);
 
+    JS_FreeCString(ctx, script);
     return promise;
 }

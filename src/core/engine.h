@@ -2,59 +2,78 @@
 #define ALLOYSCRIPT_ENGINE_H
 
 #include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include "mquickjs.h"
 #include "webview/webview.h"
+#include "js_engine.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct alloy_runtime {
-    JSContext *mqjs_ctx;
-    webview_t webview;
+#define ALLOY_EVENT_QUEUE_CAPACITY 4096
+
+typedef struct {
+    uint32_t    type;
+    char       *name;
+    JSValue     listener;
+    JSValue     args[8];
+    uint8_t     argc;
+} AlloyEvent;
+
+typedef struct {
+    AlloyEvent  events[ALLOY_EVENT_QUEUE_CAPACITY];
+    uint32_t    head;
+    uint32_t    tail;
+    uint32_t    count;
+} AlloyEventQueue;
+
+typedef struct {
+    const char *event_name;
+    JSValue     listeners[8];
+    uint8_t     count;
+} AlloyListenerEntry;
+
+typedef struct {
+    uint64_t next_outbound_seq;
+    uint64_t last_inbound_seq;
     unsigned char session_key[32];
-    void *mem_buf;
+} AlloyIPCState;
+
+typedef struct alloy_runtime {
+    AlloyJSEngine    *mqjs_engine;
+    AlloyJSEngine    *webview_engine;
+
+    JSContext        *mqjs_ctx; // Legacy, move inside engine soon
+    webview_t         webview;
+
+    AlloyIPCState     ipc_state;
+    void             *mem_buf;
+    size_t            js_heap_size;
+    int               js_heap_prot;
+
+    AlloyEventQueue   event_queue;
+    AlloyListenerEntry listener_registry[32];
+
+    JSValue           next_tick_queue[256];
+    int               next_tick_count;
+
+    bool              shutdown;
 } alloy_runtime_t;
 
-typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);
-
-alloy_runtime_t *alloy_init(size_t mqjs_mem_size);
-void alloy_run(alloy_runtime_t *rt);
-void alloy_destroy(alloy_runtime_t *rt);
 alloy_runtime_t *alloy_engine_create(void);
+void alloy_run(alloy_runtime_t *rt);
 void alloy_engine_destroy(alloy_runtime_t *rt);
 
-/**
- * Binds a global function to both MicroQuickJS and WebView.
- * The callback will receive JSON-encoded arguments in 'req'.
- */
-void alloy_bind_global(alloy_runtime_t *rt, const char *name, alloy_bind_fn_t fn, void *arg);
-
-/**
- * Returns a result from a binding.
- */
-void alloy_return(alloy_runtime_t *rt, const char *id, int status, const char *result);
-
-
-/**
- * Securely evaluates JavaScript in the MicroQuickJS engine.
- */
-JSValue alloy_secure_eval(alloy_runtime_t *rt, const char *script);
-
-/* WebView Browser API bindings for MQJS */
-JSValue alloy_browser_proxy_fetch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-JSValue alloy_browser_proxy_crypto(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-JSValue alloy_browser_proxy_url(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-JSValue alloy_browser_proxy_text_encoder(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-JSValue alloy_browser_proxy_text_decoder(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-JSValue alloy_browser_proxy_performance(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-
-JSValue alloy_runtime_spawn(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_secure_eval_internal(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+void alloy_bind_global(alloy_runtime_t *rt, const char *name, AlloyBindHandler handler, void *opaque);
+void alloy_event_emit(alloy_runtime_t *rt, const char *name, JSValue arg);
+AlloyEvent *alloy_event_dequeue(alloy_runtime_t *rt);
+void alloy_poll_io(alloy_runtime_t *rt);
+void alloy_drain_next_tick(alloy_runtime_t *rt);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // ALLOYSCRIPT_H
+#endif
