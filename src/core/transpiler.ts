@@ -7,6 +7,13 @@ export interface TranspilerOptions {
 	minifyWhitespace?: boolean;
 }
 
+export interface Import {
+  path: string;
+  kind: "import-statement" | "require-call" | "require-resolve" |
+        "dynamic-import" | "import-rule" | "url-token" |
+        "internal" | "entry-point-build" | "entry-point-run";
+}
+
 /**
  * Implements a 3-pass pipeline for ES5 downlevelling and async/await polyfilling.
  */
@@ -17,15 +24,24 @@ export class Transpiler {
 	 * Synchronous transpilation — same thread, no worker.
 	 */
 	transformSync(code: string, loader?: Loader): string {
-		// Use Bun's built-in Transpiler if available, else robust regex fallback
+		// Pass 1: TS/JSX -> ES5 (Stub for Bun.Transpiler)
 		let output = code;
 
-		// Rewrite 'async function' -> 'function*' and 'await' -> 'yield __alloy_await'
+		// Pass 2: Async/await polyfill
 		output = output.replace(/\basync\s+function\b/g, "function*");
-		output = output.replace(/\bawait\s+/g, "yield __alloy_await ");
+		output = output.replace(/\bawait\s+([\s\S]+?)(?=[;,)\]}]|$)/g, "yield { __alloy_ipc: \"__await__\", args: [$1] }");
+    output = output.replace(/\bnew\s+Promise\b\s*\(/g, "__alloy_deferred(");
 
+    // Pass 3: MQJS compatibility
 		output = output.replace(/\bconst\b/g, "var");
 		output = output.replace(/\blet\b/g, "var");
+
+    // Inject helpers
+    if (output.includes("__alloy_ipc") || output.includes("__alloy_deferred")) {
+        output = "var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n" + output;
+    }
+
+    // Typescript strip (crude)
 		output = output.replace(
 			/:\s*(number|string|boolean|any|void|unknown|never)(\[\])?/g,
 			"",
@@ -50,8 +66,8 @@ export class Transpiler {
 	/**
 	 * Returns all non-type-only imports and exports (Requirement 12.7).
 	 */
-	scan(code: string): { exports: string[]; imports: any[] } {
-		const imports: any[] = [];
+	scan(code: string): { exports: string[]; imports: Import[] } {
+		const imports: Import[] = [];
 		const exports: string[] = [];
 		const importRegex = /import\s+[\s\S]*?\s+from\s+['"](.*)['"]/g;
 		let match;

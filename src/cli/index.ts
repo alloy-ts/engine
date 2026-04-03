@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { evaluate, startRepl, Transpiler } from "@alloyscript/engine";
+import { evaluate, startRepl, Transpiler, Alloy } from "@alloyscript/engine";
 import { ensureAlloyHost } from "../core/host_manager";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -43,19 +43,15 @@ program
 		if (!existsSync(targetDir)) {
 			mkdirSync(targetDir, { recursive: true });
 		}
-
-		const config = {
-			name: "my-alloy-app",
-			version: "1.0.0",
-			entry: "index.ts",
-		};
+    const srcDir = join(targetDir, "src");
+    if (!existsSync(srcDir)) mkdirSync(srcDir, { recursive: true });
 
 		writeFileSync(
 			join(targetDir, "package.json"),
 			JSON.stringify(
 				{
-					name: config.name,
-					version: config.version,
+					name: "my-alloy-app",
+					version: "1.0.0",
 					dependencies: { "@alloyscript/engine": "*" },
 					devDependencies: { "@alloyscript/cli": "*" },
 				},
@@ -63,8 +59,24 @@ program
 				2,
 			),
 		);
+    writeFileSync(
+			join(targetDir, "tsconfig.json"),
+			JSON.stringify(
+				{
+          "compilerOptions": {
+            "target": "ES2022",
+            "module": "ESNext",
+            "moduleResolution": "bundler",
+            "strict": true,
+            "jsx": "react-jsx"
+          }
+				},
+				null,
+				2,
+			),
+		);
 		writeFileSync(
-			join(targetDir, "index.ts"),
+			join(srcDir, "main.ts"),
 			'console.log("Hello from AlloyScript!");\n',
 		);
 
@@ -74,29 +86,41 @@ program
 program
 	.command("build")
 	.description("Build and transpile the AlloyScript application")
-	.argument("<file>", "Source TypeScript file")
-	.option("-o, --output <dir>", "Output directory", "dist")
-	.action(async (file, options) => {
-		console.log(`Building ${file}...`);
-		const transpiler = new Transpiler();
-		const code = readFileSync(file, "utf-8");
-		const transformed = transpiler.transformSync(code);
+	.argument("[entrypoint]", "Source TypeScript file", "src/main.ts")
+	.option("-o, --outdir <dir>", "Output directory", "dist")
+  .option("--target <target>", "Target (browser|alloy|node)", "alloy")
+  .option("--format <format>", "Format (esm|cjs|iife)", "esm")
+  .option("--minify", "Minify output", false)
+  .option("--sourcemap <type>", "Sourcemap (none|inline|external)", "none")
+  .option("--splitting", "Enable splitting", false)
+	.action(async (entrypoint, options) => {
+		console.log(`Building ${entrypoint}...`);
+    const buildResult = await Alloy.build({
+        entrypoints: [entrypoint],
+        outdir: options.outdir,
+        target: options.target,
+        format: options.format,
+        minify: options.minify,
+        sourcemap: options.sourcemap,
+        splitting: options.splitting
+    });
 
-		const outputDir = join(process.cwd(), options.output);
-		if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
-
-		const outputFile = join(
-			outputDir,
-			file.replace(".ts", ".js").split("/").pop()!,
-		);
-		writeFileSync(outputFile, transformed);
-		console.log(`Successfully built to ${outputFile}`);
+    if (buildResult.success) {
+        for (const output of buildResult.outputs) {
+            console.log(`Created ${output.path} (${output.size} bytes)`);
+        }
+    } else {
+        for (const log of buildResult.logs) {
+            console.error(`[${log.level}] ${log.message}`);
+        }
+        process.exit(1);
+    }
 	});
 
 program
 	.command("dev")
 	.description("Run the project in development mode with hot reloading")
-	.argument("[file]", "Entry file", "index.ts")
+	.argument("[file]", "Entry file", "src/main.ts")
 	.action(async (file) => {
 		await ensureAlloyHost();
 		console.log(`🛠️ Starting AlloyScript development runtime for ${file}...`);
