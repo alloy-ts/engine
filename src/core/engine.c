@@ -5,6 +5,7 @@
 #include "browser_api_table.h"
 #include "os_process.h"
 #include "blake3/blake3.h"
+extern void alloy_shell_bridge_init(alloy_runtime_t *rt);
 #include "../../packages/mquickjs/mquickjs_priv.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,6 +100,8 @@ alloy_runtime_t *alloy_engine_create(void) {
     JS_SetPropertyStr(ctx, alloy_obj, "emit", JS_NewCFunction(ctx, js_emit, "emit", 2));
     JS_SetPropertyStr(ctx, alloy_obj, "nextTick", JS_NewCFunction(ctx, js_next_tick, "nextTick", 1));
     JS_SetPropertyStr(ctx, global_obj, "Alloy", alloy_obj);
+
+    alloy_shell_bridge_init(rt);
 
     JSValue internal_obj = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, internal_obj, "parse", JS_NewCFunction(ctx, js_parse_validate, "parse", 1));

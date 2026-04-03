@@ -85,6 +85,11 @@
 		 * alloy:ffi re-export.
 		 */
 		ffi: undefined,
+
+        /**
+         * Alloy Shell template tag.
+         */
+        $: global.$
 	};
 
 	global.Alloy = Alloy;

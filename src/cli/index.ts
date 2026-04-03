@@ -126,6 +126,21 @@ program
 	});
 
 program
+	.command("run")
+	.description("Run a .sh file or AlloyScript file")
+	.argument("<file>", "File to run")
+	.action(async (file) => {
+		if (file.endsWith(".sh")) {
+			const content = readFileSync(file, "utf-8");
+			// Shebang stripping would happen in lexer
+			const result = await evaluate(`$ \`${content}\` `);
+			process.exit(result.exitCode);
+		} else {
+			// Regular AlloyScript run
+		}
+	});
+
+program
 	.command("dev")
 	.description("Run the project in development mode with hot reloading")
 	.argument("[file]", "Entry file", "src/main.ts")
