@@ -53,20 +53,23 @@ typedef struct {
     uint8_t     count;
 } AlloyListenerEntry;
 
+#include "js_engine.h"
+
 typedef struct alloy_runtime {
-    JSContext *mqjs_ctx;
-    webview_t webview;
-    unsigned char session_key[32];
-    uint64_t next_outbound_seq;
-    uint64_t last_inbound_seq;
-    void *mem_buf;
-    size_t mem_size;
-    int js_heap_prot;
-    int shutdown;
-    AlloyEventQueue event_queue;
+    AlloyJSEngine    *mqjs_engine;
+    AlloyJSEngine    *webview_engine;
+    JSContext        *mqjs_ctx; // Still needed for some internal operations
+    unsigned char     session_key[32];
+    uint64_t          next_outbound_seq;
+    uint64_t          last_inbound_seq;
+    void             *mem_buf;
+    size_t            mem_size;
+    int               js_heap_prot;
+    int               shutdown;
+    AlloyEventQueue   event_queue;
     AlloyListenerEntry listener_registry[32];
-    JSValue next_tick_queue[256];
-    uint8_t next_tick_count;
+    JSValue           next_tick_queue[256];
+    uint8_t           next_tick_count;
 } alloy_runtime_t;
 
 typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);

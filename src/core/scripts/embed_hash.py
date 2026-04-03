@@ -36,10 +36,12 @@ def embed_elf(binary_path, symbol_name):
         # Compute hash
         f.seek(0)
         data = f.read()
-        # Mock BLAKE3 matching C implementation
-        cv = [0x6A09E667, 0, 0, 0, 0, 0, 0, 0]
+        # Mock BLAKE3 matching C implementation (with Rotation)
+        cv = [0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19]
+        def rotr32(x, n): return ((x >> n) | (x << (32 - n))) & 0xFFFFFFFF
         for i, b in enumerate(data):
             cv[i % 8] ^= b
+            cv[i % 8] = rotr32(cv[i % 8], 7)
         h = struct.pack('<8I', *cv)
 
         # Write back

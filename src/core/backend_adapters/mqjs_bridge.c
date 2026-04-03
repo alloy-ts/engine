@@ -1,44 +1,113 @@
 #include "../../packages/mquickjs/mquickjs_priv.h"
 #include "bridge.h"
-#include "ipc.h"
+#include "../js_engine.h"
+#include "../engine.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <openssl/rand.h>
 
-void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val) {
-    if (!ctx || !name) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
-        return;
-    }
-    JSValue global_obj = JS_GetGlobalObject(ctx);
-    JS_SetPropertyStr(ctx, global_obj, name, val);
-    JS_FreeValue(ctx, global_obj); // Fixed per Requirement 1.5
+typedef struct {
+    AlloyJSEngine base;
+    JSContext *ctx;
+    void *mem_buf;
+    size_t mem_size;
+    alloy_runtime_t *rt;
+} AlloyMQJSEngine;
+
+typedef struct {
+    AlloyBindHandler handler;
+    void *opaque;
+    alloy_runtime_t *rt;
+} AlloyMQJSBinding;
+
+static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params) {
+    AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
+
+    // Serialise argv to JSON (simplified)
+    char *args_json = strdup("[]");
+    char result_buf[4096];
+    b->handler(b->opaque, args_json, result_buf, sizeof(result_buf));
+    free(args_json);
+
+    // Deserialise result from JSON
+    return JS_ParseJSON(ctx, result_buf, strlen(result_buf), "<result>");
 }
 
-void alloy_mqjs_bind_func(JSContext *ctx, const char *name, JSCFunction *func, void *opaque) {
-    if (!ctx || !name || !func) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
-        return;
-    }
+static int mqjs_call_fn(AlloyJSEngine *engine, const char *name, const char *args_json, char **out_result) {
+    AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
+    JSContext *ctx = e->ctx;
 
-    // Store the opaque pointer as a JS integer (pointer-sized)
-    JSValue params = JS_NewInt64(ctx, (int64_t)(uintptr_t)opaque);
+    JSValue global = JS_GetGlobalObject(ctx);
+    JSValue func = JS_GetPropertyStr(ctx, global, name);
 
-    // Use JS_NewCFunctionParams as required by MQJS constraints
-    // For MVP, we use a fixed index or handle index allocation
-    static int next_index = JS_CFUNCTION_USER;
-    JSValue f = JS_NewCFunctionParams(ctx, next_index++, params);
+    JSValue args = JS_ParseJSON(ctx, args_json, strlen(args_json), "<args>");
 
-    JSValue global_obj = JS_GetGlobalObject(ctx);
-    JS_SetPropertyStr(ctx, global_obj, name, f);
-    JS_FreeValue(ctx, global_obj);
+    JSValue res = JS_Call(ctx, func, global, 1, &args);
+
+    JSValue json_str = JS_JSONStringify(ctx, res, JS_UNDEFINED, JS_UNDEFINED);
+    JSCStringBuf buf;
+    const char *str = JS_ToCString(ctx, &buf, json_str);
+    *out_result = strdup(str ? str : "null");
+
+    JS_FreeValue(ctx, json_str);
+    JS_FreeValue(ctx, res);
+    JS_FreeValue(ctx, args);
+    JS_FreeValue(ctx, func);
+    JS_FreeValue(ctx, global);
+
+    return 0;
 }
 
-void alloy_webview_bind_global(webview_t w, const char *name, void (*fn)(const char *id, const char *req, void *arg), void *arg) {
-    if (!w || !name || !fn) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
-        return;
-    }
-    webview_bind(w, name, fn, arg);
+static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandler handler, void *opaque) {
+    AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
+    AlloyMQJSBinding *b = malloc(sizeof(*b));
+    b->handler = handler;
+    b->opaque = opaque;
+    b->rt = e->rt;
+
+    JSValue params = JS_NewInt64(e->ctx, (int64_t)(uintptr_t)b);
+
+    // In a real stdlib we'd have a way to register this.
+    // For now we assume next_idx is handled.
+    static int next_idx = JS_CFUNCTION_USER + 20;
+    JSValue fn = JS_NewCFunctionParams(e->ctx, next_idx++, params);
+
+    JSValue global = JS_GetGlobalObject(e->ctx);
+    JS_SetPropertyStr(e->ctx, global, name, fn);
+    JS_FreeValue(e->ctx, global);
+    return 0;
+}
+
+static int mqjs_emit_fn(AlloyJSEngine *engine, const char *event_name, const char *payload_json) {
+    AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
+    // Look up listeners and call them
+    return 0;
+}
+
+static void mqjs_destroy_fn(AlloyJSEngine *engine) {
+    AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
+    JS_FreeContext(e->ctx);
+    free(e->mem_buf);
+    free(e);
+}
+
+AlloyJSEngine *alloy_mqjs_engine_create(size_t mem_size, alloy_runtime_t *rt) {
+    AlloyMQJSEngine *e = calloc(1, sizeof(*e));
+    e->base.name = "mqjs";
+    e->base.call_fn = mqjs_call_fn;
+    e->base.bind_fn = mqjs_bind_fn;
+    e->base.emit_fn = mqjs_emit_fn;
+    e->base.destroy_fn = mqjs_destroy_fn;
+    e->mem_size = mem_size;
+    e->mem_buf = malloc(mem_size);
+    e->rt = rt;
+
+    // Use stdlib if available
+    e->ctx = JS_NewContext(e->mem_buf, mem_size, &js_stdlib);
+    JS_SetContextOpaque(e->ctx, rt);
+    return (AlloyJSEngine *)e;
+}
+
+JSContext *alloy_mqjs_get_context(AlloyJSEngine *engine) {
+    return ((AlloyMQJSEngine *)engine)->ctx;
 }

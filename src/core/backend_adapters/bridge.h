@@ -3,8 +3,8 @@
 
 #include "engine.h"
 
-void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val);
-void alloy_mqjs_bind_func(JSContext *ctx, const char *name, JSCFunction *func, void *opaque);
-void alloy_webview_bind_global(webview_t w, const char *name, void (*fn)(const char *id, const char *req, void *arg), void *arg);
+AlloyJSEngine *alloy_mqjs_engine_create(size_t mem_size, alloy_runtime_t *rt);
+AlloyJSEngine *alloy_webview_engine_create(alloy_runtime_t *rt);
+JSContext *alloy_mqjs_get_context(AlloyJSEngine *engine);
 
 #endif

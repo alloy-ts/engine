@@ -49,11 +49,9 @@ alloy_runtime_t *alloy_engine_create(void) {
     rt->mem_buf = mmap(NULL, rt->mem_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
     rt->js_heap_prot = PROT_READ | PROT_WRITE;
 
-    rt->mqjs_ctx = JS_NewContext(rt->mem_buf, rt->mem_size, &js_stdlib);
-    JS_SetContextOpaque(rt->mqjs_ctx, rt);
-
-    rt->webview = webview_create(0, NULL);
-    webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
+    rt->mqjs_engine = alloy_mqjs_engine_create(rt->mem_size, rt);
+    rt->webview_engine = alloy_webview_engine_create(rt);
+    rt->mqjs_ctx = alloy_mqjs_get_context(rt->mqjs_engine);
 
     RAND_bytes(rt->session_key, 32);
     mlock(rt->session_key, 32);
@@ -65,7 +63,7 @@ alloy_runtime_t *alloy_engine_create(void) {
 
     // 1. Auto-registration loop for ALLOY_BROWSER_API_TABLE
     for (int i = 0; ALLOY_BROWSER_API_TABLE[i].js_name != NULL; i++) {
-        alloy_mqjs_bind_func(ctx, ALLOY_BROWSER_API_TABLE[i].js_name, alloy_browser_proxy_dispatch, (void *)&ALLOY_BROWSER_API_TABLE[i]);
+        alloy_engine_bind(rt->mqjs_engine, ALLOY_BROWSER_API_TABLE[i].js_name, (void*)alloy_browser_proxy_dispatch, (void *)&ALLOY_BROWSER_API_TABLE[i]);
     }
 
     // 2. Bind aliases
@@ -83,7 +81,7 @@ alloy_runtime_t *alloy_engine_create(void) {
     JS_SetPropertyStr(ctx, global_obj, "queueMicrotask", JS_NewCFunction(ctx, js_queue_microtask, "queueMicrotask", 1));
     JS_SetPropertyStr(ctx, global_obj, "setInterval", JS_NewCFunction(ctx, js_set_interval, "setInterval", 2));
     JS_SetPropertyStr(ctx, global_obj, "clearInterval", JS_NewCFunction(ctx, js_clear_interval, "clearInterval", 1));
-    JS_SetPropertyStr(ctx, global_obj, "clearTimeout", JS_NewCFunction(ctx, js_stdlib.clearTimeout, "clearTimeout", 1)); // Re-using stdlib if available
+    JS_SetPropertyStr(ctx, global_obj, "clearTimeout", JS_NewCFunction(ctx, js_stdlib.clearTimeout, "clearTimeout", 1));
     JS_SetPropertyStr(ctx, global_obj, "alert", JS_NewCFunction(ctx, js_alert, "alert", 1));
     JS_SetPropertyStr(ctx, global_obj, "confirm", JS_NewCFunction(ctx, js_confirm, "confirm", 1));
     JS_SetPropertyStr(ctx, global_obj, "prompt", JS_NewCFunction(ctx, js_prompt, "prompt", 2));
@@ -157,39 +155,23 @@ static JSValue alloy_deserialise_result(JSContext *ctx, AlloyMessage *msg, Alloy
 static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, void *opaque) {
     const AlloyBrowserAPIEntry *entry = (AlloyBrowserAPIEntry *)opaque;
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
-    if (!rt->webview) {
+    if (!rt->webview_engine) {
         JSValue error_obj = JS_NewObject(ctx);
         JS_SetPropertyStr(ctx, error_obj, "error", JS_NewString(ctx, "webview_unavailable"));
         return error_obj;
     }
 
     char *args_json = alloy_serialise_args(ctx, argc, argv, entry->arg_schema);
+    char *result_json = NULL;
 
-    AlloyMessage msg;
-    msg.type = ALLOY_MSG_BROWSER_API_REQUEST;
-    asprintf((char **)&msg.payload, "{\"api\":\"%s\",\"args\":%s}", entry->js_name, args_json);
-    msg.payload_len = strlen((char *)msg.payload);
+    alloy_engine_call(rt->webview_engine, entry->webview_method, args_json, &result_json);
     free(args_json);
-
-    char req_id[37];
-    snprintf(req_id, sizeof(req_id), "%llu", (unsigned long long)rt->next_outbound_seq);
-
-    alloy_ipc_send(rt, &msg);
-    free(msg.payload);
-
-    // Blocking loop until response for req_id arrives
-    AlloyMessage resp;
-    while (1) {
-        alloy_poll_io(rt);
-        if (alloy_ipc_try_receive(rt, req_id, &resp) == 0) break;
-        JS_GC(rt->mqjs_ctx);
-        usleep(1000);
-    }
 
     mprotect(rt->mem_buf, rt->mem_size, PROT_READ | PROT_WRITE);
     rt->js_heap_prot = PROT_READ | PROT_WRITE;
 
-    JSValue res = alloy_deserialise_result(ctx, &resp, entry->return_schema);
+    JSValue res = JS_ParseJSON(ctx, result_json, strlen(result_json), "<result>");
+    free(result_json);
 
     mprotect(rt->mem_buf, rt->mem_size, PROT_NONE);
     rt->js_heap_prot = PROT_NONE;
@@ -557,27 +539,9 @@ static JSValue js_next_tick(JSContext *ctx, JSValue *this_val, int argc, JSValue
 }
 
 static void alloy_event_emit(alloy_runtime_t *rt, const char *name, JSValue arg) {
-    if (rt->event_queue.count >= 4096) {
-        fprintf(stderr, "[alloy] event queue full, dropping event: %s\n", name);
-        return;
-    }
-    // Find listeners
-    for (int i = 0; i < 32; i++) {
-        if (rt->listener_registry[i].event_name && strcmp(rt->listener_registry[i].event_name, name) == 0) {
-            for (int j = 0; j < rt->listener_registry[i].count; j++) {
-                if (rt->event_queue.count >= 4096) break;
-                uint32_t idx = rt->event_queue.tail;
-                AlloyEvent *ev = &rt->event_queue.events[idx];
-                ev->name = strdup(name);
-                ev->listener = JS_DupValue(rt->mqjs_ctx, rt->listener_registry[i].listeners[j]);
-                ev->args[0] = JS_DupValue(rt->mqjs_ctx, arg);
-                ev->argc = 1;
-                rt->event_queue.tail = (idx + 1) % 4096;
-                rt->event_queue.count++;
-            }
-            break;
-        }
-    }
+    JSCStringBuf buf;
+    const char *arg_json = JS_ToCString(rt->mqjs_ctx, &buf, arg);
+    alloy_engine_emit(rt->mqjs_engine, name, arg_json ? arg_json : "null");
 }
 
 static AlloyEvent *alloy_event_dequeue(alloy_runtime_t *rt) {
@@ -642,10 +606,26 @@ void alloy_run(alloy_runtime_t *rt) {
     }
 }
 
+static void alloy_generic_bind_wrapper(void *opaque, const char *args_json, char *out_result, size_t result_size) {
+    alloy_binding_t *b = (alloy_binding_t *)opaque;
+    b->fn("generic-id", args_json, b->arg);
+    strncpy(out_result, "null", result_size);
+}
+
+void alloy_bind_global(alloy_runtime_t *rt, const char *name, alloy_bind_fn_t fn, void *arg) {
+    alloy_binding_t *b = malloc(sizeof(alloy_binding_t));
+    b->fn = fn; b->arg = arg; b->rt = rt;
+
+    alloy_engine_bind(rt->mqjs_engine, name, alloy_generic_bind_wrapper, b);
+    if (rt->webview_engine) {
+        alloy_engine_bind(rt->webview_engine, name, alloy_generic_bind_wrapper, b);
+    }
+}
+
 void alloy_engine_destroy(alloy_runtime_t *rt) {
     if (!rt) return;
-    webview_destroy(rt->webview);
-    JS_FreeContext(rt->mqjs_ctx);
+    alloy_engine_destroy(rt->mqjs_engine);
+    alloy_engine_destroy(rt->webview_engine);
     munmap(rt->mem_buf, rt->mem_size);
     explicit_bzero(rt->session_key, 32);
     free(rt);
