@@ -8,9 +8,15 @@ describe("bind_global properties", () => {
     // This would require a running MQJS engine, which we mock here
     fc.assert(
       fc.property(fc.string(), fc.anything(), (name, val) => {
+        // Prototypes and other special keys can fail in simple object assignment mocks
+        if (name === "__proto__" || name === "constructor") return true;
         // Mocking the behavior
-        const mockEngine = { globals: {} as any };
+        const mockEngine = { globals: Object.create(null) as any };
         mockEngine.globals[name] = val;
+
+        // Handle NaN special case
+        if (Number.isNaN(val) && Number.isNaN(mockEngine.globals[name])) return true;
+
         return mockEngine.globals[name] === val;
       }),
       { numRuns: 100 }
