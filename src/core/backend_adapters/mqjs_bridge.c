@@ -25,12 +25,16 @@ static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue *this_val, int argc, 
 
     // Serialise argv to JSON (simplified)
     char *args_json = strdup("[]");
-    char result_buf[4096];
-    b->handler(b->opaque, args_json, result_buf, sizeof(result_buf));
+    char *result_buf = malloc(1024 * 1024); // 1 MiB buffer to handle large results
+    if (!result_buf) { free(args_json); return JS_EXCEPTION; }
+
+    b->handler(b->opaque, args_json, result_buf, 1024 * 1024);
     free(args_json);
 
     // Deserialise result from JSON
-    return JS_ParseJSON(ctx, result_buf, strlen(result_buf), "<result>");
+    JSValue res = JS_ParseJSON(ctx, result_buf, strlen(result_buf), "<result>");
+    free(result_buf);
+    return res;
 }
 
 static int mqjs_call_fn(AlloyJSEngine *engine, const char *name, const char *args_json, char **out_result) {
@@ -80,7 +84,28 @@ static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandle
 
 static int mqjs_emit_fn(AlloyJSEngine *engine, const char *event_name, const char *payload_json) {
     AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
-    // Look up listeners and call them
+    alloy_runtime_t *rt = e->rt;
+    JSContext *ctx = e->ctx;
+
+    for (int i = 0; i < 32; i++) {
+        if (rt->listener_registry[i].event_name && strcmp(rt->listener_registry[i].event_name, event_name) == 0) {
+            JSValue payload = JS_ParseJSON(ctx, payload_json, strlen(payload_json), "<event>");
+
+            for (int j = 0; j < rt->listener_registry[i].count; j++) {
+                if (rt->event_queue.count < 4096) {
+                    AlloyEvent *ev = &rt->event_queue.events[rt->event_queue.tail];
+                    ev->name = strdup(event_name);
+                    ev->listener = JS_DupValue(ctx, rt->listener_registry[i].listeners[j]);
+                    ev->args[0] = JS_DupValue(ctx, payload);
+                    ev->argc = 1;
+                    rt->event_queue.tail = (rt->event_queue.tail + 1) % 4096;
+                    rt->event_queue.count++;
+                }
+            }
+            JS_FreeValue(ctx, payload);
+            break;
+        }
+    }
     return 0;
 }
 

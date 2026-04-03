@@ -19,9 +19,11 @@ typedef struct {
 
 static void alloy_webview_dispatch(const char *id, const char *req, void *arg) {
     AlloyWebViewBinding *b = (AlloyWebViewBinding *)arg;
-    char result_buf[4096];
-    b->handler(b->opaque, req, result_buf, sizeof(result_buf));
+    char *result_buf = malloc(1024 * 1024); // 1 MiB buffer
+    if (!result_buf) return;
+    b->handler(b->opaque, req, result_buf, 1024 * 1024);
     webview_return(b->engine->w, id, 0, result_buf);
+    free(result_buf);
 }
 
 static int webview_call_fn(AlloyJSEngine *engine, const char *name, const char *args_json, char **out_result) {

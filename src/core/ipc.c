@@ -122,15 +122,14 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
     char *t_b64 = alloy_base64_encode(msg->tag, 16);
     char *p_b64 = alloy_base64_encode(msg->payload, msg->payload_len);
 
-    char *json = NULL;
-    if (asprintf(&json, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
-             (unsigned long long)msg->seq, n_b64, t_b64, msg->type, p_b64) < 0) {
-        free(n_b64); free(t_b64); free(p_b64);
-        return -1;
-    }
+    size_t json_size = strlen(n_b64) + strlen(t_b64) + strlen(p_b64) + 128;
+    char *json = malloc(json_size);
+    snprintf(json, json_size, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
+             (unsigned long long)msg->seq, n_b64, t_b64, msg->type, p_b64);
 
-    char *cmd = NULL;
-    asprintf(&cmd, "window.Alloy.handleMessage('%s')", json);
+    size_t cmd_size = json_size + 64;
+    char *cmd = malloc(cmd_size);
+    snprintf(cmd, cmd_size, "window.Alloy.handleMessage('%s')", json);
     webview_eval(rt->webview, cmd);
 
     free(json);
@@ -213,6 +212,7 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     memcpy(out->tag, tag, 16);
 
     free(nonce); free(tag);
+    // Note: out->payload is freed by the caller of alloy_ipc_receive (the coroutine/event handler)
     JS_FreeValue(ctx, val);
 
     // Step 4: Replay and Auth checks (inside decrypt)
@@ -228,6 +228,10 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
             g_pending_responses[g_pending_count] = *out;
             g_pending_count++;
         }
+
+        // Emit "message" event for auto-hydration (Requirement 15.9)
+        alloy_event_emit(rt, "message", resp_val);
+
         JS_FreeValue(ctx, id_val);
         JS_FreeValue(ctx, resp_val);
     }

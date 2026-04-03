@@ -57,6 +57,11 @@ static void inject_process_object(JSContext *ctx, JSValue shell_res) {
 }
 
 JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    if (argc < 1) return JS_EXCEPTION;
+    JSCStringBuf buf;
+    const char *script = JS_ToCString(ctx, &buf, argv[0]);
+    if (!script) return JS_EXCEPTION;
+
     alloy_wasi_grants_t grants;
     alloy_shell_compute_grants(&grants);
 
@@ -70,34 +75,36 @@ JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue this_val, int argc, JSValue *
 
     JSValue promise = JS_NewPromiseCapability(ctx, NULL);
 
-    int pipe_fd[2];
-    if (pipe(pipe_fd) == 0) {
-        pid_t pid = fork();
-        if (pid == 0) {
-            close(pipe_fd[0]);
-            dup2(pipe_fd[1], STDOUT_FILENO);
-            execlp("echo", "echo", "Alloy Shell Execution Success", NULL);
-            _exit(1);
-        } else if (pid > 0) {
-            close(pipe_fd[1]);
-            char buffer[1024];
-            ssize_t n = read(pipe_fd[0], buffer, sizeof(buffer)-1);
-            if (n >= 0) buffer[n] = 0; else buffer[0] = 0;
+    alloy_shell_ctx_t shell_ctx = {0};
+    alloy_shell_result_t shell_res = {0};
 
-            JSValue res = JS_NewObject(ctx);
-            JS_SetPropertyStr(ctx, res, "exitCode", JS_NewInt32(ctx, 0));
-            JSValue stdout_buf = JS_NewArrayBufferCopy(ctx, (uint8_t*)buffer, strlen(buffer));
-            JS_SetPropertyStr(ctx, res, "stdout", stdout_buf);
-            JS_SetPropertyStr(ctx, res, "stderr", JS_NewArrayBuffer(ctx, 0));
-            inject_process_object(ctx, res);
+    int status = alloy_shell_exec(&shell_ctx, script, &shell_res);
 
-            JSValue resolve = JS_GetPropertyStr(ctx, promise, "resolve");
-            JS_Call(ctx, resolve, JS_UNDEFINED, 1, &res);
-            JS_FreeValue(ctx, resolve);
-            JS_FreeValue(ctx, res);
-            close(pipe_fd[0]);
-        }
+    JSValue res = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, res, "exitCode", JS_NewInt32(ctx, shell_res.exit_code));
+
+    if (shell_res.stdout_buf) {
+        JSValue stdout_buf = JS_NewArrayBufferCopy(ctx, shell_res.stdout_buf, shell_res.stdout_len);
+        JS_SetPropertyStr(ctx, res, "stdout", stdout_buf);
+    } else {
+        JS_SetPropertyStr(ctx, res, "stdout", JS_NewArrayBuffer(ctx, 0));
     }
+
+    if (shell_res.stderr_buf) {
+        JSValue stderr_buf = JS_NewArrayBufferCopy(ctx, shell_res.stderr_buf, shell_res.stderr_len);
+        JS_SetPropertyStr(ctx, res, "stderr", stderr_buf);
+    } else {
+        JS_SetPropertyStr(ctx, res, "stderr", JS_NewArrayBuffer(ctx, 0));
+    }
+
+    inject_process_object(ctx, res);
+
+    JSValue resolve = JS_GetPropertyStr(ctx, promise, "resolve");
+    JS_Call(ctx, resolve, JS_UNDEFINED, 1, &res);
+
+    JS_FreeValue(ctx, resolve);
+    JS_FreeValue(ctx, res);
+    alloy_shell_result_free(&shell_res);
 
     return promise;
 }
