@@ -9,11 +9,64 @@
 extern "C" {
 #endif
 
+typedef struct {
+    char             name[64];
+    int              kind;
+    uintptr_t        start;
+    size_t           size;
+    char             perms[8];
+    int              readable;
+    int              writable;
+    int              executable;
+    int              stable;
+    char             file[256];
+} AlloyMmapRegion;
+
+typedef struct {
+    AlloyMmapRegion  regions[128];
+    int              count;
+    uintptr_t        aslr_offset;
+    uint8_t          blake3_text[32];
+    uint8_t          blake3_rodata[32];
+    uint8_t          blake3_text_rodata[32];
+    int              js_arena_protected;
+} AlloyMmapSnapshot;
+
+typedef struct {
+    uint32_t    type;
+    char       *name;
+    JSValue     listener;
+    JSValue     args[8];
+    uint8_t     argc;
+} AlloyEvent;
+
+typedef struct {
+    AlloyEvent  events[4096];
+    uint32_t    head;
+    uint32_t    tail;
+    uint32_t    count;
+} AlloyEventQueue;
+
+typedef struct {
+    const char *event_name;
+    JSValue     listeners[8];
+    uint8_t     count;
+} AlloyListenerEntry;
+
 typedef struct alloy_runtime {
     JSContext *mqjs_ctx;
     webview_t webview;
     unsigned char session_key[32];
+    uint64_t next_outbound_seq;
+    uint64_t last_inbound_seq;
     void *mem_buf;
+    size_t mem_size;
+    int js_heap_prot;
+    int shutdown;
+    AlloyEventQueue event_queue;
+    AlloyListenerEntry listener_registry[32];
+    JSValue next_tick_queue[256];
+    uint8_t next_tick_count;
 } alloy_runtime_t;
 
 typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);

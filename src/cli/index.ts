@@ -44,18 +44,15 @@ program
 			mkdirSync(targetDir, { recursive: true });
 		}
 
-		const config = {
-			name: "my-alloy-app",
-			version: "1.0.0",
-			entry: "index.ts",
-		};
+        const srcDir = join(targetDir, "src");
+        if (!existsSync(srcDir)) mkdirSync(srcDir);
 
 		writeFileSync(
 			join(targetDir, "package.json"),
 			JSON.stringify(
 				{
-					name: config.name,
-					version: config.version,
+					name: "my-alloy-app",
+					version: "1.0.0",
 					dependencies: { "@alloyscript/engine": "*" },
 					devDependencies: { "@alloyscript/cli": "*" },
 				},
@@ -63,8 +60,26 @@ program
 				2,
 			),
 		);
+
+        writeFileSync(
+            join(targetDir, "tsconfig.json"),
+            JSON.stringify(
+                {
+                    compilerOptions: {
+                        target: "ES2022",
+                        module: "ESNext",
+                        moduleResolution: "bundler",
+                        strict: true,
+                        jsx: "react-jsx"
+                    }
+                },
+                null,
+                2
+            )
+        );
+
 		writeFileSync(
-			join(targetDir, "index.ts"),
+			join(srcDir, "main.ts"),
 			'console.log("Hello from AlloyScript!");\n',
 		);
 
@@ -74,29 +89,46 @@ program
 program
 	.command("build")
 	.description("Build and transpile the AlloyScript application")
-	.argument("<file>", "Source TypeScript file")
-	.option("-o, --output <dir>", "Output directory", "dist")
-	.action(async (file, options) => {
-		console.log(`Building ${file}...`);
-		const transpiler = new Transpiler();
-		const code = readFileSync(file, "utf-8");
-		const transformed = transpiler.transformSync(code);
+	.argument("[entrypoints...]", "Source TypeScript files")
+	.option("-o, --outdir <dir>", "Output directory", "dist")
+    .option("-t, --target <target>", "Target platform (browser|alloy|node)", "alloy")
+    .option("-f, --format <format>", "Output format (esm|cjs|iife)", "esm")
+    .option("--minify", "Minify output", false)
+    .option("--sourcemap <type>", "Sourcemap type (none|inline|external)", "none")
+    .option("--splitting", "Enable code splitting", false)
+	.action(async (entrypoints, options) => {
+        if (!entrypoints || entrypoints.length === 0) {
+            entrypoints = ["src/main.ts"];
+        }
+		console.log(`Building ${entrypoints.join(", ")}...`);
 
-		const outputDir = join(process.cwd(), options.output);
-		if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
+        const result = await Transpiler.build({
+            entrypoints,
+            outdir: options.outdir,
+            target: options.target,
+            format: options.format,
+            minify: options.minify,
+            sourcemap: options.sourcemap,
+            splitting: options.splitting
+        });
 
-		const outputFile = join(
-			outputDir,
-			file.replace(".ts", ".js").split("/").pop()!,
-		);
-		writeFileSync(outputFile, transformed);
-		console.log(`Successfully built to ${outputFile}`);
+        if (result.success) {
+            for (const artifact of result.outputs) {
+                console.log(`  - ${artifact.path} (${artifact.size} bytes)`);
+            }
+            console.log(`Successfully built to ${options.outdir}`);
+        } else {
+            for (const log of result.logs) {
+                console.error(`[${log.level}] ${log.message}`);
+            }
+            process.exit(1);
+        }
 	});
 
 program
 	.command("dev")
 	.description("Run the project in development mode with hot reloading")
-	.argument("[file]", "Entry file", "index.ts")
+	.argument("[file]", "Entry file", "src/main.ts")
 	.action(async (file) => {
 		await ensureAlloyHost();
 		console.log(`🛠️ Starting AlloyScript development runtime for ${file}...`);

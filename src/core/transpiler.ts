@@ -1,3 +1,8 @@
+import * as acorn from "acorn";
+import { generate } from "astring";
+import { walk } from "estree-walker";
+import { build, BuildOptions, BuildOutput } from "./build";
+
 export type Loader = "js" | "jsx" | "ts" | "tsx";
 
 export interface TranspilerOptions {
@@ -7,57 +12,88 @@ export interface TranspilerOptions {
 	minifyWhitespace?: boolean;
 }
 
-/**
- * Implements a 3-pass pipeline for ES5 downlevelling and async/await polyfilling.
- */
+declare const AlloyInternal: {
+    parse(code: string): string | null;
+    __alloy_await: Function;
+    __alloy_deferred: Function;
+};
+
 export class Transpiler {
 	constructor(private options: TranspilerOptions = {}) {}
 
-	/**
-	 * Synchronous transpilation — same thread, no worker.
-	 */
-	transformSync(code: string, loader?: Loader): string {
-		// Use Bun's built-in Transpiler if available, else robust regex fallback
-		let output = code;
+	transformSync(code: string, loader: Loader = "ts"): string {
+		// Pass 1: TS/JSX -> ES5 (using Bun.Transpiler)
+        const transpiler = new Bun.Transpiler({
+            loader: loader,
+            target: "browser", // Downlevels to ES5
+        });
+        let output = transpiler.transformSync(code);
 
-		// Rewrite 'async function' -> 'function*' and 'await' -> 'yield __alloy_await'
-		output = output.replace(/\basync\s+function\b/g, "function*");
-		output = output.replace(/\bawait\s+/g, "yield __alloy_await ");
+        // Pass 2: Async/await -> generator coroutine rewrite
+        const ast = acorn.parse(output, { ecmaVersion: 2020, sourceType: "module" });
 
-		output = output.replace(/\bconst\b/g, "var");
-		output = output.replace(/\blet\b/g, "var");
-		output = output.replace(
-			/:\s*(number|string|boolean|any|void|unknown|never)(\[\])?/g,
-			"",
-		);
-		output = output.replace(
-			/\s+as\s+(number|string|boolean|any|void|unknown|never)(\[\])?/g,
-			"",
-		);
-		output = output.replace(/interface\s+\w+\s*\{[\s\S]*?\}/g, "");
-		output = output.replace(/type\s+\w+\s*=.*?;/g, "");
+        walk(ast as any, {
+            enter(node: any) {
+                if (node.type === "FunctionDeclaration" && node.async) {
+                    node.async = false;
+                    node.generator = true;
+                }
+                if (node.type === "AwaitExpression") {
+                    node.type = "YieldExpression";
+                    node.argument = {
+                        type: "ObjectExpression",
+                        properties: [
+                            {
+                                type: "Property",
+                                key: { type: "Identifier", name: "__alloy_ipc" },
+                                value: { type: "Literal", value: "__await__" },
+                                kind: "init"
+                            },
+                            {
+                                type: "Property",
+                                key: { type: "Identifier", name: "args" },
+                                value: { type: "ArrayExpression", elements: [node.argument] },
+                                kind: "init"
+                            }
+                        ]
+                    };
+                }
+                if (node.type === "NewExpression" && node.callee.name === "Promise") {
+                    node.callee.name = "__alloy_deferred";
+                }
+            }
+        });
+
+        output = generate(ast as any);
+
+        // Pass 3: MQJS compatibility (final cleanup)
+        output = output.replace(/\bconst\b/g, "var");
+        output = output.replace(/\blet\b/g, "var");
+
+        const helpers = "var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n";
+        output = helpers + output;
+
+        // Validation via JS_Parse
+        if (typeof AlloyInternal !== 'undefined' && AlloyInternal.parse) {
+            const parseError = AlloyInternal.parse(output);
+            if (parseError) {
+                throw { error: "transpile_failed", message: parseError };
+            }
+        }
 
 		return output;
 	}
 
-	/**
-	 * Async transpilation — distributed across workers (Requirement 12.5).
-	 */
 	async transform(code: string, loader?: Loader): Promise<string> {
 		return Promise.resolve(this.transformSync(code, loader));
 	}
 
-	/**
-	 * Returns all non-type-only imports and exports (Requirement 12.7).
-	 */
 	scan(code: string): { exports: string[]; imports: any[] } {
-		const imports: any[] = [];
-		const exports: string[] = [];
-		const importRegex = /import\s+[\s\S]*?\s+from\s+['"](.*)['"]/g;
-		let match;
-		while ((match = importRegex.exec(code)) !== null) {
-			imports.push({ path: match[1], kind: "import-statement" });
-		}
-		return { exports, imports };
+        const transpiler = new Bun.Transpiler({ loader: "ts" });
+        return transpiler.scan(code);
 	}
+
+    static build(options: BuildOptions): Promise<BuildOutput> {
+        return build(options);
+    }
 }

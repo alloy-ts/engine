@@ -10,6 +10,13 @@
 #define ALLOY_IPC_TAG_SIZE 16
 #define ALLOY_IPC_KEY_SIZE 32
 
+#define ALLOY_ERR_MSG_TOO_LARGE (-1)
+#define ALLOY_ERR_AUTH_FAILED   (-2)
+#define ALLOY_ERR_REPLAY        (-3)
+#define ALLOY_ERR_BAD_SCHEMA    (-4)
+#define ALLOY_ERR_UNKNOWN_TYPE  (-5)
+#define ALLOY_ERR_INVALID_ARG   (-6)
+
 typedef enum {
     ALLOY_MSG_BROWSER_API_REQUEST = 1,
     ALLOY_MSG_BROWSER_API_RESPONSE = 2,
@@ -29,5 +36,6 @@ int alloy_ipc_encrypt(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out);
+int alloy_ipc_try_receive(alloy_runtime_t *rt, const char *req_id, AlloyMessage *out);
 
 #endif
