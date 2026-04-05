@@ -2,7 +2,13 @@
 import { z } from "zod";
 
 export const LogLevelSchema = z.enum(["debug", "warn", "error"]);
-export const JsxModeSchema = z.enum(["react", "react-jsx", "react-jsxdev", "preserve", "solid"]);
+export const JsxModeSchema = z.enum([
+	"react",
+	"react-jsx",
+	"react-jsxdev",
+	"preserve",
+	"solid",
+]);
 export const LoaderNameSchema = z.enum([
 	"jsx",
 	"js",
@@ -19,7 +25,12 @@ export const LoaderNameSchema = z.enum([
 	"text",
 ]);
 export const TargetSchema = z.enum(["local-first", "server-first"]);
-export const AutoInstallSchema = z.enum(["auto", "force", "disable", "fallback"]);
+export const AutoInstallSchema = z.enum([
+	"auto",
+	"force",
+	"disable",
+	"fallback",
+]);
 export const LinkerSchema = z.enum(["isolated", "hoisted"]);
 export const RunShellSchema = z.enum(["system", "alloy"]);
 export const CoverageReporterSchema = z.enum(["text", "lcov"]);
@@ -57,9 +68,13 @@ export const TestConfigSchema = z.object({
 	pathIgnorePatterns: z.array(z.string()).optional(),
 	smol: z.boolean().optional(),
 	coverage: z.boolean().optional(),
-	coverageThreshold: z.union([z.number(), CoverageThresholdObjectSchema]).optional(),
+	coverageThreshold: z
+		.union([z.number(), CoverageThresholdObjectSchema])
+		.optional(),
 	coverageSkipTestFiles: z.boolean().optional(),
-	coveragePathIgnorePatterns: z.union([z.string(), z.array(z.string())]).optional(),
+	coveragePathIgnorePatterns: z
+		.union([z.string(), z.array(z.string())])
+		.optional(),
 	coverageReporter: z.array(CoverageReporterSchema).optional(),
 	coverageDir: z.string().optional(),
 	randomize: z.boolean().optional(),

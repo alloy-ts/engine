@@ -57,7 +57,12 @@ export class ConfigValidator {
 
 		// Cross-field validation
 		if (result.success) {
-			this.crossFieldValidation(result.data as AlloyConfig, filePath, errors, warnings);
+			this.crossFieldValidation(
+				result.data as AlloyConfig,
+				filePath,
+				errors,
+				warnings,
+			);
 		}
 
 		return {
@@ -103,8 +108,15 @@ export class ConfigValidator {
 				}
 
 				if (shapeToUse) {
-					const actualShape = typeof shapeToUse === "function" ? shapeToUse() : shapeToUse;
-					this.checkUnknownKeys(obj[key], actualShape, fullPath, filePath, warnings);
+					const actualShape =
+						typeof shapeToUse === "function" ? shapeToUse() : shapeToUse;
+					this.checkUnknownKeys(
+						obj[key],
+						actualShape,
+						fullPath,
+						filePath,
+						warnings,
+					);
 				}
 			}
 		}

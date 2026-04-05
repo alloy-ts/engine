@@ -29,17 +29,12 @@ export function getPlatformInfo() {
 
 export class BinaryManager {
 	private cacheDir: string;
-    private config = new ConfigLoader().load();
-    private plugins = new PluginRegistry(this.config);
+	private config = new ConfigLoader().load();
+	private plugins = new PluginRegistry(this.config);
 
 	constructor() {
 		const { platform, arch } = getPlatformInfo();
-		this.cacheDir = join(
-			homedir(),
-			".alloy",
-			"bin",
-			`${platform}-${arch}`,
-		);
+		this.cacheDir = join(homedir(), ".alloy", "bin", `${platform}-${arch}`);
 	}
 
 	async ensureBinary(version: string): Promise<string> {
@@ -91,35 +86,41 @@ export class BinaryManager {
 
 		const blake3Response = await fetch(`${url}.blake3`);
 		if (!blake3Response.ok) {
-        const shaResponse = await fetch(`${url}.sha256`);
-        if (!shaResponse.ok) throw new Error("Checksum file not found");
-        const shaText = await shaResponse.text();
-        await writeFile(dest + ".sha256", shaText.trim());
-    } else {
-        const blake3Text = await blake3Response.text();
-        await writeFile(dest + ".blake3", blake3Text.trim());
-    }
+			const shaResponse = await fetch(`${url}.sha256`);
+			if (!shaResponse.ok) throw new Error("Checksum file not found");
+			const shaText = await shaResponse.text();
+			await writeFile(dest + ".sha256", shaText.trim());
+		} else {
+			const blake3Text = await blake3Response.text();
+			await writeFile(dest + ".blake3", blake3Text.trim());
+		}
 	}
 
 	private async verifyChecksum(binaryPath: string): Promise<boolean> {
 		try {
 			const content = await readFile(binaryPath);
 
-      if (existsSync(binaryPath + ".blake3")) {
-          // Ideally we would use a BLAKE3 JS library.
-          // Since we might not have it in the environment, we use a placeholder
-          // that doesn't just return true, but at least tries to compare with something.
-          const expectedFileContent = await readFileSync(binaryPath + ".blake3", "utf-8");
-          const expectedHash = expectedFileContent.split(/\s+/)[0];
-          // For MVP, if we don't have blake3 available in JS, we can't do much more than a check.
-          // In a real environment, we'd use 'blake3' npm package.
-          return true;
-      } else {
-          const hash = createHash("sha256").update(content).digest("hex");
-          const expectedFileContent = await readFileSync(binaryPath + ".sha256", "utf-8");
-          const expectedHash = expectedFileContent.split(/\s+/)[0];
-          return hash === expectedHash;
-      }
+			if (existsSync(binaryPath + ".blake3")) {
+				// Ideally we would use a BLAKE3 JS library.
+				// Since we might not have it in the environment, we use a placeholder
+				// that doesn't just return true, but at least tries to compare with something.
+				const expectedFileContent = await readFileSync(
+					binaryPath + ".blake3",
+					"utf-8",
+				);
+				const expectedHash = expectedFileContent.split(/\s+/)[0];
+				// For MVP, if we don't have blake3 available in JS, we can't do much more than a check.
+				// In a real environment, we'd use 'blake3' npm package.
+				return true;
+			} else {
+				const hash = createHash("sha256").update(content).digest("hex");
+				const expectedFileContent = await readFileSync(
+					binaryPath + ".sha256",
+					"utf-8",
+				);
+				const expectedHash = expectedFileContent.split(/\s+/)[0];
+				return hash === expectedHash;
+			}
 		} catch {
 			return false;
 		}
