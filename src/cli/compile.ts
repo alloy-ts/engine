@@ -5,7 +5,7 @@ async function compile(entrypoint: string, outdir: string) {
 		outdir,
 		target: "node",
 		format: "esm",
-		external: ["drizzle-orm", "bun:sqlite"],
+		external: ["alloy:lib", "alloy:gui", "alloy:sqlite", "drizzle-orm"],
 	});
 
 	if (!result.success) {

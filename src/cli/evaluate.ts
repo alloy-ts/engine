@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-export async function evaluate(entrypoint: string) {
+async function evaluate(entrypoint: string) {
 	const absolutePath = resolve(entrypoint);
 	const module = await import(absolutePath);
 
@@ -10,10 +10,10 @@ export async function evaluate(entrypoint: string) {
 			value &&
 			typeof value === "object" &&
 			"_name" in value &&
-			"fields" in value
+			"functions" in value
 		) {
 			found = true;
-			console.log(`--- Schema: ${key} ---`);
+			console.log(`--- Function: ${key} ---`);
 			if (typeof (value as any).toString === "function") {
 				console.log((value as any).toString());
 			}
@@ -28,9 +28,7 @@ export async function evaluate(entrypoint: string) {
 	}
 
 	if (!found) {
-		console.warn(
-			"No SchemaScript schemas found in the exported members of the module.",
-		);
+		console.warn("No AlloyScript scripts found.");
 	}
 }
 

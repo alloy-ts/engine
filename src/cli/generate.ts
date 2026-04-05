@@ -4,28 +4,24 @@ import { basename, extname, join } from "node:path";
 import { $ } from "bun";
 import { compile } from "./compile";
 
-export async function generate(
-	entrypoint: string,
-	dialect: string,
-	outdir?: string,
-) {
-	const tempOutDir = mkdtempSync(join(tmpdir(), "schemascript-"));
+async function generate(entrypoint: string, dialect: string, outdir?: string) {
+	const tempOutDir = mkdtempSync(join(tmpdir(), "AlloyScript-"));
 
 	try {
 		await compile(entrypoint, tempOutDir);
 
 		const filename = basename(entrypoint, extname(entrypoint)) + ".js";
-		const actualSchemaPath = join(tempOutDir, filename);
+		const actualScriptPath = join(tempOutDir, filename);
 
-		console.info(`Generating migrations for ${actualSchemaPath}...`);
+		console.info(`Generating migrations for ${actualScriptPath}...`);
 
 		const args = [
-			"drizzle-kit",
+			"alloy-kit",
 			"generate",
 			"--dialect",
 			dialect,
-			"--schema",
-			actualSchemaPath,
+			"--script",
+			actualScriptPath,
 		];
 		if (outdir) {
 			args.push("--out", outdir);
