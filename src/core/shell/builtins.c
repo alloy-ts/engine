@@ -2,6 +2,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 
 static int builtin_echo(int argc, char **argv, alloy_stdio_t *io) {
     int out = io->fd_out == -1 ? STDOUT_FILENO : io->fd_out;

@@ -14,13 +14,25 @@ WEBVIEW_FLAGS=-DWEBVIEW_GTK=1 $(shell pkg-config --cflags --libs gtk+-3.0 webkit
 
 all: test_engine
 
-alloyscript.o: alloyscript.c alloyscript.h
+engine.o: engine.c engine.h
+	$(CC) $(CFLAGS) -I. -c -o $@ $<
+
+ipc.o: ipc.c ipc.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test_engine: test_engine.o alloyscript.o $(MQJS_OBJS)
+mqjs_bridge.o: backend_adapters/mqjs_bridge.c backend_adapters/mqjs_bridge.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+webviewjs_bridge.o: backend_adapters/webviewjs_bridge.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+blake3.o: blake3/blake3.c blake3/blake3.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+test_engine: test_engine.o engine.o ipc.o mqjs_bridge.o webviewjs_bridge.o blake3.o $(MQJS_OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-test_engine.o: test_engine.c alloyscript.h
+test_engine.o: test_engine.c engine.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:

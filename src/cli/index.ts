@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { evaluate, startRepl, Transpiler } from "@alloyscript/engine";
+import { evaluate, startRepl, Transpiler } from "../main";
 import { ensureAlloyHost } from "../core/host_manager";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";

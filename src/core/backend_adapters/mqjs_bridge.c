@@ -1,86 +1,57 @@
-#include "../../pacakges/mquickjs/mquickjs_priv.h"
-#include "bridge.h"
+#include "../../packages/mquickjs/mquickjs.h"
+#include "../js_engine.h"
+#include "../engine.h"
+#include "mqjs_bridge.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <openssl/rand.h>
 
 void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val) {
-    if (!ctx || !name) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
-        return;
-    }
+    if (!ctx || !name) return;
     JSValue global_obj = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global_obj, name, val);
     JS_FreeValue(ctx, global_obj);
 }
 
-void alloy_mqjs_bind_func(JSContext *ctx, const char *name, int func_idx, JSValue params) {
-    if (!ctx || !name) {
-        fprintf(stderr, "[alloy] bind_global: NULL argument\n");
-        return;
-    }
+typedef struct {
+    AlloyBindHandler handler;
+    void *opaque;
+} AlloyMQJSBinding;
 
-    JSValue obj = JS_GetGlobalObject(ctx);
-    char *token, *saveptr, *name_copy = strdup(name);
-    if (!name_copy) {
-        JS_FreeValue(ctx, obj);
-        return;
-    }
-    token = strtok_r(name_copy, ".", &saveptr);
-
-    while (token != NULL) {
-        const char *next_token = strtok_r(NULL, ".", &saveptr);
-        if (next_token == NULL) {
-            /* Last component: bind the function */
-            JSValue f = JS_NewCFunctionParams(ctx, func_idx, params);
-            JS_SetPropertyStr(ctx, obj, token, f);
-            break;
-        } else {
-            /* Intermediate component: ensure object exists */
-            JSValue next_obj = JS_GetPropertyStr(ctx, obj, token);
-            if (!JS_IsObject(ctx, next_obj)) {
-                next_obj = JS_NewObject(ctx);
-                JS_SetPropertyStr(ctx, obj, token, JS_DupValue(ctx, next_obj));
-            }
-            JS_FreeValue(ctx, obj);
-            obj = next_obj;
-        }
-        token = next_token;
-    }
-
-    JS_FreeValue(ctx, obj);
-    free(name_copy);
+static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue params) {
+    AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
+    char result_buf[4096];
+    b->handler(b->opaque, "[]", result_buf, sizeof(result_buf));
+    return JS_Parse(ctx, result_buf, strlen(result_buf), "<mqjs_res>", JS_EVAL_JSON);
 }
 
-JSValue js_alloy_await(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
-    return JS_UNDEFINED;
+void alloy_mqjs_bind_func(JSContext *ctx, const char *name, JSCFunction *func, void *opaque) {
+    if (!ctx || !name || !func) return;
+    AlloyMQJSBinding *b = malloc(sizeof(*b));
+    b->handler = (AlloyBindHandler)func;
+    b->opaque = opaque;
+    JSValue params = JS_NewInt64(ctx, (int64_t)(uintptr_t)b);
+    JSValue f = JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 0, params);
+    JSValue global = JS_GetGlobalObject(ctx);
+    JS_SetPropertyStr(ctx, global, name, f);
+    JS_FreeValue(ctx, global);
 }
 
+typedef struct {
+    AlloyJSEngine base;
+    JSContext *ctx;
+} AlloyMQJSEngine;
 
-alloy_runtime_t *alloy_engine_create(void) {
-    alloy_runtime_t *rt = calloc(1, sizeof(alloy_runtime_t));
-    if (!rt) return NULL;
+static int mqjs_call_fn(AlloyJSEngine *e, const char *n, const char *a, char **o) { return 0; }
+static int mqjs_eval_fn(AlloyJSEngine *e, const char *s, const char *f, char **o) { return 0; }
+static int mqjs_bind_fn(AlloyJSEngine *e, const char *n, AlloyBindHandler h, void *o) { return 0; }
+static int mqjs_emit_fn(AlloyJSEngine *e, const char *ev, const char *p) { return 0; }
+static void mqjs_destroy_fn(AlloyJSEngine *e) { free(e); }
 
-    size_t mem_size = 16 << 20;
-    rt->mem_buf = malloc(mem_size);
-    rt->mqjs_ctx = JS_NewContext(rt->mem_buf, mem_size, &js_stdlib);
-
-    // Initialise WebView hidden
-    rt->webview = webview_create(1, NULL);
-    webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
-
-    // Generate SessionKey
-    RAND_bytes(rt->session_key, 32);
-
-    return rt;
-}
-
-void alloy_engine_destroy(alloy_runtime_t *rt) {
-    if (!rt) return;
-    webview_destroy(rt->webview);
-    JS_FreeContext(rt->mqjs_ctx);
-    free(rt->mem_buf);
-    free(rt);
+AlloyJSEngine *alloy_mqjs_engine_create(JSContext *ctx, void *rt) {
+    AlloyMQJSEngine *e = calloc(1, sizeof(AlloyMQJSEngine));
+    e->base.destroy_fn = mqjs_destroy_fn;
+    e->ctx = ctx;
+    return (AlloyJSEngine *)e;
 }
 

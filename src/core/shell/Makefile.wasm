@@ -1,0 +1,15 @@
+CC=clang
+CFLAGS=--target=wasm32-wasi -Wall -O2
+LDFLAGS=--target=wasm32-wasi
+
+SRCS=shell_main.c lexer.c parser.c interpreter.c builtins.c escape.c
+OBJS=$(SRCS:.c=.o)
+
+shell.wasm: $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -f *.o shell.wasm

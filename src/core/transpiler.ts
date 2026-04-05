@@ -14,11 +14,17 @@ export interface Import {
         "internal" | "entry-point-build" | "entry-point-run";
 }
 
+import { build, type BuildOptions, type BuildOutput } from "./build";
+
 /**
  * Implements a pipeline for ES5 downlevelling and async/await polyfilling.
  * Uses Bun.Transpiler for the first pass if available.
  */
 export class Transpiler {
+	static async build(options: BuildOptions): Promise<BuildOutput> {
+		return build(options);
+	}
+
 	constructor(private options: TranspilerOptions = {}) {}
 
 	/**
@@ -51,6 +57,12 @@ export class Transpiler {
 
     if (output.includes("__alloy_ipc") || output.includes("__alloy_deferred")) {
         output = "var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n" + output;
+    }
+
+    const internal = (globalThis as any).AlloyInternal;
+    if (typeof internal !== "undefined" && internal.parse) {
+        const parseError = internal.parse(output);
+        if (parseError) throw { error: "transpile_failed", message: parseError };
     }
 
 		return output;

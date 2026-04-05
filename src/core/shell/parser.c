@@ -23,38 +23,41 @@ void alloy_node_free(alloy_node_t *node) {
 }
 
 int alloy_shell_parse(alloy_token_list_t *tl, alloy_node_t **root) {
-    /* Implementation of pipeline and redirection parsing (Requirement 1.3) */
+    /* Requirement 1.3: Build AST with pipelines and commands */
     alloy_node_t *script = calloc(1, sizeof(alloy_node_t));
     script->type = NODE_SCRIPT;
-    script->script.pipelines = calloc(8, sizeof(alloy_node_t *));
+    script->script.pipelines = calloc(32, sizeof(alloy_node_t *));
 
-    alloy_node_t *pipeline = calloc(1, sizeof(alloy_node_t));
-    pipeline->type = NODE_PIPELINE;
-    pipeline->pipeline.stages = calloc(8, sizeof(alloy_node_t *));
-
-    alloy_node_t *cmd = calloc(1, sizeof(alloy_node_t));
-    cmd->type = NODE_COMMAND;
-    cmd->command.argv = calloc(16, sizeof(char *));
+    alloy_node_t *pipeline = NULL;
+    alloy_node_t *cmd = NULL;
 
     for (int i = 0; i < tl->count; i++) {
+        if (!pipeline) {
+            pipeline = calloc(1, sizeof(alloy_node_t));
+            pipeline->type = NODE_PIPELINE;
+            pipeline->pipeline.stages = calloc(16, sizeof(alloy_node_t *));
+            script->script.pipelines[script->script.count++] = pipeline;
+        }
+
+        if (!cmd) {
+            cmd = calloc(1, sizeof(alloy_node_t));
+            cmd->type = NODE_COMMAND;
+            cmd->command.argv = calloc(64, sizeof(char *));
+            pipeline->pipeline.stages[pipeline->pipeline.stage_count++] = cmd;
+        }
+
         if (tl->tokens[i].type == TOK_WORD) {
             cmd->command.argv[cmd->command.argc++] = strdup(tl->tokens[i].value);
         } else if (tl->tokens[i].type == TOK_PIPE) {
-            pipeline->pipeline.stages[pipeline->pipeline.stage_count++] = cmd;
-            cmd = calloc(1, sizeof(alloy_node_t));
-            cmd->type = NODE_COMMAND;
-            cmd->command.argv = calloc(16, sizeof(char *));
+            cmd = NULL;
+        } else if (tl->tokens[i].type == TOK_SEMICOLON || tl->tokens[i].type == TOK_NEWLINE) {
+            pipeline = NULL;
+            cmd = NULL;
         } else if (tl->tokens[i].type == TOK_REDIR_OUT && i + 1 < tl->count) {
-            alloy_node_t *redir = calloc(1, sizeof(alloy_node_t));
-            redir->type = NODE_REDIRECT;
-            redir->redirect.op = TOK_REDIR_OUT;
-            redir->redirect.target = strdup(tl->tokens[++i].value);
-            /* Add to command's redirects */
+            /* Requirement 1.6: redirection wiring stub */
+            i++;
         }
     }
-
-    pipeline->pipeline.stages[pipeline->pipeline.stage_count++] = cmd;
-    script->script.pipelines[script->script.count++] = pipeline;
 
     *root = script;
     return 0;

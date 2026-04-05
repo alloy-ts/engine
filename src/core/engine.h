@@ -2,6 +2,8 @@
 #define ALLOYSCRIPT_ENGINE_H
 
 #include <stddef.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include "mquickjs.h"
 #include "webview/webview.h"
 
@@ -9,12 +11,60 @@
 extern "C" {
 #endif
 
+typedef struct AlloyJSEngine AlloyJSEngine;
+
+typedef struct {
+    uint32_t type;
+    char *name;
+    JSValue listener;
+    JSValue args[8];
+    uint8_t argc;
+} AlloyEvent;
+
+typedef struct {
+    AlloyEvent events[4096];
+    uint32_t head;
+    uint32_t tail;
+    uint32_t count;
+} AlloyEventQueue;
+
+typedef struct {
+    const char *event_name;
+    JSValue listeners[8];
+    uint8_t count;
+} AlloyListenerEntry;
+
 typedef struct alloy_runtime {
     JSContext *mqjs_ctx;
     webview_t webview;
     unsigned char session_key[32];
     void *mem_buf;
+
+    AlloyJSEngine *mqjs_engine;
+    AlloyJSEngine *webview_engine;
+
+    struct {
+        uint64_t next_outbound_seq;
+        uint64_t last_inbound_seq;
+        unsigned char session_key[32];
+    } ipc_state;
+
+    char *latest_ipc_response;
+    bool shutdown;
+
+    size_t js_heap_size;
+    void *js_heap;
+    int js_heap_prot;
+
+    AlloyListenerEntry listener_registry[32];
+    AlloyEventQueue event_queue;
+
+    JSValue next_tick_queue[256];
+    uint32_t next_tick_count;
 } alloy_runtime_t;
+
+void alloy_mqjs_bind_func(JSContext *ctx, const char *name, JSCFunction *func, void *opaque);
+void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val);
 
 typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);
 
