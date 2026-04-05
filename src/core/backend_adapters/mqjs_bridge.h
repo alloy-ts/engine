@@ -13,6 +13,8 @@ extern "C" {
 struct alloy_runtime;
 
 AlloyJSEngine *alloy_mqjs_engine_create(JSContext *ctx, struct alloy_runtime *rt);
+
+JSValue alloy_mqjs_vtable_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue params);
 AlloyJSEngine *alloy_webview_engine_create(webview_t w, struct alloy_runtime *rt);
 
 void alloy_mqjs_bind_global(JSContext *ctx, const char *name, JSValue val);

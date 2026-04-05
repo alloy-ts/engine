@@ -2,11 +2,11 @@
 #define ALLOY_SHELL_PIPE_H
 
 typedef struct {
-    int read_fd;
-    int write_fd;
-} alloy_pipe_t;
+    int fds[2];
+} Pipe;
 
-int alloy_pipe_create(alloy_pipe_t *p);
-void alloy_pipe_close(alloy_pipe_t *p);
+Pipe *pipe_create();
+void pipe_close(Pipe *p);
+void pipe_free(Pipe *p);
 
 #endif

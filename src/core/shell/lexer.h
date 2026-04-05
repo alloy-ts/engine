@@ -2,38 +2,38 @@
 #define ALLOY_SHELL_LEXER_H
 
 typedef enum {
-    TOK_WORD,
-    TOK_ASSIGN,
-    TOK_PIPE,
-    TOK_REDIR_IN,
-    TOK_REDIR_OUT,
-    TOK_REDIR_APPEND,
-    TOK_REDIR_ERR,
-    TOK_REDIR_ERR_APP,
-    TOK_REDIR_BOTH,
-    TOK_REDIR_BOTH_APP,
-    TOK_REDIR_OUT2ERR,
-    TOK_REDIR_ERR2OUT,
-    TOK_CMD_SUB_START,
-    TOK_CMD_SUB_END,
-    TOK_NEWLINE,
-    TOK_SEMICOLON,
-    TOK_EOF,
-} alloy_tok_type_t;
+    TOKEN_WORD,
+    TOKEN_ASSIGN,
+    TOKEN_PIPE,
+    TOKEN_REDIR_IN,      // <
+    TOKEN_REDIR_OUT,     // >
+    TOKEN_REDIR_APPEND,  // >>
+    TOKEN_REDIR_ERR_OUT, // 2>
+    TOKEN_REDIR_ERR_APP, // 2>>
+    TOKEN_REDIR_ALL_OUT, // &>
+    TOKEN_REDIR_ALL_APP, // &>>
+    TOKEN_REDIR_1TO2,    // 1>&2
+    TOKEN_REDIR_2TO1,    // 2>&1
+    TOKEN_CMD_SUB_START, // $(
+    TOKEN_CMD_SUB_END,   // )
+    TOKEN_NEWLINE,
+    TOKEN_SEMICOLON,
+    TOKEN_EOF
+} TokenType;
 
 typedef struct {
-    alloy_tok_type_t type;
-    char            *value;
-    int              line;
-} alloy_token_t;
+    TokenType type;
+    char *value;
+} Token;
 
 typedef struct {
-    alloy_token_t *tokens;
-    int            count;
-    int            capacity;
-} alloy_token_list_t;
+    const char *source;
+    int pos;
+} Lexer;
 
-int  alloy_shell_lex(const char *src, alloy_token_list_t *out);
-void alloy_token_list_free(alloy_token_list_t *tl);
+Lexer *lexer_create(const char *source);
+Token *lexer_next_token(Lexer *lexer);
+void token_free(Token *token);
+void lexer_free(Lexer *lexer);
 
 #endif

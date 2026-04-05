@@ -4,39 +4,43 @@
 #include "lexer.h"
 
 typedef enum {
+    NODE_SCRIPT,
     NODE_PIPELINE,
     NODE_COMMAND,
     NODE_REDIRECT,
-    NODE_CMD_SUBSTITUTION,
     NODE_ASSIGNMENT,
-    NODE_SCRIPT,
-} alloy_node_type_t;
+    NODE_CMD_SUBSTITUTION
+} NodeType;
 
-typedef struct alloy_node alloy_node_t;
-
-struct alloy_node {
-    alloy_node_type_t type;
+typedef struct Node {
+    NodeType type;
     union {
-        struct { alloy_node_t **stages; int stage_count; } pipeline;
         struct {
-            char           **argv;
-            int              argc;
-            alloy_node_t   **redirects;
-            int              redir_count;
-            alloy_node_t   **assignments;
-            int              assign_count;
+            struct Node **commands;
+            int count;
+        } script;
+        struct {
+            struct Node **stages;
+            int count;
+        } pipeline;
+        struct {
+            char **args;
+            int argc;
+            struct Node **redirects;
+            int redir_count;
         } command;
         struct {
-            alloy_tok_type_t op;
-            char            *target;
+            TokenType type;
+            char *target; // file or fd
         } redirect;
-        struct { alloy_node_t *body; } cmd_sub;
-        struct { char *name; char *value; } assignment;
-        struct { alloy_node_t **pipelines; int count; } script;
-    };
-};
+        struct {
+            char *name;
+            char *value;
+        } assignment;
+    } data;
+} Node;
 
-int          alloy_shell_parse(alloy_token_list_t *tl, alloy_node_t **root);
-void         alloy_node_free(alloy_node_t *node);
+Node *parser_parse(Lexer *lexer);
+void node_free(Node *node);
 
 #endif

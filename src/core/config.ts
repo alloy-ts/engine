@@ -110,6 +110,7 @@ export interface AlloyConfig {
     install: InstallConfig;
     run: RunConfig;
     debug: DebugConfig;
+    [key: string]: any;
 }
 
 export const DEFAULT_CONFIG: AlloyConfig = {
@@ -176,6 +177,74 @@ export const DEFAULT_CONFIG: AlloyConfig = {
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+
+import type { AlloyPlugin, PluginContext, ConfigController, ConfigOptions } from "./plugin";
+
+export class ConfigPlugin implements AlloyPlugin {
+    name = "alloy:config";
+    private customConfigs: Map<string, any> = new Map();
+    private activeConfig: AlloyConfig;
+
+    constructor(initialConfig: AlloyConfig) {
+        this.activeConfig = initialConfig;
+    }
+
+    async setup(context: PluginContext) {
+        // System config plugin doesn't need to call useConfig on itself
+    }
+
+    registerCustomConfig(name: string, definition: any) {
+        if (!(name in this.activeConfig)) {
+            (this.activeConfig as any)[name] = definition.default;
+        }
+    }
+
+    get(name: string): any {
+        return (this.activeConfig as any)[name];
+    }
+
+    set(name: string, value: any) {
+        (this.activeConfig as any)[name] = value;
+    }
+
+    getMergedConfig(): AlloyConfig {
+        return this.activeConfig;
+    }
+}
+
+export class PluginManager implements PluginContext {
+    private plugins: AlloyPlugin[] = [];
+    private configPlugin: ConfigPlugin;
+
+    constructor(config: AlloyConfig) {
+        this.configPlugin = new ConfigPlugin(config);
+    }
+
+    useConfig<T>(options: ConfigOptions<T>): ConfigController<T> {
+        const manager = this;
+        for (const [key, def] of Object.entries(options.configs)) {
+            this.configPlugin.registerCustomConfig(key, def);
+        }
+
+        return {
+            get(name: string): T {
+                return manager.configPlugin.get(name);
+            },
+            set(name: string, value: T): void {
+                manager.configPlugin.set(name, value);
+            }
+        };
+    }
+
+    async register(plugin: AlloyPlugin) {
+        this.plugins.push(plugin);
+        await plugin.setup(this);
+    }
+
+    getFinalConfig(): AlloyConfig {
+        return this.configPlugin.getMergedConfig();
+    }
+}
 
 export class ConfigLoader {
     static interpolate(value: any): any {

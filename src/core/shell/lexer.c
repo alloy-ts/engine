@@ -3,128 +3,113 @@
 #include <string.h>
 #include <ctype.h>
 
-static void add_token(alloy_token_list_t *tl, alloy_tok_type_t type, const char *value, int line) {
-    if (tl->count >= tl->capacity) {
-        tl->capacity = tl->capacity ? tl->capacity * 2 : 16;
-        tl->tokens = realloc(tl->tokens, tl->capacity * sizeof(alloy_token_t));
-    }
-    tl->tokens[tl->count].type = type;
-    tl->tokens[tl->count].value = value ? strdup(value) : NULL;
-    tl->tokens[tl->count].line = line;
-    tl->count++;
+Lexer *lexer_create(const char *source) {
+    Lexer *l = malloc(sizeof(Lexer));
+    l->source = source;
+    l->pos = 0;
+    return l;
 }
 
-int alloy_shell_lex(const char *src, alloy_token_list_t *tl) {
-    int line = 1;
-    const char *p = src;
-    tl->count = 0;
-    tl->capacity = 0;
-    tl->tokens = NULL;
-
-    while (*p) {
-        if (isspace(*p)) {
-            if (*p == '\n') {
-                add_token(tl, TOK_NEWLINE, NULL, line++);
-            }
-            p++;
-            continue;
-        }
-
-        if (*p == '#') {
-            while (*p && *p != '\n') p++;
-            continue;
-        }
-
-        if (*p == '|') {
-            add_token(tl, TOK_PIPE, NULL, line);
-            p++;
-            continue;
-        }
-
-        if (*p == ';') {
-            add_token(tl, TOK_SEMICOLON, NULL, line);
-            p++;
-            continue;
-        }
-
-        if (*p == '<') {
-            add_token(tl, TOK_REDIR_IN, NULL, line);
-            p++;
-            continue;
-        }
-
-        if (*p == '>') {
-            p++;
-            if (*p == '>') {
-                add_token(tl, TOK_REDIR_APPEND, NULL, line);
-                p++;
-            } else {
-                add_token(tl, TOK_REDIR_OUT, NULL, line);
-            }
-            continue;
-        }
-
-        if (*p == '&') {
-            p++;
-            if (*p == '>') {
-                p++;
-                if (*p == '>') {
-                    add_token(tl, TOK_REDIR_BOTH_APP, NULL, line);
-                    p++;
-                } else {
-                    add_token(tl, TOK_REDIR_BOTH, NULL, line);
-                }
-            } else {
-                // Background & (not supported in AST yet)
-            }
-            continue;
-        }
-
-        if (*p == '1' && *(p+1) == '>' && *(p+2) == '&' && *(p+3) == '2') {
-            add_token(tl, TOK_REDIR_OUT2ERR, NULL, line);
-            p += 4;
-            continue;
-        }
-
-        if (*p == '2' && *(p+1) == '>' && *(p+2) == '&' && *(p+3) == '1') {
-            add_token(tl, TOK_REDIR_ERR2OUT, NULL, line);
-            p += 4;
-            continue;
-        }
-
-        if (*p == '$' && *(p+1) == '(') {
-            add_token(tl, TOK_CMD_SUB_START, NULL, line);
-            p += 2;
-            continue;
-        }
-
-        if (*p == ')') {
-            add_token(tl, TOK_CMD_SUB_END, NULL, line);
-            p++;
-            continue;
-        }
-
-        // WORD
-        const char *start = p;
-        while (*p && !isspace(*p) && !strchr("|;<>&()", *p)) {
-            p++;
-        }
-        char *word = strndup(start, p - start);
-        if (strchr(word, '=')) {
-            add_token(tl, TOK_ASSIGN, word, line);
-        } else {
-            add_token(tl, TOK_WORD, word, line);
-        }
-        free(word);
-    }
-
-    add_token(tl, TOK_EOF, NULL, line);
-    return 0;
+void lexer_free(Lexer *l) {
+    free(l);
 }
 
-void alloy_token_list_free(alloy_token_list_t *tl) {
-    for (int i = 0; i < tl->count; i++) {
-        free(tl->tokens[i].value);
+void token_free(Token *t) {
+    if (t->value) free(t->value);
+    free(t);
+}
+
+static Token *token_create(TokenType type, char *value) {
+    Token *t = malloc(sizeof(Token));
+    t->type = type;
+    t->value = value;
+    return t;
+}
+
+Token *lexer_next_token(Lexer *l) {
+    while (l->source[l->pos] && (l->source[l->pos] == ' ' || l->source[l->pos] == '\t')) {
+        l->pos++;
     }
-    free(tl->tokens);
+
+    if (!l->source[l->pos]) return token_create(TOKEN_EOF, NULL);
+
+    char c = l->source[l->pos];
+
+    if (c == '\n') {
+        l->pos++;
+        return token_create(TOKEN_NEWLINE, NULL);
+    }
+    if (c == ';') {
+        l->pos++;
+        return token_create(TOKEN_SEMICOLON, NULL);
+    }
+    if (c == '|') {
+        l->pos++;
+        return token_create(TOKEN_PIPE, NULL);
+    }
+    if (c == '<') {
+        l->pos++;
+        return token_create(TOKEN_REDIR_IN, NULL);
+    }
+    if (c == '>') {
+        l->pos++;
+        if (l->source[l->pos] == '>') {
+            l->pos++;
+            return token_create(TOKEN_REDIR_APPEND, NULL);
+        }
+        return token_create(TOKEN_REDIR_OUT, NULL);
+    }
+
+    // Complex tokens like 2>, &>, $( etc.
+    if (c == '2' && l->source[l->pos+1] == '>') {
+        l->pos += 2;
+        if (l->source[l->pos] == '>') {
+            l->pos++;
+            return token_create(TOKEN_REDIR_ERR_APP, NULL);
+        }
+        return token_create(TOKEN_REDIR_ERR_OUT, NULL);
+    }
+    if (c == '&' && l->source[l->pos+1] == '>') {
+        l->pos += 2;
+        if (l->source[l->pos] == '>') {
+            l->pos++;
+            return token_create(TOKEN_REDIR_ALL_APP, NULL);
+        }
+        return token_create(TOKEN_REDIR_ALL_OUT, NULL);
+    }
+    if (c == '1' && l->source[l->pos+1] == '>' && l->source[l->pos+2] == '&' && l->source[l->pos+3] == '2') {
+        l->pos += 4;
+        return token_create(TOKEN_REDIR_1TO2, NULL);
+    }
+    if (c == '2' && l->source[l->pos+1] == '>' && l->source[l->pos+2] == '&' && l->source[l->pos+3] == '1') {
+        l->pos += 4;
+        return token_create(TOKEN_REDIR_2TO1, NULL);
+    }
+    if (c == '$' && l->source[l->pos+1] == '(') {
+        l->pos += 2;
+        return token_create(TOKEN_CMD_SUB_START, NULL);
+    }
+    if (c == ')') {
+        l->pos++;
+        return token_create(TOKEN_CMD_SUB_END, NULL);
+    }
+
+    // Word or assignment
+    int start = l->pos;
+    while (l->source[l->pos] && !isspace(l->source[l->pos]) &&
+           !strchr(";|<>&$()", l->source[l->pos])) {
+        l->pos++;
+    }
+    int len = l->pos - start;
+    char *value = malloc(len + 1);
+    strncpy(value, l->source + start, len);
+    value[len] = '\0';
+
+    if (l->source[l->pos] == '=') {
+        // Handle simple assignments
+        l->pos++;
+        return token_create(TOKEN_ASSIGN, value);
+    }
+
+    return token_create(TOKEN_WORD, value);
 }

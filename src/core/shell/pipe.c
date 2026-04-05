@@ -1,17 +1,26 @@
 #include "pipe.h"
+#include <stdlib.h>
 #include <unistd.h>
 
-int alloy_pipe_create(alloy_pipe_t *p) {
-    int fds[2];
-    if (pipe(fds) == -1) return -1;
-    p->read_fd = fds[0];
-    p->write_fd = fds[1];
-    return 0;
+Pipe *pipe_create() {
+    Pipe *p = malloc(sizeof(Pipe));
+    if (pipe(p->fds) == -1) {
+        free(p);
+        return NULL;
+    }
+    return p;
 }
 
-void alloy_pipe_close(alloy_pipe_t *p) {
-    if (p->read_fd != -1) close(p->read_fd);
-    if (p->write_fd != -1) close(p->write_fd);
-    p->read_fd = -1;
-    p->write_fd = -1;
+void pipe_close(Pipe *p) {
+    if (!p) return;
+    if (p->fds[0] != -1) close(p->fds[0]);
+    if (p->fds[1] != -1) close(p->fds[1]);
+    p->fds[0] = -1;
+    p->fds[1] = -1;
+}
+
+void pipe_free(Pipe *p) {
+    if (!p) return;
+    pipe_close(p);
+    free(p);
 }

@@ -124,8 +124,8 @@ static int mqjs_eval_fn(AlloyJSEngine *engine, const char *source, const char *f
     return status;
 }
 
-// generic dispatcher for MQJS
-static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue params) {
+// generic dispatcher for MQJS vtable
+JSValue alloy_mqjs_vtable_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue params) {
     AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
 
     JSValue args_array = JS_NewArray(ctx, argc);
@@ -137,15 +137,9 @@ static JSValue alloy_mqjs_dispatch(JSContext *ctx, JSValue this_val, int argc, J
     b->handler(b->opaque, args_json, result_buf, sizeof(result_buf));
     free(args_json);
 
-    return alloy_mqjs_from_json(ctx, result_buf);
+    JSValue res = alloy_mqjs_from_json(ctx, result_buf);
+    return res;
 }
-
-// We need to register alloy_mqjs_dispatch in the function table
-// In engine.c, we already have JS_CFUNCTION_USER + 16 as alloy_browser_proxy_dispatch
-// Let's use a new slot for the generic vtable dispatcher if needed, or just reuse it.
-// Actually, Requirement 1.5 says:
-// Fix alloy_mqjs_bind_func in src/core/backend_adapters/mqjs_bridge.c to correctly create and register a C function with opaque data
-// Replace the stub JS_NewCFunctionParams call with JS_NewCFunctionData(ctx, func, argc, 0, 1, &opaque_jsval)
 
 static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandler handler, void *opaque) {
     AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
@@ -157,10 +151,9 @@ static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandle
     b->opaque = opaque;
     b->rt = e->rt;
 
-    // We'll reuse the proxy slot for now or add a dedicated one in engine.c
-    // Let's assume JS_CFUNCTION_USER + 16 is our generic "dispatch with opaque" slot.
+    // Use slot JS_CFUNCTION_USER + 28 for generic vtable dispatch
     JSValue params = JS_NewInt64(ctx, (int64_t)(uintptr_t)b);
-    JSValue f = JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 16, params);
+    JSValue f = JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 28, params);
 
     alloy_mqjs_set_dotted(ctx, name, f);
 

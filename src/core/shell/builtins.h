@@ -1,17 +1,20 @@
 #ifndef ALLOY_SHELL_BUILTINS_H
 #define ALLOY_SHELL_BUILTINS_H
 
-#include "shell.h"
+typedef int (*BuiltinFn)(int argc, char **argv);
 
-typedef int (*alloy_builtin_fn)(alloy_shell_ctx_t *ctx, int argc, char **argv, alloy_stdio_t *io);
+BuiltinFn builtin_find(const char *name);
 
-typedef struct {
-    const char *name;
-    alloy_builtin_fn fn;
-} alloy_builtin_entry_t;
-
-extern const alloy_builtin_entry_t ALLOY_SHELL_BUILTINS[];
-
-alloy_builtin_fn alloy_shell_find_builtin(const char *name);
+int builtin_cd(int argc, char **argv);
+int builtin_echo(int argc, char **argv);
+int builtin_pwd(int argc, char **argv);
+int builtin_ls(int argc, char **argv);
+int builtin_rm(int argc, char **argv);
+int builtin_cat(int argc, char **argv);
+int builtin_touch(int argc, char **argv);
+int builtin_mkdir(int argc, char **argv);
+int builtin_exit(int argc, char **argv);
+int builtin_true(int argc, char **argv);
+int builtin_false(int argc, char **argv);
 
 #endif

@@ -60,8 +60,8 @@ export async function build(options: BuildOptions): Promise<BuildOutput> {
 
     for (const entry of options.entrypoints) {
         try {
-            // Simplified build logic for MVP
-            const code = ""; // Load from entry
+            // Read from entry
+            const code = await (await import("node:fs/promises")).readFile(entry, "utf-8");
             const transformed = transpiler.transformSync(code);
             outputs.push({
                 path: `${options.outdir || "./dist"}/${entry.replace(/\.tsx?$/, ".js")}`,

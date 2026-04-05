@@ -63,6 +63,7 @@ static const JSCFunctionDef alloy_c_function_table[] = {
     [JS_CFUNCTION_USER + 14] = { { .generic = js_performance_now }, JS_NULL, JS_CFUNC_generic, 0, 0 },
     [JS_CFUNCTION_USER + 15] = { { .generic = js_setTimeout }, JS_NULL, JS_CFUNC_generic, 2, 0 },
     [JS_CFUNCTION_USER + 16] = { { .generic_params = alloy_browser_proxy_dispatch }, JS_NULL, JS_CFUNC_generic_params, 0, 0 },
+    [JS_CFUNCTION_USER + 28] = { { .generic_params = alloy_mqjs_vtable_dispatch }, JS_NULL, JS_CFUNC_generic_params, 0, 0 },
     [JS_CFUNCTION_USER + 17] = { { .generic = alloy_runtime_atob }, JS_NULL, JS_CFUNC_generic, 1, 0 },
     [JS_CFUNCTION_USER + 18] = { { .generic = alloy_runtime_btoa }, JS_NULL, JS_CFUNC_generic, 1, 0 },
     [JS_CFUNCTION_USER + 19] = { { .generic = alloy_runtime_structured_clone }, JS_NULL, JS_CFUNC_generic, 1, 0 },
@@ -666,6 +667,7 @@ void alloy_engine_bootstrap(alloy_runtime_t *rt) {
 
     JSValue internal_obj = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, internal_obj, "parse", JS_NewCFunction(ctx, alloy_runtime_parse_validate, "parse", 1));
+    JS_SetPropertyStr(ctx, internal_obj, "secureEval", JS_NewCFunction(ctx, alloy_runtime_secure_eval_internal, "secureEval", 1));
     JS_SetPropertyStr(ctx, internal_obj, "__alloy_await", JS_NewCFunction(ctx, alloy_runtime_await_helper, "__alloy_await", 1));
     JS_SetPropertyStr(ctx, internal_obj, "__alloy_deferred", JS_NewCFunction(ctx, alloy_runtime_deferred_helper, "__alloy_deferred", 1));
     JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", internal_obj);
