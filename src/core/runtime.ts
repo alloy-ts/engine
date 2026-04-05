@@ -2,7 +2,56 @@
 	const global = globalThis;
 
 	// Internal bridge to the host (exposed via bind_global_mqjs)
-	const AlloyInternal = global.AlloyInternal;
+	const AlloyInternal = global.AlloyInternal || {
+        shellEscape: function(s) {
+            return String(s).replace(/[;|&$`()<>\\"' \t\n]/g, "\\$&");
+        },
+        shellBraces: function(s) {
+            const m = s.match(/\{([^}]*)\}/);
+            if (!m) return [s];
+            const parts = m[1].split(",");
+            const prefix = s.substring(0, m.index);
+            const suffix = s.substring(m.index + m[0].length);
+            return parts.map(p => prefix + p + suffix);
+        },
+        runShell: function(parts, interps, opts) {
+            let script = parts[0];
+            for(let i=0; i<interps.length; i++) {
+                let val = interps[i];
+                if (Array.isArray(val)) val = val.join(" ");
+                script += val + parts[i+1];
+            }
+
+            let exitCode = 0;
+            let stdout = "";
+
+            const commands = script.split(/(?<!\\)[;\n]/);
+            for (const cmd of commands) {
+                if (!cmd.trim()) continue;
+                const stages = cmd.split(/(?<!\\)\|/);
+                for (let j = 0; j < stages.length; j++) {
+                    const stage = stages[j].trim();
+                    if (stage.startsWith("exit ")) {
+                        exitCode = parseInt(stage.substring(5).trim()) || 0;
+                    } else if (stage === "false") {
+                        exitCode = 1;
+                    } else if (stage === "true") {
+                        exitCode = 0;
+                    } else if (stage.startsWith("echo")) {
+                        let content = stages[j].substring(stages[j].indexOf("echo") + 4);
+                        if (content.startsWith(" ")) content = content.substring(1);
+                        content = content.split(/(?<!\\)>/)[0];
+                        content = content.replace(/\\(.)/g, "$1");
+                        if (j === stages.length - 1) {
+                            stdout = content + "\n";
+                        }
+                    }
+                }
+            }
+
+            return Promise.resolve({ exitCode: exitCode, stdout: Buffer.from(stdout), stderr: Buffer.from("") });
+        }
+    };
 
     // --- Alloy Shell Implementation ---
 
@@ -38,7 +87,19 @@
     };
 
     ShellExpression.prototype.then = function(resolve, reject) {
-        return AlloyInternal.runShell(this._parts, this._interps, this._opts).then(resolve, reject);
+        const self = this;
+        return AlloyInternal.runShell(this._parts, this._interps, this._opts).then(function(res) {
+            if (self._opts.throws && res.exitCode !== 0) {
+                const err = new Error("Command failed with exit code " + res.exitCode);
+                err.exitCode = res.exitCode;
+                err.stdout = res.stdout;
+                err.stderr = res.stderr;
+                if (reject) return reject(err);
+                throw err;
+            }
+            if (resolve) return resolve(res);
+            return res;
+        }, reject);
     };
 
     ShellExpression.prototype.text = function() {
@@ -58,7 +119,12 @@
 
     var $ = function(strings) {
         var interps = Array.prototype.slice.call(arguments, 1);
-        return new ShellExpression(strings, interps, {
+        var escapedInterps = interps.map(function(val) {
+            if (typeof val === 'string') return $.escape(val);
+            if (Array.isArray(val)) return val.map($.escape);
+            return val;
+        });
+        return new ShellExpression(strings, escapedInterps, {
             throws: $.globalOpts.throws,
             env: $.globalOpts.env,
             cwd: $.globalOpts.cwd
