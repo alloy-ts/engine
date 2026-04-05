@@ -13,11 +13,6 @@ typedef struct {
     int next_func_idx;
 } AlloyMQJSEngine;
 
-typedef struct {
-    AlloyBindHandler handler;
-    void *opaque;
-    alloy_runtime_t *rt;
-} AlloyMQJSBinding;
 
 // Helper to resolve dotted names (e.g., "Alloy.spawn")
 static JSValue alloy_mqjs_resolve_dotted(JSContext *ctx, const char *name) {
@@ -125,7 +120,7 @@ static int mqjs_eval_fn(AlloyJSEngine *engine, const char *source, const char *f
 }
 
 // generic dispatcher for MQJS vtable
-JSValue alloy_mqjs_vtable_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue params) {
+JSValue alloy_mqjs_vtable_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params) {
     AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
 
     JSValue args_array = JS_NewArray(ctx, argc);

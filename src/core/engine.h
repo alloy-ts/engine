@@ -104,7 +104,7 @@ typedef struct alloy_runtime {
 typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);
 
 alloy_runtime_t *alloy_engine_create(void);
-void alloy_engine_destroy(alloy_runtime_t *rt);
+void alloy_engine_free(alloy_runtime_t *rt);
 void alloy_run(alloy_runtime_t *rt);
 
 void alloy_bind_global(alloy_runtime_t *rt, const char *name, alloy_bind_fn_t fn, void *arg);
@@ -119,15 +119,31 @@ void alloy_poll_io(alloy_runtime_t *rt);
 void alloy_drain_next_tick(alloy_runtime_t *rt);
 
 /* Native Bindings */
-JSValue alloy_runtime_spawn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_secure_eval_internal(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_on(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_off(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_emit(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_next_tick(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_spawn(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_secure_eval_internal(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_on(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_off(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_emit(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_next_tick(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+
+JSValue alloy_runtime_atob(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_btoa(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_structured_clone(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_queue_microtask(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_set_interval(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_clear_interval(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_clear_timeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_alert(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_confirm(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_prompt(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_report_error(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+
+JSValue alloy_runtime_parse_validate(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_await_helper(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_deferred_helper(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 
 #ifdef __cplusplus
 }

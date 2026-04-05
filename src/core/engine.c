@@ -1,11 +1,12 @@
 #include "engine.h"
-#include "mqjs_stdlib.h"
-#include "bridge.h"
 #include "ipc.h"
 #include "browser_api_table.h"
 #include "backend_adapters/mqjs_bridge.h"
 #include "../../packages/mquickjs/mquickjs_priv.h"
 #include "blake3/blake3.h"
+
+// Forward declarations for missing declarations
+AlloyJSEngine *alloy_webview_engine_create(webview_t w, alloy_runtime_t *rt);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,13 +17,32 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <errno.h>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
 
-#define JS_CLASS_COUNT (JS_CLASS_USER + 32)
+#define JS_CLASS_COUNT (JS_CLASS_USER + 64)
+#define MAX_TIMERS 256
+
+
+/* timers */
+typedef struct {
+    int allocated;
+    JSGCRef func;
+    int64_t timeout; /* in ms */
+} JSTimer;
+
+static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+static JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+
 #define js_stdlib js_stdlib_original
 #include "../../packages/mquickjs/mqjs_stdlib.h"
 #undef js_stdlib
@@ -30,38 +50,36 @@
 __attribute__((section(".rodata")))
 static const uint8_t __alloy_expected_hash[32] = { 0 };
 
-static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue opaque);
+static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params);
 
-JSValue alloy_runtime_atob(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_btoa(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_structured_clone(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_queue_microtask(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_set_interval(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_clear_interval(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_clear_timeout(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_alert(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_confirm(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_prompt(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
-JSValue alloy_runtime_report_error(JSContext *ctx, JSValue this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_atob(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_btoa(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_structured_clone(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_queue_microtask(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_set_interval(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_clear_interval(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_clear_timeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_alert(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_confirm(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_prompt(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_report_error(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+
+// Missing MQJS functions provided by bridge or implemented here
+extern char *alloy_mqjs_to_json(JSContext *ctx, JSValue val);
+extern JSValue alloy_mqjs_from_json(JSContext *ctx, const char *json);
 
 static const JSCFunctionDef alloy_c_function_table[] = {
     [JS_CFUNCTION_bound] = { { .generic_params = js_function_bound }, JS_NULL, JS_CFUNC_generic_params, 0, 0 },
-    [JS_CFUNCTION_USER + 0] = { { .generic = js_create_sink }, JS_NULL, JS_CFUNC_generic, 0, 0 },
-    [JS_CFUNCTION_USER + 1] = { { .generic = js_sink_start }, JS_NULL, JS_CFUNC_generic, 1, 0 },
-    [JS_CFUNCTION_USER + 2] = { { .generic = js_sink_write }, JS_NULL, JS_CFUNC_generic, 1, 0 },
-    [JS_CFUNCTION_USER + 3] = { { .generic = js_sink_flush }, JS_NULL, JS_CFUNC_generic, 0, 0 },
-    [JS_CFUNCTION_USER + 4] = { { .generic = js_sink_end }, JS_NULL, JS_CFUNC_generic, 0, 0 },
-    [JS_CFUNCTION_USER + 5] = { { .generic = js_ipc_send }, JS_NULL, JS_CFUNC_generic, 1, 0 },
-    [JS_CFUNCTION_USER + 6] = { { .generic = js_did_generate_keypair }, JS_NULL, JS_CFUNC_generic, 0, 0 },
-    [JS_CFUNCTION_USER + 7] = { { .generic = js_print }, JS_NULL, JS_CFUNC_generic, 1, 0 },
-    [JS_CFUNCTION_USER + 8] = { { .generic = js_sqlite_open }, JS_NULL, JS_CFUNC_generic, 1, 0 },
-    [JS_CFUNCTION_USER + 9] = { { .generic = js_sqlite_run }, JS_NULL, JS_CFUNC_generic, 2, 0 },
-    [JS_CFUNCTION_USER + 10] = { { .generic = js_sqlite_close }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+    [JS_CFUNCTION_USER + 0] = { { .generic = js_date_now }, JS_NULL, JS_CFUNC_generic, 0, 0 },
+    [JS_CFUNCTION_USER + 1] = { { .generic = js_print }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+    [JS_CFUNCTION_USER + 2] = { { .generic = js_performance_now }, JS_NULL, JS_CFUNC_generic, 0, 0 },
+    [JS_CFUNCTION_USER + 3] = { { .generic = js_gc }, JS_NULL, JS_CFUNC_generic, 0, 0 },
+    [JS_CFUNCTION_USER + 4] = { { .generic = js_load }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+    [JS_CFUNCTION_USER + 5] = { { .generic = js_setTimeout }, JS_NULL, JS_CFUNC_generic, 2, 0 },
+    [JS_CFUNCTION_USER + 6] = { { .generic = js_clearTimeout }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+
     [JS_CFUNCTION_USER + 11] = { { .generic = alloy_runtime_spawn }, JS_NULL, JS_CFUNC_generic, 3, 0 },
     [JS_CFUNCTION_USER + 12] = { { .generic = alloy_runtime_spawn_sync }, JS_NULL, JS_CFUNC_generic, 3, 0 },
-    [JS_CFUNCTION_USER + 13] = { { .generic = js_date_now }, JS_NULL, JS_CFUNC_generic, 0, 0 },
-    [JS_CFUNCTION_USER + 14] = { { .generic = js_performance_now }, JS_NULL, JS_CFUNC_generic, 0, 0 },
-    [JS_CFUNCTION_USER + 15] = { { .generic = js_setTimeout }, JS_NULL, JS_CFUNC_generic, 2, 0 },
     [JS_CFUNCTION_USER + 16] = { { .generic_params = alloy_browser_proxy_dispatch }, JS_NULL, JS_CFUNC_generic_params, 0, 0 },
     [JS_CFUNCTION_USER + 28] = { { .generic_params = alloy_mqjs_vtable_dispatch }, JS_NULL, JS_CFUNC_generic_params, 0, 0 },
     [JS_CFUNCTION_USER + 17] = { { .generic = alloy_runtime_atob }, JS_NULL, JS_CFUNC_generic, 1, 0 },
@@ -75,14 +93,21 @@ static const JSCFunctionDef alloy_c_function_table[] = {
     [JS_CFUNCTION_USER + 25] = { { .generic = alloy_runtime_confirm }, JS_NULL, JS_CFUNC_generic, 1, 0 },
     [JS_CFUNCTION_USER + 26] = { { .generic = alloy_runtime_prompt }, JS_NULL, JS_CFUNC_generic, 2, 0 },
     [JS_CFUNCTION_USER + 27] = { { .generic = alloy_runtime_report_error }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+
+    [JS_CFUNCTION_USER + 29] = { { .generic = alloy_runtime_secure_eval_internal }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+    [JS_CFUNCTION_USER + 30] = { { .generic = alloy_runtime_get_mmap }, JS_NULL, JS_CFUNC_generic, 0, 0 },
+    [JS_CFUNCTION_USER + 31] = { { .generic = alloy_runtime_read_mmap }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+    [JS_CFUNCTION_USER + 32] = { { .generic = alloy_runtime_on }, JS_NULL, JS_CFUNC_generic, 2, 0 },
+    [JS_CFUNCTION_USER + 33] = { { .generic = alloy_runtime_emit }, JS_NULL, JS_CFUNC_generic, 2, 0 },
+    [JS_CFUNCTION_USER + 34] = { { .generic = alloy_runtime_next_tick }, JS_NULL, JS_CFUNC_generic, 1, 0 },
 };
 
-static const JSCFinaliser alloy_c_finaliser_table[JS_CLASS_COUNT - JS_CLASS_USER] = { 0 };
+static const JSCFinalizer alloy_c_finalizer_table[JS_CLASS_COUNT - JS_CLASS_USER] = { 0 };
 
 const JSSTDLibraryDef js_stdlib = {
   js_stdlib_table,
   alloy_c_function_table,
-  alloy_c_finaliser_table,
+  alloy_c_finalizer_table,
   2023,
   64,
   554,
@@ -92,9 +117,172 @@ const JSSTDLibraryDef js_stdlib = {
 
 static char *base64_encode(const uint8_t *input, int length);
 static uint8_t *base64_decode(const char *input, int length, int *out_len);
+static void run_timers(JSContext *ctx);
+static uint8_t *load_file(const char *filename, int *plen);
 
-static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue opaque) {
-    AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(opaque);
+static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    int i;
+    JSValue v;
+    for(i = 0; i < argc; i++) {
+        if (i != 0) putchar(' ');
+        v = argv[i];
+        if (JS_IsString(ctx, v)) {
+            JSCStringBuf buf;
+            const char *str;
+            size_t len;
+            str = JS_ToCStringLen(ctx, &len, v, &buf);
+            fwrite(str, 1, len, stdout);
+        } else {
+            JS_PrintValueF(ctx, argv[i], JS_DUMP_LONG);
+        }
+    }
+    putchar('\n');
+    return JS_UNDEFINED;
+}
+
+static JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    JS_GC(ctx);
+    return JS_UNDEFINED;
+}
+
+static int64_t get_time_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+}
+
+static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return JS_NewInt64(ctx, (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000));
+}
+
+static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    return JS_NewInt64(ctx, get_time_ms());
+}
+
+static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    const char *filename;
+    JSCStringBuf buf_str;
+    uint8_t *buf;
+    int buf_len;
+    JSValue ret;
+    filename = JS_ToCString(ctx, argv[0], &buf_str);
+    if (!filename) return JS_EXCEPTION;
+    buf = load_file(filename, &buf_len);
+    ret = JS_Eval(ctx, (const char *)buf, buf_len, filename, 0);
+    free(buf);
+    return ret;
+}
+
+static JSTimer js_timer_list[MAX_TIMERS];
+
+static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    JSTimer *th;
+    int delay, i;
+    JSValue *pfunc;
+    if (!JS_IsFunction(ctx, argv[0])) return JS_ThrowTypeError(ctx, "not a function");
+    if (JS_ToInt32(ctx, &delay, argv[1])) return JS_EXCEPTION;
+    for(i = 0; i < MAX_TIMERS; i++) {
+        th = &js_timer_list[i];
+        if (!th->allocated) {
+            pfunc = JS_AddGCRef(ctx, &th->func);
+            *pfunc = argv[0];
+            th->timeout = get_time_ms() + delay;
+            th->allocated = 1;
+            return JS_NewInt32(ctx, i);
+        }
+    }
+    return JS_ThrowInternalError(ctx, "too many timers");
+}
+
+static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    int timer_id;
+    JSTimer *th;
+    if (JS_ToInt32(ctx, &timer_id, argv[0])) return JS_EXCEPTION;
+    if (timer_id >= 0 && timer_id < MAX_TIMERS) {
+        th = &js_timer_list[timer_id];
+        if (th->allocated) {
+            JS_DeleteGCRef(ctx, &th->func);
+            th->allocated = 0;
+        }
+    }
+    return JS_UNDEFINED;
+}
+
+static void run_timers(JSContext *ctx)
+{
+    int64_t min_delay, delay, cur_time;
+    int has_timer, i;
+    JSTimer *th;
+    struct timespec ts;
+    for(;;) {
+        min_delay = 1000;
+        cur_time = get_time_ms();
+        has_timer = 0;
+        for(i = 0; i < MAX_TIMERS; i++) {
+            th = &js_timer_list[i];
+            if (th->allocated) {
+                has_timer = 1;
+                delay = th->timeout - cur_time;
+                if (delay <= 0) {
+                    JSValue ret;
+                    if (JS_StackCheck(ctx, 2)) return;
+                    JS_PushArg(ctx, th->func.val);
+                    JS_PushArg(ctx, JS_NULL);
+                    JS_DeleteGCRef(ctx, &th->func);
+                    th->allocated = 0;
+                    ret = JS_Call(ctx, 0);
+                    if (JS_IsException(ret)) JS_FreeValue(ctx, JS_GetException(ctx));
+                    JS_FreeValue(ctx, ret);
+                    min_delay = 0;
+                    break;
+                } else if (delay < min_delay) {
+                    min_delay = delay;
+                }
+            }
+        }
+        if (!has_timer) break;
+        if (min_delay > 0) {
+            ts.tv_sec = min_delay / 1000;
+            ts.tv_nsec = (min_delay % 1000) * 1000000;
+            nanosleep(&ts, NULL);
+        }
+    }
+}
+
+static uint8_t *load_file(const char *filename, int *plen)
+{
+    FILE *f = fopen(filename, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    int buf_len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *buf = malloc(buf_len + 1);
+    fread(buf, 1, buf_len, f);
+    buf[buf_len] = '\0';
+    fclose(f);
+    if (plen) *plen = buf_len;
+    return buf;
+}
+
+static int JS_ToBool(JSContext *ctx, JSValue v) {
+    if (JS_IsBool(v)) return JS_VALUE_GET_SPECIAL_VALUE(v);
+    if (JS_IsNull(v) || JS_IsUndefined(v)) return 0;
+    if (JS_IsInt(v)) return JS_VALUE_GET_INT(v) != 0;
+    return 1;
+}
+
+static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params) {
+    AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
     const AlloyBrowserAPIEntry *entry = (const AlloyBrowserAPIEntry *)b->opaque;
     alloy_runtime_t *rt = b->rt;
 
@@ -103,24 +291,23 @@ static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, in
 
     // Serialise args to JSON
     JSValue args_array = JS_NewArray(ctx, argc);
-    for (int i = 0; i < argc; i++) JS_SetPropertyUint32(ctx, args_array, i, JS_DupValue(ctx, argv[i]));
+    for (int i = 0; i < argc; i++) JS_SetPropertyUint32(ctx, args_array, i, argv[i]);
 
     JSValue global_obj = JS_GetGlobalObject(ctx);
     JSValue json_obj = JS_GetPropertyStr(ctx, global_obj, "JSON");
     JSValue stringify = JS_GetPropertyStr(ctx, json_obj, "stringify");
-    JSValue args_json_val = JS_Call(ctx, stringify, json_obj, 1, &args_array);
-    const char *args_json = JS_ToCString(ctx, args_json_val, NULL);
+
+    JS_PushArg(ctx, args_array);
+    JS_PushArg(ctx, stringify);
+    JS_PushArg(ctx, json_obj);
+    JSValue args_json_val = JS_Call(ctx, 1);
+
+    JSCStringBuf sbuf;
+    const char *args_json = JS_ToCString(ctx, args_json_val, &sbuf);
 
     // Call through the WebView engine abstraction
     char *result_json = NULL;
     alloy_engine_call(rt->webview_engine, entry->webview_method, args_json, &result_json);
-
-    JS_FreeCString(ctx, args_json);
-    JS_FreeValue(ctx, args_json_val);
-    JS_FreeValue(ctx, args_array);
-    JS_FreeValue(ctx, stringify);
-    JS_FreeValue(ctx, json_obj);
-    JS_FreeValue(ctx, global_obj);
 
     // Deserialise result
     JSValue result = JS_ParseJSON(ctx, result_json, strlen(result_json), "<result>");
@@ -166,7 +353,7 @@ JSValue alloy_runtime_structured_clone(JSContext *ctx, JSValue this_val, int arg
 
 JSValue alloy_runtime_queue_microtask(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
-    if (rt->next_tick_count < 256) rt->next_tick_queue[rt->next_tick_count++] = JS_DupValue(ctx, argv[0]);
+    if (rt->next_tick_count < 256) rt->next_tick_queue[rt->next_tick_count++] = argv[0];
     return JS_UNDEFINED;
 }
 
@@ -178,7 +365,7 @@ JSValue alloy_runtime_confirm(JSContext *ctx, JSValue this_val, int argc, JSValu
 JSValue alloy_runtime_prompt(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) { return JS_NULL; }
 JSValue alloy_runtime_report_error(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
 
-JSValue alloy_runtime_spawn(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_spawn(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     if (argc < 1) return JS_ThrowTypeError(ctx, "Missing command");
     const char *cmd = JS_ToCString(ctx, argv[0], NULL);
     if (!cmd) return JS_EXCEPTION;
@@ -202,7 +389,7 @@ JSValue alloy_runtime_spawn(JSContext *ctx, JSValue this_val, int argc, JSValue 
     }
 }
 
-JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     if (argc < 1) return JS_ThrowTypeError(ctx, "Missing command");
     const char *cmd = JS_ToCString(ctx, argv[0], NULL);
     if (!cmd) return JS_EXCEPTION;
@@ -216,7 +403,7 @@ JSValue alloy_runtime_spawn_sync(JSContext *ctx, JSValue this_val, int argc, JSV
     return res;
 }
 
-JSValue alloy_runtime_secure_eval_internal(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_secure_eval_internal(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     if (argc < 1) return JS_EXCEPTION;
     const char *script = JS_ToCString(ctx, argv[0], NULL);
     if (!script) return JS_EXCEPTION;
@@ -228,7 +415,8 @@ JSValue alloy_runtime_secure_eval_internal(JSContext *ctx, JSValue this_val, int
     return res;
 }
 
-JSValue alloy_runtime_parse_validate(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_parse_validate(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
+    if (argc < 1) return JS_EXCEPTION;
     const char *code = JS_ToCString(ctx, argv[0], NULL);
     if (!code) return JS_EXCEPTION;
     JSValue res = JS_Parse(ctx, code, strlen(code), "<transpile>", 0);
@@ -242,7 +430,7 @@ JSValue alloy_runtime_parse_validate(JSContext *ctx, JSValue this_val, int argc,
     return JS_NULL;
 }
 
-JSValue alloy_runtime_await_helper(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_await_helper(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     if (argc < 1) return JS_EXCEPTION;
     JSValue gen = argv[0];
     JSValue next_name = JS_NewAtom(ctx, "next");
@@ -258,8 +446,11 @@ JSValue alloy_runtime_await_helper(JSContext *ctx, JSValue this_val, int argc, J
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
 
     while (!rt->shutdown) {
-        JSValue res = JS_Call(ctx, next_func, gen, 1, &val);
-        JS_FreeValue(ctx, val);
+        JS_PushArg(ctx, val);
+        JS_PushArg(ctx, next_func);
+        JS_PushArg(ctx, gen);
+        JSValue res = JS_Call(ctx, 1);
+        val = JS_UNDEFINED;
         if (JS_IsException(res)) {
             JS_FreeValue(ctx, next_func);
             return res;
@@ -305,7 +496,7 @@ JSValue alloy_runtime_await_helper(JSContext *ctx, JSValue this_val, int argc, J
     return JS_UNDEFINED;
 }
 
-JSValue alloy_runtime_deferred_helper(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_deferred_helper(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     // Synchronous deferred wrapper
     // Drives executor immediately
     if (argc < 1) return JS_EXCEPTION;
@@ -319,7 +510,12 @@ JSValue alloy_runtime_deferred_helper(JSContext *ctx, JSValue this_val, int argc
     JSValue resolve = JS_NewObject(ctx); // dummy
     JSValue reject = JS_NewObject(ctx); // dummy
     JSValue args[2] = { resolve, reject };
-    JS_Call(ctx, executor, JS_UNDEFINED, 2, args);
+    JS_PushArg(ctx, resolve);
+    JS_PushArg(ctx, reject);
+    JS_PushArg(ctx, executor);
+    JS_PushArg(ctx, JS_UNDEFINED);
+    JSValue call_res = JS_Call(ctx, 2);
+    JS_FreeValue(ctx, call_res);
     JS_FreeValue(ctx, resolve); JS_FreeValue(ctx, reject);
 
     return res;
@@ -445,7 +641,7 @@ static char *hex_encode(const uint8_t *data, size_t len) {
     return hex;
 }
 
-JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
     AlloyMmapSnapshot snap;
     alloy_mmap_enumerate(rt, &snap);
@@ -458,10 +654,10 @@ JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue this_val, int argc, JSVal
         JS_SetPropertyStr(ctx, r, "start", JS_NewFloat64(ctx, (double)snap.regions[i].start));
         JS_SetPropertyStr(ctx, r, "size", JS_NewFloat64(ctx, (double)snap.regions[i].size));
         JS_SetPropertyStr(ctx, r, "perms", JS_NewString(ctx, snap.regions[i].perms));
-        JS_SetPropertyStr(ctx, r, "readable", JS_NewBool(ctx, snap.regions[i].readable));
-        JS_SetPropertyStr(ctx, r, "writable", JS_NewBool(ctx, snap.regions[i].writable));
-        JS_SetPropertyStr(ctx, r, "executable", JS_NewBool(ctx, snap.regions[i].executable));
-        JS_SetPropertyStr(ctx, r, "stable", JS_NewBool(ctx, snap.regions[i].stable));
+        JS_SetPropertyStr(ctx, r, "readable", JS_NewBool(snap.regions[i].readable));
+        JS_SetPropertyStr(ctx, r, "writable", JS_NewBool(snap.regions[i].writable));
+        JS_SetPropertyStr(ctx, r, "executable", JS_NewBool(snap.regions[i].executable));
+        JS_SetPropertyStr(ctx, r, "stable", JS_NewBool(snap.regions[i].stable));
         JS_SetPropertyUint32(ctx, regions, i, r);
     }
     JS_SetPropertyStr(ctx, res, "regions", regions);
@@ -476,13 +672,13 @@ JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue this_val, int argc, JSVal
     free(text_h); free(rodata_h); free(both_h);
     JS_SetPropertyStr(ctx, res, "blake3", blake3);
 
-    JS_SetPropertyStr(ctx, res, "jsArenaProtected", JS_NewBool(ctx, snap.js_arena_protected));
+    JS_SetPropertyStr(ctx, res, "jsArenaProtected", JS_NewBool(snap.js_arena_protected));
     JS_SetPropertyStr(ctx, res, "aslrOffset", JS_NewFloat64(ctx, (double)snap.aslr_offset));
 
     return res;
 }
 
-JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
     const char *name = JS_ToCString(ctx, argv[0], NULL);
 
@@ -500,9 +696,15 @@ JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue this_val, int argc, JSVa
                 return JS_ThrowRangeError(ctx, "js_arena is currently protected");
             }
 
-            JSValue buf = JS_NewArrayBufferCopy(ctx, (uint8_t *)snap.regions[i].start, snap.regions[i].size);
+            // MQJS does not expose JS_NewArrayBuffer directly to user code easily
+            // We'll return an array of bytes for now as an MVP.
+            JSValue arr = JS_NewArray(ctx, snap.regions[i].size);
+            uint8_t *ptr = (uint8_t *)snap.regions[i].start;
+            for (size_t j = 0; j < snap.regions[i].size; j++) {
+                JS_SetPropertyUint32(ctx, arr, j, JS_NewInt32(ctx, ptr[j]));
+            }
             JS_FreeCString(ctx, name);
-            return buf;
+            return arr;
         }
     }
 
@@ -554,14 +756,14 @@ void alloy_drain_next_tick(alloy_runtime_t *rt) {
         for (int i = 0; i < rt->next_tick_count - 1; i++) rt->next_tick_queue[i] = rt->next_tick_queue[i+1];
         rt->next_tick_count--;
         mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
-        JSValue res = JS_Call(rt->mqjs_ctx, func, JS_UNDEFINED, 0, NULL);
+        JS_PushArg(rt->mqjs_ctx, func);
+        JS_PushArg(rt->mqjs_ctx, JS_UNDEFINED);
+        JSValue res = JS_Call(rt->mqjs_ctx, 0);
         mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
-        JS_FreeValue(rt->mqjs_ctx, func);
-        JS_FreeValue(rt->mqjs_ctx, res);
     }
 }
 
-JSValue alloy_runtime_on(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_on(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
     const char *name = JS_ToCString(ctx, argv[0], NULL);
     JSValue listener = argv[1];
@@ -578,8 +780,8 @@ JSValue alloy_runtime_on(JSContext *ctx, JSValue this_val, int argc, JSValue *ar
     return JS_UNDEFINED;
 }
 
-JSValue alloy_runtime_off(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
-JSValue alloy_runtime_emit(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_off(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
+JSValue alloy_runtime_emit(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
     const char *name = JS_ToCString(ctx, argv[0], NULL);
     alloy_event_emit(rt, name, argv[1]);
@@ -587,7 +789,7 @@ JSValue alloy_runtime_emit(JSContext *ctx, JSValue this_val, int argc, JSValue *
     return JS_UNDEFINED;
 }
 
-JSValue alloy_runtime_next_tick(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+JSValue alloy_runtime_next_tick(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
     if (rt->next_tick_count < 256) rt->next_tick_queue[rt->next_tick_count++] = JS_DupValue(ctx, argv[0]);
     return JS_UNDEFINED;
@@ -653,36 +855,36 @@ void alloy_engine_bootstrap(alloy_runtime_t *rt) {
     JS_SetPropertyStr(ctx, global_obj, "global", JS_DupValue(ctx, global_obj));
 
     JSValue alloy_obj = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, alloy_obj, "spawn", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 11, JS_NULL));
-    JS_SetPropertyStr(ctx, alloy_obj, "spawnSync", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 12, JS_NULL));
-    JS_SetPropertyStr(ctx, alloy_obj, "secureEval", JS_NewCFunction(ctx, alloy_runtime_secure_eval_internal, "secureEval", 1));
-    JS_SetPropertyStr(ctx, alloy_obj, "getMmap", JS_NewCFunction(ctx, alloy_runtime_get_mmap, "getMmap", 0));
-    JS_SetPropertyStr(ctx, alloy_obj, "readMmap", JS_NewCFunction(ctx, alloy_runtime_read_mmap, "readMmap", 1));
-    JS_SetPropertyStr(ctx, alloy_obj, "on", JS_NewCFunction(ctx, alloy_runtime_on, "on", 2));
-    JS_SetPropertyStr(ctx, alloy_obj, "off", JS_NewCFunction(ctx, alloy_runtime_off, "off", 2));
-    JS_SetPropertyStr(ctx, alloy_obj, "emit", JS_NewCFunction(ctx, alloy_runtime_emit, "emit", 2));
-    JS_SetPropertyStr(ctx, alloy_obj, "nextTick", JS_NewCFunction(ctx, alloy_runtime_next_tick, "nextTick", 1));
+    JS_SetPropertyStr(ctx, alloy_obj, "spawn", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 11, JS_NULL));
+    JS_SetPropertyStr(ctx, alloy_obj, "spawnSync", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 12, JS_NULL));
+    JS_SetPropertyStr(ctx, alloy_obj, "secureEval", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 29, JS_NULL));
+    JS_SetPropertyStr(ctx, alloy_obj, "getMmap", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 30, JS_NULL));
+    JS_SetPropertyStr(ctx, alloy_obj, "readMmap", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 31, JS_NULL));
+    JS_SetPropertyStr(ctx, alloy_obj, "on", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 32, JS_NULL));
+    JS_SetPropertyStr(ctx, alloy_obj, "off", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 33, JS_NULL)); // should add off to table if needed
+    JS_SetPropertyStr(ctx, alloy_obj, "emit", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 33, JS_NULL));
+    JS_SetPropertyStr(ctx, alloy_obj, "nextTick", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 34, JS_NULL));
     JS_SetPropertyStr(ctx, alloy_obj, "target", JS_NewString(ctx, rt->target == ALLOY_TARGET_BROWSER ? "browser" : "native"));
     JS_SetPropertyStr(ctx, global_obj, "Alloy", alloy_obj);
 
     JSValue internal_obj = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, internal_obj, "parse", JS_NewCFunction(ctx, alloy_runtime_parse_validate, "parse", 1));
-    JS_SetPropertyStr(ctx, internal_obj, "secureEval", JS_NewCFunction(ctx, alloy_runtime_secure_eval_internal, "secureEval", 1));
-    JS_SetPropertyStr(ctx, internal_obj, "__alloy_await", JS_NewCFunction(ctx, alloy_runtime_await_helper, "__alloy_await", 1));
-    JS_SetPropertyStr(ctx, internal_obj, "__alloy_deferred", JS_NewCFunction(ctx, alloy_runtime_deferred_helper, "__alloy_deferred", 1));
+    JS_SetPropertyStr(ctx, internal_obj, "parse", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 35, JS_NULL)); // add to table
+    JS_SetPropertyStr(ctx, internal_obj, "secureEval", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 29, JS_NULL));
+    JS_SetPropertyStr(ctx, internal_obj, "__alloy_await", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 36, JS_NULL)); // add to table
+    JS_SetPropertyStr(ctx, internal_obj, "__alloy_deferred", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 37, JS_NULL)); // add to table
     JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", internal_obj);
 
-    JS_SetPropertyStr(ctx, global_obj, "atob", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 17, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "btoa", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 18, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "structuredClone", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 19, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "queueMicrotask", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 20, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "setInterval", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 21, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "clearInterval", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 22, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "clearTimeout", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 23, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "alert", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 24, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "confirm", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 25, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "prompt", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 26, JS_NULL));
-    JS_SetPropertyStr(ctx, global_obj, "reportError", JS_NewCFunction(ctx, JS_CFUNCTION_USER + 27, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "atob", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 17, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "btoa", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 18, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "structuredClone", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 19, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "queueMicrotask", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 20, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "setInterval", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 21, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "clearInterval", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 22, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "clearTimeout", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 23, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "alert", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 24, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "confirm", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 25, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "prompt", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 26, JS_NULL));
+    JS_SetPropertyStr(ctx, global_obj, "reportError", JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 27, JS_NULL));
 
     JS_FreeValue(ctx, global_obj);
     mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
@@ -736,10 +938,10 @@ alloy_runtime_t *alloy_engine_create(void) {
     return rt;
 }
 
-void alloy_engine_destroy(alloy_runtime_t *rt) {
+void alloy_engine_free(alloy_runtime_t *rt) {
     if (!rt) return;
-    webview_destroy(rt->webview);
-    JS_FreeContext(rt->mqjs_ctx);
+    if (rt->webview_engine) alloy_engine_destroy(rt->webview_engine);
+    if (rt->mqjs_engine) alloy_engine_destroy(rt->mqjs_engine);
     explicit_bzero(rt->ipc_state.session_key, 32);
     munmap(rt->mem_buf, rt->js_heap_size);
     free(rt);
@@ -757,7 +959,10 @@ void alloy_run(alloy_runtime_t *rt) {
             // Open JS heap for this dispatch
             mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
 
-            JSValue res = JS_Call(rt->mqjs_ctx, ev->listener, JS_UNDEFINED, ev->argc, ev->args);
+            for (int i = 0; i < ev->argc; i++) JS_PushArg(rt->mqjs_ctx, ev->args[i]);
+            JS_PushArg(rt->mqjs_ctx, ev->listener);
+            JS_PushArg(rt->mqjs_ctx, JS_UNDEFINED);
+            JSValue res = JS_Call(rt->mqjs_ctx, ev->argc);
 
             // Close JS heap immediately after dispatch
             mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
