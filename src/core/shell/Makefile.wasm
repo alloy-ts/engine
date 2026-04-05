@@ -1,0 +1,12 @@
+CC = clang
+CFLAGS = -Wall -g --target=wasm32-wasi --sysroot=/opt/wasi-sdk/share/wasi-sysroot
+OBJS = lexer.o parser.o interpreter.o
+
+shell.wasm: $(OBJS)
+	$(CC) $(CFLAGS) -o shell.wasm $(OBJS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -f *.o shell.wasm

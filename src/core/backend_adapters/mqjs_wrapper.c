@@ -25,9 +25,9 @@ JSValue alloy_js_function_bound(JSContext *ctx, JSValue *this_val, int argc, JSV
     JSValue args_array = JS_NewArray(ctx, argc);
     for (int i = 0; i < argc; i++) JS_SetPropertyUint32(ctx, args_array, i, argv[i]);
 
-    JS_PushArg(ctx, args_array);
     JS_PushArg(ctx, stringify);
     JS_PushArg(ctx, json_obj);
+    JS_PushArg(ctx, args_array);
     JSValue args_json_val = JS_Call(ctx, 1);
 
     JSCStringBuf buf;
@@ -40,9 +40,9 @@ JSValue alloy_js_function_bound(JSContext *ctx, JSValue *this_val, int argc, JSV
     if (res_json) {
         JSValue parse = JS_GetPropertyStr(ctx, json_obj, "parse");
         JSValue res_json_val_in = JS_NewString(ctx, res_json);
-        JS_PushArg(ctx, res_json_val_in);
         JS_PushArg(ctx, parse);
         JS_PushArg(ctx, json_obj);
+        JS_PushArg(ctx, res_json_val_in);
         res = JS_Call(ctx, 1);
         free(res_json);
     }

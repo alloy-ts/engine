@@ -34,7 +34,7 @@ static char* mqjs_call(AlloyJSEngine *engine, const char *name, const char *args
     char *script = NULL;
     asprintf(&script, "(function() { "
                       "  try { "
-                      "    var res = %s.apply(null, JSON.parse('%s')); "
+                      "    var res = %s.apply(void 0, %s); "
                       "    return JSON.stringify(res); "
                       "  } catch (e) { "
                       "    return JSON.stringify({error: e.toString()}); "

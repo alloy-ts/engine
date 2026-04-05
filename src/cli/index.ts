@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { evaluate, startRepl, Transpiler } from "@alloyscript/engine";
+import { evaluate, startRepl } from "../core/evaluate";
+import { Transpiler } from "../core/transpiler";
 import { ensureAlloyHost } from "../core/host_manager";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -102,27 +103,23 @@ program
         }
 		console.log(`Building ${entrypoints.join(", ")}...`);
 
-        const result = await Transpiler.build({
-            entrypoints,
-            outdir: options.outdir,
+        // Use the Transpiler class for build logic
+        const transpiler = new Transpiler({
             target: options.target,
-            format: options.format,
-            minify: options.minify,
-            sourcemap: options.sourcemap,
-            splitting: options.splitting
+            minifyWhitespace: options.minify
         });
 
-        if (result.success) {
-            for (const artifact of result.outputs) {
-                console.log(`  - ${artifact.path} (${artifact.size} bytes)`);
-            }
-            console.log(`Successfully built to ${options.outdir}`);
-        } else {
-            for (const log of result.logs) {
-                console.error(`[${log.level}] ${log.message}`);
-            }
-            process.exit(1);
+        for (const entry of entrypoints) {
+            const code = readFileSync(entry, "utf-8");
+            const transformed = transpiler.transformSync(code);
+            const outFile = join(options.outdir, entry.replace(/\.ts$/, ".js"));
+            const outDir = join(options.outdir, "src");
+            if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+            writeFileSync(outFile, transformed);
+            console.log(`  - ${outFile}`);
         }
+
+        console.log(`Successfully built to ${options.outdir}`);
 	});
 
 program

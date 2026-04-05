@@ -16,5 +16,9 @@
 	},
 	"peerDependencies": {
 		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"commander": "^14.0.3",
+		"smol-toml": "^1.6.1"
 	}
 }

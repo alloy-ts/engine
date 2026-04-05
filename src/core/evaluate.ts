@@ -1,13 +1,16 @@
 import * as readline from "node:readline";
-import { Alloy } from "./runtime";
+import { Transpiler } from "./transpiler";
 
 /**
  * Run a code string through the full dual-engine pipeline
  */
 export async function evaluate(code: string): Promise<any> {
 	try {
-		const result = Alloy.secureEval(code);
-		return result;
+        const transpiler = new Transpiler();
+        const transformed = transpiler.transformSync(code);
+		// In a real CLI this would send the code to the host binary
+        console.log("Transpiled code:", transformed);
+		return transformed;
 	} catch (e: any) {
 		throw { error: e.error || "runtime_error", message: e.message };
 	}

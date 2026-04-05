@@ -98,32 +98,24 @@ static char* alloy_browser_api_proxy(const char *id, const char *req, void *arg)
 }
 
 /* Robust JSON string extraction for runtime functions */
-static char* alloy_json_extract_nth_string(const char *req, int n) {
-    // req is expected to be ["s1", "s2", ...]
-    const char *curr = req;
-    for (int i = 0; i <= n; i++) {
-        curr = strchr(curr, '\"');
-        if (!curr) return NULL;
-        if (i == n) {
-            curr++;
-            const char *end = strchr(curr, '\"');
-            if (!end) return NULL;
-            size_t len = end - curr;
-            char *res = malloc(len + 1);
-            memcpy(res, curr, len);
-            res[len] = '\0';
-            return res;
-        }
-        curr = strchr(curr + 1, '\"');
-        if (!curr) return NULL;
-        curr++;
+static char* alloy_json_extract_nth_string(alloy_runtime_t *rt, const char *req, int n) {
+    JSContext *ctx = rt->mqjs_ctx;
+    JSValue val = JS_Parse(ctx, req, strlen(req), "<extract>", JS_EVAL_JSON);
+    if (JS_IsException(val)) return NULL;
+
+    JSValue item = JS_GetPropertyUint32(ctx, val, n);
+    if (JS_IsString(ctx, item)) {
+        JSCStringBuf buf;
+        const char *cstr = JS_ToCString(ctx, item, &buf);
+        return strdup(cstr);
     }
     return NULL;
 }
 
 /* Runtime functions restored and adapted for the abstraction */
 static char* runtime_atob(const char *id, const char *req, void *arg) {
-    char *input = alloy_json_extract_nth_string(req, 0);
+    alloy_runtime_t *rt = (alloy_runtime_t *)arg;
+    char *input = alloy_json_extract_nth_string(rt, req, 0);
     if (!input) return NULL;
 
     int out_len;
@@ -137,7 +129,8 @@ static char* runtime_atob(const char *id, const char *req, void *arg) {
 }
 
 static char* runtime_btoa(const char *id, const char *req, void *arg) {
-    char *input = alloy_json_extract_nth_string(req, 0);
+    alloy_runtime_t *rt = (alloy_runtime_t *)arg;
+    char *input = alloy_json_extract_nth_string(rt, req, 0);
     if (!input) return NULL;
 
     char *encoded = base64_encode((uint8_t *)input, strlen(input));
@@ -150,7 +143,8 @@ static char* runtime_btoa(const char *id, const char *req, void *arg) {
 }
 
 static char* runtime_spawn(const char *id, const char *req, void *arg) {
-    char *cmd = alloy_json_extract_nth_string(req, 0);
+    alloy_runtime_t *rt = (alloy_runtime_t *)arg;
+    char *cmd = alloy_json_extract_nth_string(rt, req, 0);
     if (!cmd) return NULL;
 
     pid_t pid = fork();
@@ -269,6 +263,11 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
 void alloy_return(alloy_runtime_t *rt, const char *id, int status, const char *result) {
 }
 
+/* Legacy support - should be migrated to new abstraction */
+void alloy_bind_global(alloy_runtime_t *rt, const char *name, alloy_bind_fn_t fn, void *arg) {
+    rt->core_engine->bind_fn(rt->core_engine, name, fn, arg);
+}
+
 void alloy_run(alloy_runtime_t *rt) {
     while (!rt->shutdown) {
         alloy_poll_io(rt);
@@ -276,15 +275,48 @@ void alloy_run(alloy_runtime_t *rt) {
         // Process events using engine vtable abstraction
         while (rt->event_queue.count > 0) {
             AlloyEvent *ev = alloy_event_dequeue(rt);
-            rt->core_engine->emit_fn(rt->core_engine, ev->name, "{}");
+
+            // Stringify event arguments for emission
+            char *args_json = "[]";
+            if (ev->argc > 0) {
+                JSValue global_obj = JS_GetGlobalObject(rt->mqjs_ctx);
+                JSValue json_obj = JS_GetPropertyStr(rt->mqjs_ctx, global_obj, "JSON");
+                JSValue json_stringify = JS_GetPropertyStr(rt->mqjs_ctx, json_obj, "stringify");
+
+                JSValue arr = JS_NewArray(rt->mqjs_ctx, ev->argc);
+                for(int i=0; i<ev->argc; i++) {
+                    JS_SetPropertyUint32(rt->mqjs_ctx, arr, i, ev->args[i]);
+                }
+
+                JS_PushArg(rt->mqjs_ctx, arr);
+                JS_PushArg(rt->mqjs_ctx, json_stringify);
+                JS_PushArg(rt->mqjs_ctx, JS_UNDEFINED);
+                JSValue json_str_val = JS_Call(rt->mqjs_ctx, 1);
+
+                if (JS_IsString(rt->mqjs_ctx, json_str_val)) {
+                    JSCStringBuf buf;
+                    const char *cstr = JS_ToCString(rt->mqjs_ctx, json_str_val, &buf);
+                    args_json = strdup(cstr);
+                }
+            }
+
+            rt->core_engine->emit_fn(rt->core_engine, ev->name, args_json);
+
+            if (args_json && strcmp(args_json, "[]") != 0) free(args_json);
             free(ev->name);
         }
 
         alloy_drain_next_tick(rt);
 
-        if (rt->event_queue.count == 0) {
+        // Only call webview_run if we're not shutting down and it's initialized
+        if (rt->webview) {
             webview_run(rt->webview);
-            break; // Stop loop after one webview iteration for simple tests
+        }
+
+        // If we have no more work, we can sleep or exit
+        if (rt->event_queue.count == 0 && rt->next_tick_count == 0) {
+            // For now, keep looping or wait for events.
+            // In a real app, webview_run might block until an event occurs.
         }
     }
 }
