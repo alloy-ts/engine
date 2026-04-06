@@ -1,3 +1,4 @@
+
 export interface AlloyMessage {
 	seq: number;
 	nonce: Uint8Array;
