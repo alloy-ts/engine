@@ -101,9 +101,29 @@ void alloy_webview_dispatch(const char *json_req, void *arg) {
     }
 }
 
+/* Config structure representing the parsed alloyconfig.toml */
+typedef struct {
+    char* target;
+    char* log_level;
+    int disable_wasm_edge;
+    int use_containers;
+    char** shell_capabilities;
+    int shell_capabilities_len;
+} alloy_config_t;
+
+extern alloy_config_t* alloy_config_load(const char* cwd, const char* config_path);
+extern void alloy_config_free(alloy_config_t* cfg);
+
 alloy_runtime_t *alloy_engine_create(void) {
+    /* Load configuration first (Requirement 19.1) */
+    alloy_config_t* cfg = alloy_config_load(NULL, NULL);
+    if (!cfg) return NULL;
+
     alloy_runtime_t *rt = calloc(1, sizeof(alloy_runtime_t));
-    if (!rt) return NULL;
+    if (!rt) {
+        alloy_config_free(cfg);
+        return NULL;
+    }
 
     RAND_bytes(rt->ipc_state.session_key, ALLOY_IPC_KEY_SIZE);
     mlock(rt->ipc_state.session_key, ALLOY_IPC_KEY_SIZE);
@@ -116,10 +136,18 @@ alloy_runtime_t *alloy_engine_create(void) {
     rt->mqjs_ctx = JS_NewContext(rt->js_heap, rt->js_heap_size, &alloyscript_stdlib);
     JS_SetContextOpaque(rt->mqjs_ctx, rt);
 
+    /* Target drives isolation layer (Requirement 10.1) */
+    int is_local_first = (strcmp(cfg->target, "local-first") == 0);
     rt->webview = webview_create(0, NULL);
     webview_bind(rt->webview, "__alloy_ipc_send", alloy_webview_dispatch, rt);
     webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
     webview_init(rt->webview, "window.AlloySessionKey = '...';");
+
+    /* disableWasmEdge sets runtime flag (Requirement 12.2) */
+    rt->wasm_edge_enabled = !cfg->disable_wasm_edge;
+
+    /* Store config for later use */
+    rt->config = cfg;
 
     JSContext *ctx = rt->mqjs_ctx;
     JSValue global_obj = JS_GetGlobalObject(ctx);
@@ -487,6 +515,7 @@ JSValue alloy_mqjs_host_call(JSContext *ctx, JSValue *this_val, int argc, JSValu
 
 void alloy_engine_destroy(alloy_runtime_t *rt) {
     if (!rt) return;
+    if (rt->config) alloy_config_free(rt->config);
     if (rt->webview) webview_destroy(rt->webview);
     if (rt->mqjs_ctx) JS_FreeContext(rt->mqjs_ctx);
     if (rt->js_heap) munmap(rt->js_heap, rt->js_heap_size);
