@@ -45,6 +45,9 @@
 		 * Plugin configuration hook (Requirement 11.2).
 		 */
 		useConfig: function (options) {
+			if (!global.Alloy.inPluginInit) {
+				throw new Error("useConfig() called outside plugin onInit (Requirement 20.1)");
+			}
 			var pluginName = global.Alloy.currentPluginName || "default";
 			AlloyInternal.bridgeCall("__alloy_config_register", {
 				pluginName: pluginName,

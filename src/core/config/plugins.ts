@@ -25,11 +25,19 @@ export class PluginRegistry {
 		// alloy:ffi -> alloy:config -> alloy:shell
 
 		// 2. Dispatch onInit to all registered plugins (core first)
+		if (engine && engine.eval_fn) {
+			engine.eval_fn("globalThis.Alloy.inPluginInit = true;");
+		}
+
 		for (const [name, plugin] of this.plugins.entries()) {
 			if (plugin.onInit) {
 				this.setCurrentPlugin(name, engine);
 				await plugin.onInit(engine);
 			}
+		}
+
+		if (engine && engine.eval_fn) {
+			engine.eval_fn("globalThis.Alloy.inPluginInit = false;");
 		}
 
 		// Phase 2 Validation: After all onInit calls (where useConfig is called)

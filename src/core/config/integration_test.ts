@@ -34,7 +34,7 @@ describe("AlloyConfig System Plugin Integration", () => {
 		};
 
 		// Setup global Alloy object for simulation
-		(globalThis as any).Alloy = {};
+		(globalThis as any).Alloy = { inPluginInit: true };
 		(globalThis as any).AlloyInternal = {
 			bridgeCall: mockEngine.bridgeCall,
 		};

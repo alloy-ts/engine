@@ -1,6 +1,9 @@
 export function useConfig(options: {
 	configs: Record<string, { default: any }>;
 }) {
+	if (!(globalThis as any).Alloy?.inPluginInit) {
+		throw new Error("useConfig() called outside plugin onInit (Requirement 20.1)");
+	}
 	// Register the schema via the internal binding
 	const pluginName = (globalThis as any).Alloy?.currentPluginName || "default";
 	(globalThis as any).AlloyInternal.bridgeCall("__alloy_config_register", {
