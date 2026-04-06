@@ -77,18 +77,28 @@ describe("AlloyConfig System Plugin Integration", () => {
 				pluginName,
 				schema: options,
 			});
-			return {
-				get: (key: string) =>
-					(globalThis as any).AlloyInternal.bridgeCall("__alloy_config_get", {
-						key: `plugins.${pluginName}.${key}`,
-					}),
+			const accessor = {
 				set: (key: string, value: any, opts: any) =>
 					(globalThis as any).AlloyInternal.bridgeCall("__alloy_config_set", {
-						key: `plugins.${pluginName}.${key}`,
+						key: `pluginConfigs.${pluginName}.${key}`,
 						value,
 						options: opts,
 					}),
 			};
+			return new Proxy(accessor, {
+				get: (target, prop) => {
+					if (prop === "set") return target.set;
+					if (typeof prop === "string") {
+						return (globalThis as any).AlloyInternal.bridgeCall(
+							"__alloy_config_get",
+							{
+								key: `pluginConfigs.${pluginName}.${prop}`,
+							},
+						);
+					}
+					return undefined;
+				},
+			});
 		};
 
 		pluginRegistry.register("pluginA", pA);
@@ -98,13 +108,52 @@ describe("AlloyConfig System Plugin Integration", () => {
 		await pluginRegistry.load(mockEngine);
 
 		// Verify isolation and defaults
-		expect(pA.config.get("keyA")).toBe("valA");
-		expect(pB.config.get("keyB")).toBe("valB");
-		expect(pA.config.get("keyB")).toBeUndefined();
+		expect(pA.config.keyA).toBe("valA");
+		expect(pB.config.keyB).toBe("valB");
+		expect(pA.config.keyB).toBeUndefined();
 
 		// Verify updates
 		pA.config.set("keyA", "newValA");
-		expect(pA.config.get("keyA")).toBe("newValA");
-		expect(configManager.get("plugins.pluginA.keyA")).toBe("newValA");
+		expect(pA.config.keyA).toBe("newValA");
+		expect(configManager.get("pluginConfigs.pluginA.keyA")).toBe("newValA");
+	});
+
+	test("Inline config takes precedence over TOML section", async () => {
+		const configLoader = new (require("./loader").ConfigLoader)();
+		const rawConfig = {
+			plugins: [
+				{
+					name: "my-plugin",
+					config: { dbPath: "./inline.db" },
+				},
+			],
+			pluginConfigs: {
+				"my-plugin": { dbPath: "./toml.db" },
+			},
+		};
+
+		const finalConfig = configLoader.injectDefaults(rawConfig);
+		expect(finalConfig.pluginConfigs["my-plugin"].dbPath).toBe("./inline.db");
+	});
+
+	test("Schema merging and duplicate warnings", () => {
+		const logSpy = console.warn;
+		let warned = false;
+		console.warn = () => {
+			warned = true;
+		};
+
+		configManager.registerSchema("my-plugin", {
+			configs: { key1: { default: "v1" } },
+		});
+		configManager.registerSchema("my-plugin", {
+			configs: { key1: { default: "v2" }, key2: { default: "v3" } },
+		});
+
+		expect(configManager.get("pluginConfigs.my-plugin.key1")).toBe("v1");
+		expect(configManager.get("pluginConfigs.my-plugin.key2")).toBe("v3");
+		expect(warned).toBe(true);
+
+		console.warn = logSpy;
 	});
 });

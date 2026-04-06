@@ -1,6 +1,7 @@
 import { AlloyConfig, PluginEntry } from "./config";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { ConfigValidator } from "./validator";
 
 export interface RuntimePlugin {
 	onStart?: (engine: any) => Promise<void> | void;
@@ -28,6 +29,24 @@ export class PluginRegistry {
 			if (plugin.onInit) {
 				this.setCurrentPlugin(name, engine);
 				await plugin.onInit(engine);
+			}
+		}
+
+		// Phase 2 Validation: After all onInit calls (where useConfig is called)
+		const configPlugin = this.get("alloy:config") as any;
+		if (configPlugin && configPlugin.configManager) {
+			const validator = new ConfigValidator();
+			const result = validator.validatePluginConfigs(
+				this.config.pluginConfigs || {},
+				configPlugin.configManager.getSchemas(),
+				"alloyconfig.toml",
+			);
+			if (result.warnings.length > 0) {
+				for (const warn of result.warnings) {
+					console.warn(
+						`[${warn.filePath}${warn.line ? ":" + warn.line : ""}] ${warn.message}`,
+					);
+				}
 			}
 		}
 

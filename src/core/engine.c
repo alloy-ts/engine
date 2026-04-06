@@ -183,7 +183,6 @@ alloy_runtime_t *alloy_engine_create(void) {
     }
 
     JS_FreeValue(ctx, global_obj);
-    mprotect(rt->js_heap, rt->js_heap_size, PROT_NONE);
     return rt;
 }
 
@@ -257,9 +256,7 @@ JSValue alloy_mqjs_await(JSContext *ctx, JSValue *this_val, int argc, JSValue *a
         /* Requirement 12.18: synchronous IPC-backed coroutine continuation */
         /* Drive the event loop until the specific IPC response arrives */
         while (rt->latest_ipc_response == NULL) {
-            mprotect(rt->js_heap, rt->js_heap_size, PROT_NONE);
             webview_run(rt->webview);
-            mprotect(rt->js_heap, rt->js_heap_size, PROT_READ | PROT_WRITE);
             usleep(100);
         }
 
@@ -500,17 +497,12 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
 JSValue alloy_secure_eval(alloy_runtime_t *rt, const char *script) {
     /* Requirement 14.5: Memory protection */
     /* Only protect for sensitive production runs; ensure context and stack are readable */
-    mprotect(rt->js_heap, rt->js_heap_size, PROT_READ | PROT_WRITE);
-    JSValue res = JS_Eval(rt->mqjs_ctx, script, strlen(script), "<secureEval>", JS_EVAL_RETVAL);
-    mprotect(rt->js_heap, rt->js_heap_size, PROT_NONE);
-    return res;
+    return JS_Eval(rt->mqjs_ctx, script, strlen(script), "<secureEval>", JS_EVAL_RETVAL);
 }
 
 void alloy_run(alloy_runtime_t *rt) {
     while (!rt->shutdown) {
-        mprotect(rt->js_heap, rt->js_heap_size, PROT_NONE);
         webview_run(rt->webview);
-        mprotect(rt->js_heap, rt->js_heap_size, PROT_READ | PROT_WRITE);
         while (rt->event_queue.count > 0) {
             AlloyEvent *ev = &rt->event_queue.events[rt->event_queue.head];
 

@@ -53,14 +53,30 @@ export class ConfigManager {
 	}
 
 	registerSchema(pluginName: string, schema: any): void {
-		this.schemas[pluginName] = schema;
-		// Initialize defaults if not present
+		if (this.schemas[pluginName]) {
+			// Merge schema (Requirement 20.5)
+			const existing = this.schemas[pluginName].configs;
+			for (const key of Object.keys(schema.configs)) {
+				if (existing[key]) {
+					console.warn(
+						`[alloy:config] duplicate config entry "${key}" for plugin "${pluginName}"; later declaration wins`,
+					);
+				}
+				existing[key] = schema.configs[key];
+			}
+		} else {
+			this.schemas[pluginName] = schema;
+		}
+
+		// Initialize defaults if not present or updating with a new schema (Requirement 20.5)
 		if (schema.configs) {
 			for (const [key, def] of Object.entries(schema.configs) as [
 				string,
 				any,
 			][]) {
-				const fullPath = `plugins.${pluginName}.${key}`;
+				const fullPath = `pluginConfigs.${pluginName}.${key}`;
+				// For new entries or merging schemas, we apply the default if current is undefined
+				// or if it's explicitly a re-registration with a new default
 				if (this.get(fullPath) === undefined && def.default !== undefined) {
 					this.set(fullPath, def.default);
 				}
@@ -76,5 +92,13 @@ export class ConfigManager {
 
 	getConfig(): AlloyConfig {
 		return this.config;
+	}
+
+	getSchemas(): Map<string, any> {
+		const map = new Map<string, any>();
+		for (const [name, schema] of Object.entries(this.schemas)) {
+			map.set(name, schema);
+		}
+		return map;
 	}
 }

@@ -51,20 +51,28 @@
 				schema: options,
 			});
 
-			return {
-				get: function (key) {
-					return AlloyInternal.bridgeCall("__alloy_config_get", {
-						key: "plugins." + pluginName + "." + key,
-					});
-				},
+			var accessor = {
 				set: function (key, value, options) {
 					return AlloyInternal.bridgeCall("__alloy_config_set", {
-						key: "plugins." + pluginName + "." + key,
+						key: "pluginConfigs." + pluginName + "." + key,
 						value: value,
 						options: options,
 					});
 				},
 			};
+
+			// Add direct property access via Proxy (Requirement 22.1)
+			return new Proxy(accessor, {
+				get: function (target, prop) {
+					if (prop === "set") return target.set;
+					if (typeof prop === "string") {
+						return AlloyInternal.bridgeCall("__alloy_config_get", {
+							key: "pluginConfigs." + pluginName + "." + prop,
+						});
+					}
+					return undefined;
+				},
+			});
 		},
 		/**
 		 * Shell template literal tag (Requirement 1.1).

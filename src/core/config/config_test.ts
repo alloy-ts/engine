@@ -28,7 +28,7 @@ describe("ConfigManager and useConfig integration", () => {
 			},
 		});
 
-		expect(configManager.get("plugins.my-plugin.dbPath")).toBe("./data/app.db");
+		expect(configManager.get("pluginConfigs.my-plugin.dbPath")).toBe("./data/app.db");
 	});
 
 	test("ConfigPlugin registers bindings", () => {
