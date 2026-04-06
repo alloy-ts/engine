@@ -4,14 +4,12 @@ import * as TOML from "@iarna/toml";
 
 export class PrettyPrinter {
 	print(config: AlloyConfig): string {
-		// TOML.stringify doesn't guarantee the order or specific formatting requested
-		// but for a production-ready implementation, it's a good start.
-		// A more advanced pretty printer would handle comments and specific section ordering.
+		// Cleanup config before stringifying to ensure only valid fields are present
+		const clean = JSON.parse(JSON.stringify(config));
 
-		// Deep clone and clean up undefined values to avoid empty sections if possible,
-		// though TOML.stringify usually handles this.
-		const cleanConfig = JSON.parse(JSON.stringify(config));
+		// Ensure we don't have circular references (already handled by stringify)
+		// and remove any potential undefined values.
 
-		return TOML.stringify(cleanConfig);
+		return TOML.stringify(clean);
 	}
 }

@@ -2,6 +2,7 @@
 #define ALLOYSCRIPT_ENGINE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include "mquickjs.h"
 #include "webview/webview.h"
 
@@ -9,11 +10,49 @@
 extern "C" {
 #endif
 
+typedef enum {
+    ALLOY_TARGET_LOCAL_FIRST,
+    ALLOY_TARGET_SERVER_FIRST
+} alloy_target_t;
+
 typedef struct alloy_runtime {
     JSContext *mqjs_ctx;
     webview_t webview;
     unsigned char session_key[32];
     void *mem_buf;
+
+    // Configuration-driven flags
+    alloy_target_t target;
+    bool wasm_edge_enabled;
+    bool use_containers;
+
+    // Internal state
+    bool shutdown;
+    void *js_heap;
+    size_t js_heap_size;
+    int js_heap_prot;
+    char *latest_ipc_response;
+    struct {
+        unsigned char session_key[32];
+        unsigned int next_outbound_seq;
+        unsigned int last_inbound_seq;
+    } ipc_state;
+
+    struct {
+        char *event_name;
+        JSValue listeners[8];
+        int count;
+    } listener_registry[32];
+
+    struct {
+        int head;
+        int count;
+        struct {
+            JSValue listener;
+            int argc;
+            JSValue args[8];
+        } events[4096];
+    } event_queue;
 } alloy_runtime_t;
 
 typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);

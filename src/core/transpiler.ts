@@ -38,7 +38,12 @@ export class Transpiler {
 			target: "browser",
 			loader: loader,
 			// @ts-ignore
-			define: this.options.define,
+			define: {
+				...this.options.define,
+				"process.env.NODE_ENV": JSON.stringify(
+					process.env.NODE_ENV || "development",
+				),
+			},
 		});
 
 		let output = bunTranspiler.transformSync(code);
