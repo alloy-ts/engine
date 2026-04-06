@@ -25,9 +25,24 @@ export interface ValidationResult {
 }
 
 export class ConfigValidator {
-	validate(raw: Record<string, unknown>, filePath: string): ValidationResult {
+	validate(
+		raw: Record<string, unknown>,
+		filePath: string,
+		source?: string,
+	): ValidationResult {
 		const errors: ValidationError[] = [];
 		const warnings: ValidationWarning[] = [];
+
+		const findLine = (fieldPath: string): number | null => {
+			if (!source) return null;
+			const parts = fieldPath.split(".");
+			const lastPart = parts[parts.length - 1];
+			const lines = source.split("\n");
+			for (let i = 0; i < lines.length; i++) {
+				if (lines[i].includes(lastPart)) return i + 1;
+			}
+			return null;
+		};
 
 		// Check for unknown keys (Stage 5 Phase 1)
 		this.checkUnknownKeys(raw, AlloyConfigSchema.shape, "", filePath, warnings);
@@ -36,11 +51,12 @@ export class ConfigValidator {
 		const result = AlloyConfigSchema.safeParse(raw);
 		if (!result.success) {
 			for (const error of result.error.errors) {
+				const fieldPath = error.path.join(".");
 				errors.push({
 					kind: "type_error",
 					filePath,
-					line: null,
-					fieldPath: error.path.join("."),
+					line: findLine(fieldPath),
+					fieldPath,
 					message: error.message,
 				});
 			}

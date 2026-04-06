@@ -51,6 +51,7 @@ export class ConfigLoader {
 		const result = validator.validate(
 			interpolated,
 			workspacePath || "alloyconfig.toml",
+			workspacePath ? readFileSync(workspacePath, "utf-8") : undefined,
 		);
 
 		for (const warning of result.warnings) {
