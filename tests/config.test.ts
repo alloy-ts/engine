@@ -1,62 +1,71 @@
-import { expect, test, describe, beforeAll, afterAll } from "bun:test";
-import { ConfigLoader, ConfigValidator, DEFAULT_CONFIG } from "../src/core/config";
-import { writeFileSync, unlinkSync, mkdirSync, rmdirSync } from "node:fs";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { ConfigLoader } from "../src/core/config/loader";
+import { ConfigValidator } from "../src/core/config/validator";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 describe("AlloyConfig", () => {
-    const testDir = join(process.cwd(), "test-config-dir");
-    const localConfigPath = join(testDir, "alloyconfig.toml");
+    const testDir = join(process.cwd(), "temp-test-config");
 
-    beforeAll(() => {
-        if (!require("node:fs").existsSync(testDir)) mkdirSync(testDir);
+    beforeEach(() => {
+        if (mkdirSync) mkdirSync(testDir, { recursive: true });
     });
 
-    afterAll(() => {
-        if (require("node:fs").existsSync(localConfigPath)) unlinkSync(localConfigPath);
-        if (require("node:fs").existsSync(testDir)) rmdirSync(testDir);
+    afterEach(() => {
+        rmSync(testDir, { recursive: true, force: true });
     });
 
-    test("ConfigLoader: basic loading and defaults", () => {
-        const config = ConfigLoader.load(testDir);
-        expect(config.target).toBe("local-first");
-        expect(config.telemetry).toBe(true);
+    describe("ConfigLoader", () => {
+        it("basic loading and defaults", () => {
+            const loader = new ConfigLoader();
+            const config = loader.load({ cwd: testDir });
+            expect(config.target).toBe("local-first");
+            expect(config.telemetry).toBe(true);
+            expect(config.test?.root).toBe(".");
+        });
+
+        it("local config overrides defaults", () => {
+            const configPath = join(testDir, "alloyconfig.toml");
+            writeFileSync(configPath, 'target = "server-first"\ntelemetry = false\n[test]\nroot = "./src"');
+            const loader = new ConfigLoader();
+            const config = loader.load({ cwd: testDir });
+            expect(config.target).toBe("server-first");
+            expect(config.telemetry).toBe(false);
+            expect(config.test?.root).toBe("./src");
+            // Defaults should still be injected correctly for target:
+            expect(config.disableWasmEdge).toBe(true);
+            expect(config.useContainers).toBe(false);
+        });
+
+        it("environment variable interpolation", () => {
+            process.env.TEST_VAR = "hello-alloy";
+            const configPath = join(testDir, "alloyconfig.toml");
+            writeFileSync(configPath, 'preload = ["$TEST_VAR"]\n[define]\nAPP_VERSION = "${TEST_VAR}"');
+            const loader = new ConfigLoader();
+            const config = loader.load({ cwd: testDir });
+            expect(config.preload).toContain("hello-alloy");
+            expect(config.define?.APP_VERSION).toBe("hello-alloy");
+            delete process.env.TEST_VAR;
+        });
     });
 
-    test("ConfigLoader: local config overrides defaults", () => {
-        writeFileSync(localConfigPath, `
-target = "server-first"
-telemetry = false
-[install]
-exact = true
-`);
-        const config = ConfigLoader.load(testDir);
-        expect(config.target).toBe("server-first");
-        expect(config.telemetry).toBe(false);
-        expect(config.install.exact).toBe(true);
-        expect(config.install.dev).toBe(true); // preserved from default
-    });
+    describe("ConfigValidator", () => {
+        it("validation logic", () => {
+            const validator = new ConfigValidator();
 
-    test("ConfigLoader: environment variable interpolation", () => {
-        process.env.TEST_VAR = "hello";
-        process.env.TEST_TOKEN = "secret";
+            // Invalid target
+            const res1 = validator.validate({ target: "invalid" }, "test.toml");
+            expect(res1.valid).toBe(false);
+            expect(res1.errors.some(e => e.fieldPath === "target")).toBe(true);
 
-        writeFileSync(localConfigPath, `
-[define]
-API_URL = "https://api.example.com/$TEST_VAR"
-TOKEN = "\${TEST_TOKEN}"
-`);
-        const config = ConfigLoader.load(testDir);
-        expect(config.define.API_URL).toBe("https://api.example.com/hello");
-        expect(config.define.TOKEN).toBe("secret");
-    });
+            // Cross-field error: useContainers=false with local-first
+            const res2 = validator.validate({ target: "local-first", useContainers: false }, "test.toml");
+            expect(res2.valid).toBe(false);
+            expect(res2.errors.some(e => e.fieldPath === "useContainers")).toBe(true);
 
-    test("ConfigValidator: validation logic", () => {
-        const config = { ...DEFAULT_CONFIG, target: "invalid" as any };
-        const { errors } = ConfigValidator.validate(config);
-        expect(errors.some(e => e.includes("Invalid target"))).toBe(true);
-
-        const config2 = { ...DEFAULT_CONFIG, target: "local-first" as any, useContainers: false };
-        const { errors: errors2 } = ConfigValidator.validate(config2);
-        expect(errors2.some(e => e.includes("useContainers cannot be false"))).toBe(true);
+            // Cross-field warning: seed without randomize
+            const res3 = validator.validate({ test: { seed: 123, randomize: false } }, "test.toml");
+            expect(res3.warnings.some(w => w.fieldPath === "test.seed")).toBe(true);
+        });
     });
 });

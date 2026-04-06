@@ -21,6 +21,8 @@
 	"dependencies": {
 		"acorn": "^8.16.0",
 		"acorn-walk": "^8.3.5",
-		"astring": "^1.9.0"
+		"astring": "^1.9.0",
+		"smol-toml": "^1.6.1",
+		"zod": "^3.23.8"
 	}
 }

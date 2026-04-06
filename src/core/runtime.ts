@@ -1,5 +1,7 @@
 import { Transpiler } from "./transpiler";
-import { build, type BuildOptions } from "./build";
+import { build } from "./build";
+import { ConfigLoader } from "./config/loader";
+import { ConfigValidator } from "./config/validator";
 
 declare global {
   const AlloyInternal: {
@@ -10,13 +12,16 @@ declare global {
     nextTick(func: Function): void;
     getMmap(): any;
     readMmap(region: any): ArrayBuffer;
+    useConfig(pluginName: string, schema: any): any;
+    configSet(pluginName: string, key: string, value: any, options?: any): void;
   };
 }
 
 export const Alloy = {
   Transpiler: Transpiler,
-
   build: build,
+  config: {} as any,
+  plugins: {} as any,
 
   secureEval(source: string): any {
     const transpiler = new Transpiler();
@@ -52,7 +57,21 @@ export const Alloy = {
 
   readMmap(region: any) {
     return (globalThis as any).AlloyInternal.readMmap(region);
+  },
+
+  useConfig(schema: any) {
+    // Should be injected by C host in plugin context
+    return (globalThis as any).__alloy_use_config(schema);
   }
 };
 
 (globalThis as any).Alloy = Alloy;
+
+// Load initial configuration
+try {
+  const loader = new ConfigLoader();
+  const config = loader.load();
+  Alloy.config = Object.freeze(config);
+} catch (e) {
+  // Config loader handles its own printing/aborting if invalid
+}
