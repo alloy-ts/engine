@@ -1,9 +1,120 @@
 export type LogLevel = "debug" | "warn" | "error";
 export type Target = "local-first" | "server-first";
+export type JsxMode = "react" | "react-jsx" | "react-jsxdev" | "preserve" | "solid";
+export type LoaderName =
+	| "jsx"
+	| "js"
+	| "ts"
+	| "tsx"
+	| "css"
+	| "file"
+	| "json"
+	| "toml"
+	| "wasm"
+	| "napi"
+	| "base64"
+	| "dataurl"
+	| "text";
+export type AutoInstall = "auto" | "force" | "disable" | "fallback";
+export type Linker = "isolated" | "hoisted";
+export type RunShell = "system" | "alloy";
+export type CoverageReporter = "text" | "lcov";
+
+export interface CoverageThresholdObject {
+	line?: number;
+	function?: number;
+	statement?: number;
+}
+
+export interface RegistryObject {
+	url: string;
+	token?: string;
+}
+
+export interface ScopeRegistryObject {
+	url: string;
+	token?: string;
+	username?: string;
+	password?: string;
+}
+
+export interface ConsoleConfig {
+	depth?: number;
+}
+
+export interface TestReporterConfig {
+	dots?: boolean;
+	junit?: string;
+}
 
 export interface TestConfig {
 	root?: string;
+	preload?: string[];
+	pathIgnorePatterns?: string[];
+	smol?: boolean;
 	coverage?: boolean;
+	coverageThreshold?: number | CoverageThresholdObject;
+	coverageSkipTestFiles?: boolean;
+	coveragePathIgnorePatterns?: string | string[];
+	coverageReporter?: CoverageReporter[];
+	coverageDir?: string;
+	randomize?: boolean;
+	seed?: number;
+	rerunEach?: number;
+	retry?: number;
+	concurrentTestGlob?: string;
+	onlyFailures?: boolean;
+	reporter?: TestReporterConfig;
+}
+
+export interface InstallCacheConfig {
+	dir?: string;
+	disable?: boolean;
+	disableManifest?: boolean;
+}
+
+export interface InstallLockfileConfig {
+	save?: boolean;
+	print?: "yarn";
+}
+
+export interface InstallSecurityConfig {
+	scanner?: string;
+}
+
+export interface InstallConfig {
+	optional?: boolean;
+	dev?: boolean;
+	peer?: boolean;
+	production?: boolean;
+	exact?: boolean;
+	saveTextLockfile?: boolean;
+	auto?: AutoInstall;
+	frozenLockfile?: boolean;
+	dryRun?: boolean;
+	globalDir?: string;
+	globalBinDir?: string;
+	registry?: string | RegistryObject;
+	linkWorkspacePackages?: boolean;
+	ca?: string;
+	cafile?: string;
+	cache?: InstallCacheConfig;
+	lockfile?: InstallLockfileConfig;
+	linker?: Linker;
+	security?: InstallSecurityConfig;
+	minimumReleaseAge?: number;
+	minimumReleaseAgeExcludes?: string[];
+	scopes?: Record<string, string | ScopeRegistryObject>;
+}
+
+export interface RunConfig {
+	shell?: RunShell;
+	alloy?: boolean;
+	silent?: boolean;
+}
+
+export interface DebugConfig {
+	editor?: string;
 }
 
 export interface PluginFfiSymbol {
@@ -40,34 +151,83 @@ export interface PluginEntry {
 	disabled?: boolean;
 }
 
+export interface PluginConfigEntry {
+	type: "string" | "number" | "boolean" | "object";
+	default?: any;
+	description?: string;
+}
+
+export type PluginConfigSchema = Record<string, PluginConfigEntry>;
+
 export interface AlloyConfig {
-	target?: Target;
+	preload?: string[];
+	jsx?: JsxMode;
+	jsxFactory?: string;
+	jsxFragment?: string;
+	jsxImportSource?: string;
+	cryptomem?: boolean;
 	logLevel?: LogLevel;
+	define?: Record<string, string>;
+	loader?: Record<string, LoaderName>;
+	telemetry?: boolean;
+	env?: boolean | { file: boolean };
+	target?: Target;
 	shellCapabilities?: string[];
 	shellCapabilityImages?: Record<string, string>;
 	disableWasmEdge?: boolean;
 	useContainers?: boolean;
+
+	console?: ConsoleConfig;
 	test?: TestConfig;
-	define?: Record<string, string>;
+	install?: InstallConfig;
+	run?: RunConfig;
+	debug?: DebugConfig;
 	plugins?: (string | PluginEntry)[];
 }
 
-export const DEFAULTS_LOCAL: AlloyConfig = {
+export const BUILTIN_DEFAULTS: AlloyConfig = {
 	target: "local-first",
 	logLevel: "warn",
 	shellCapabilities: [],
 	shellCapabilityImages: {},
 	disableWasmEdge: false,
 	useContainers: true,
-	test: { root: ".", coverage: false },
+	telemetry: true,
+	cryptomem: true,
+	jsx: "react",
+	env: { file: true },
+	console: { depth: 2 },
+	test: {
+		root: ".",
+		coverage: false,
+		randomize: false,
+		reporter: { dots: true },
+	},
+	install: {
+		auto: "auto",
+		linker: "isolated",
+		cache: { disable: false },
+	},
+	run: {
+		shell: "alloy",
+		alloy: true,
+	},
+};
+
+export const DEFAULTS_LOCAL: AlloyConfig = {
+	...BUILTIN_DEFAULTS,
+	target: "local-first",
+	disableWasmEdge: false,
+	useContainers: true,
 };
 
 export const DEFAULTS_SERVER: AlloyConfig = {
+	...BUILTIN_DEFAULTS,
 	target: "server-first",
-	logLevel: "warn",
-	shellCapabilities: [],
-	shellCapabilityImages: {},
 	disableWasmEdge: true,
 	useContainers: false,
-	test: { root: ".", coverage: false },
+	run: {
+		...BUILTIN_DEFAULTS.run,
+		shell: "system",
+	},
 };

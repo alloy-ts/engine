@@ -170,6 +170,12 @@ export const PluginEntrySchema = z.object({
 	disabled: z.boolean().optional(),
 });
 
+export const PluginConfigEntrySchema = z.object({
+	type: z.enum(["string", "number", "boolean", "object"]),
+	default: z.any().optional(),
+	description: z.string().optional(),
+});
+
 export const AlloyConfigSchema = z.object({
 	preload: z.array(z.string()).optional(),
 	jsx: JsxModeSchema.optional(),
