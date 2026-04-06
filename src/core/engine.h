@@ -14,6 +14,13 @@ typedef struct alloy_runtime {
     webview_t webview;
     unsigned char session_key[32];
     void *mem_buf;
+
+    /* Integration with configuration */
+    int target;               /* 0: local-first, 1: server-first */
+    bool wasm_edge_enabled;
+    bool use_containers;
+    char **shell_whitelist;
+    int shell_whitelist_len;
 } alloy_runtime_t;
 
 typedef void (*alloy_bind_fn_t)(const char *id, const char *req, void *arg);

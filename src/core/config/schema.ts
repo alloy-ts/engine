@@ -170,6 +170,14 @@ export const PluginEntrySchema = z.object({
 	disabled: z.boolean().optional(),
 });
 
+export const PluginConfigEntrySchema = z.object({
+	default: z.unknown(),
+});
+
+export const PluginConfigSchemaSchema = z.object({
+	configs: z.record(PluginConfigEntrySchema),
+});
+
 export const AlloyConfigSchema = z.object({
 	preload: z.array(z.string()).optional(),
 	jsx: JsxModeSchema.optional(),
@@ -194,4 +202,5 @@ export const AlloyConfigSchema = z.object({
 	run: RunConfigSchema.optional(),
 	debug: DebugConfigSchema.optional(),
 	plugins: z.array(z.union([z.string(), PluginEntrySchema])).optional(),
+	pluginConfigs: z.record(z.record(z.unknown())).optional(),
 });

@@ -65,6 +65,13 @@ export class Transpiler {
 		output = output.replace(/\bconst\b/g, "var");
 		output = output.replace(/\blet\b/g, "var");
 
+		// Requirement 2.8: Global define replacements
+		if (this.options.define) {
+			for (const [key, value] of Object.entries(this.options.define)) {
+				output = output.replace(new RegExp(`\\b${key}\\b`, "g"), value);
+			}
+		}
+
 		if (output.includes("__alloy_ipc") || output.includes("__alloy_deferred")) {
 			output =
 				"var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n" +

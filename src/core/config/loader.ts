@@ -1,66 +1,100 @@
-import { AlloyConfig, DEFAULTS_LOCAL, DEFAULTS_SERVER } from "./config";
+// src/core/config/loader.ts
+import {
+	type AlloyConfig,
+	BUILTIN_DEFAULTS,
+	DEFAULTS_LOCAL,
+	DEFAULTS_SERVER,
+} from "./config";
 import { ConfigValidator } from "./validator";
 import { existsSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, isAbsolute } from "node:path";
 import { homedir } from "node:os";
+import * as TOML from "@iarna/toml";
 
 export interface DiscoveryResult {
 	workspacePath: string | null;
 	userPath: string | null;
 }
 
+export interface ParseResult {
+	raw: Record<string, unknown>;
+	filePath: string;
+}
+
+export interface ConfigLoaderOptions {
+	cwd?: string;
+	configPath?: string;
+	cliFlags?: Partial<AlloyConfig>;
+	excludeUserConfig?: boolean; // for alloy run
+}
+
 export class ConfigLoader {
-	load(
-		options: {
-			cwd?: string;
-			configPath?: string;
-			cliFlags?: Partial<AlloyConfig>;
-		} = {},
-	): AlloyConfig {
+	load(options: ConfigLoaderOptions = {}): AlloyConfig {
 		const cwd = options.cwd || process.cwd();
 		const discovery = this.discover(cwd, options.configPath);
 
-		let userConfig: Partial<AlloyConfig> = {};
-		if (discovery.userPath && existsSync(discovery.userPath)) {
-			userConfig = this.parse(discovery.userPath);
+		let userRaw: Record<string, unknown> = {};
+		if (!options.excludeUserConfig && discovery.userPath) {
+			const parseResult = this.parse(discovery.userPath);
+			userRaw = parseResult.raw;
 		}
 
-		let workspaceConfig: Partial<AlloyConfig> = {};
-		if (discovery.workspacePath && existsSync(discovery.workspacePath)) {
-			workspaceConfig = this.parse(discovery.workspacePath);
+		let workspaceRaw: Record<string, unknown> = {};
+		if (discovery.workspacePath) {
+			const parseResult = this.parse(discovery.workspacePath);
+			workspaceRaw = parseResult.raw;
 		}
 
-		let config = this.merge(userConfig, workspaceConfig, options.cliFlags);
-		config = this.interpolate(config);
+		const mergedRaw = this.merge(
+			userRaw as Partial<AlloyConfig>,
+			workspaceRaw as Partial<AlloyConfig>,
+			options.cliFlags,
+		);
+
+		const interpolated = this.interpolate(mergedRaw);
 
 		const validator = new ConfigValidator();
-		const result = validator.validate(config);
+		const result = validator.validate(
+			interpolated as Record<string, unknown>,
+			discovery.workspacePath || "alloyconfig.toml",
+		);
+
 		if (!result.valid) {
-			console.warn("Configuration validation errors:", result.errors);
+			for (const err of result.errors) {
+				console.error(
+					`error: ${err.filePath}:${err.line || ""}: ${err.message}`,
+				);
+			}
+			process.exit(1);
 		}
 
-		return this.injectDefaults(config);
+		for (const warn of result.warnings) {
+			console.warn(
+				`warning: ${warn.filePath}:${warn.line || ""}: ${warn.message}`,
+			);
+		}
+
+		return this.injectDefaults(interpolated as Partial<AlloyConfig>);
 	}
 
 	discover(cwd: string, configPath?: string): DiscoveryResult {
 		let workspacePath: string | null = null;
 		if (configPath) {
-			workspacePath = join(cwd, configPath);
+			workspacePath = isAbsolute(configPath) ? configPath : join(cwd, configPath);
 		} else {
 			let curr = cwd;
-			while (curr !== "/") {
+			while (true) {
 				const p = join(curr, "alloyconfig.toml");
 				if (existsSync(p)) {
 					workspacePath = p;
 					break;
 				}
 				if (existsSync(join(curr, "package.json"))) {
-					// Also stop if package.json found but no alloyconfig.toml yet
-					const p2 = join(curr, "alloyconfig.toml");
-					if (existsSync(p2)) workspacePath = p2;
 					break;
 				}
-				curr = dirname(curr);
+				const parent = dirname(curr);
+				if (parent === curr) break;
+				curr = parent;
 			}
 		}
 
@@ -69,14 +103,30 @@ export class ConfigLoader {
 		const p1 = xdg
 			? join(xdg, ".alloyconfig.toml")
 			: join(homedir(), ".alloyconfig.toml");
-		if (existsSync(p1)) {
+
+		if (xdg && existsSync(p1)) {
 			userPath = p1;
 		} else {
 			const p2 = join(homedir(), ".alloyconfig.toml");
-			if (existsSync(p2)) userPath = p2;
+			if (existsSync(p2)) {
+				userPath = p2;
+			}
 		}
 
 		return { workspacePath, userPath };
+	}
+
+	parse(path: string): ParseResult {
+		try {
+			const content = readFileSync(path, "utf-8");
+			const raw = TOML.parse(content) as Record<string, unknown>;
+			return { raw, filePath: path };
+		} catch (e: any) {
+			const line = e.line || "";
+			const col = e.column || "";
+			console.error(`error: ${path}:${line}:${col}: ${e.message}`);
+			process.exit(1);
+		}
 	}
 
 	merge(
@@ -84,90 +134,75 @@ export class ConfigLoader {
 		workspace: Partial<AlloyConfig>,
 		cliFlags?: Partial<AlloyConfig>,
 	): Partial<AlloyConfig> {
-		const target = workspace.target || user.target || "local-first";
-		const defaults =
-			target === "local-first" ? DEFAULTS_LOCAL : DEFAULTS_SERVER;
+		const merged: any = { ...BUILTIN_DEFAULTS };
 
-		let merged: any = { ...defaults };
-
-		const apply = (layer: any) => {
-			for (const key of Object.keys(layer)) {
-				if (key === "define" || key === "install") {
-					// simplified logic for special tables
-					merged[key] = { ...merged[key], ...layer[key] };
+		const applyLayer = (layer: any) => {
+			for (const key in layer) {
+				if (key === "define" || (key === "install" && layer.install?.scopes)) {
+					if (key === "define") {
+						merged.define = { ...merged.define, ...layer.define };
+					} else {
+						const scopes = {
+							...merged.install?.scopes,
+							...layer.install.scopes,
+						};
+						merged.install = { ...merged.install, ...layer.install, scopes };
+					}
 				} else {
 					merged[key] = layer[key];
 				}
 			}
 		};
 
-		apply(user);
-		apply(workspace);
-		if (cliFlags) apply(cliFlags);
+		applyLayer(user);
+		applyLayer(workspace);
+		if (cliFlags) applyLayer(cliFlags);
 
 		return merged;
 	}
 
-	parse(path: string): any {
-		const content = readFileSync(path, "utf-8");
-		const result: any = {};
-		const lines = content.split("\n");
-		let currentSection: string | null = null;
-
-		for (const line of lines) {
-			const trimmed = line.trim();
-			if (!trimmed || trimmed.startsWith("#")) continue;
-
-			if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-				currentSection = trimmed.substring(1, trimmed.length - 1);
-				result[currentSection] = result[currentSection] || {};
-				continue;
-			}
-
-			const [key, ...rest] = trimmed.split("=");
-			if (key && rest.length > 0) {
-				let value: any = rest.join("=").trim();
-				if (value.startsWith('"') && value.endsWith('"')) {
-					value = value.substring(1, value.length - 1);
-				} else if (value === "true") {
-					value = true;
-				} else if (value === "false") {
-					value = false;
-				} else if (!isNaN(Number(value))) {
-					value = Number(value);
-				} else if (value.startsWith("[") && value.endsWith("]")) {
-					value = value
-						.substring(1, value.length - 1)
-						.split(",")
-						.map((s: string) => s.trim().replace(/^"|"$/g, ""));
-				}
-
-				if (currentSection) {
-					result[currentSection][key.trim()] = value;
-				} else {
-					result[key.trim()] = value;
-				}
-			}
-		}
-		return result;
-	}
-
-	interpolate(config: any): any {
-		const json = JSON.stringify(config);
-		const interpolated = json.replace(
-			/\$([A-Z0-9_]+)|\$\{([A-Z0-9_]+)\}/gi,
-			(match, p1, p2) => {
+	interpolate(raw: Partial<AlloyConfig>): Partial<AlloyConfig> {
+		const interpolateString = (val: string): string => {
+			return val.replace(/\$([A-Z0-9_]+)|\$\{([A-Z0-9_]+)\}/gi, (_, p1, p2) => {
 				const varName = p1 || p2;
 				return process.env[varName] || "";
-			},
-		);
-		return JSON.parse(interpolated);
+			});
+		};
+
+		const walk = (obj: any): any => {
+			if (typeof obj === "string") {
+				return interpolateString(obj);
+			}
+			if (Array.isArray(obj)) {
+				return obj.map(walk);
+			}
+			if (obj !== null && typeof obj === "object") {
+				const result: any = {};
+				for (const key in obj) {
+					result[key] = walk(obj[key]);
+				}
+				return result;
+			}
+			return obj;
+		};
+
+		return walk(raw);
 	}
 
-	injectDefaults(config: Partial<AlloyConfig>): AlloyConfig {
-		const target = config.target || "local-first";
-		const defaults =
-			target === "local-first" ? DEFAULTS_LOCAL : DEFAULTS_SERVER;
-		return { ...defaults, ...config } as AlloyConfig;
+	injectDefaults(raw: Partial<AlloyConfig>): AlloyConfig {
+		const target = raw.target || "local-first";
+		const defaults = target === "local-first" ? DEFAULTS_LOCAL : DEFAULTS_SERVER;
+
+		// We need to be careful with target-dependent defaults that might have been explicitly set
+		const config = { ...defaults, ...raw };
+
+		if (raw.disableWasmEdge === undefined) {
+			config.disableWasmEdge = target === "server-first";
+		}
+		if (raw.useContainers === undefined) {
+			config.useContainers = target === "local-first";
+		}
+
+		return config as AlloyConfig;
 	}
 }

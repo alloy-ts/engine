@@ -110,6 +110,12 @@ alloy_runtime_t *alloy_engine_create(void) {
     rt->ipc_state.next_outbound_seq = 1;
     rt->ipc_state.last_inbound_seq = 0;
 
+    rt->target = 0; /* Default: local-first */
+    rt->wasm_edge_enabled = true;
+    rt->use_containers = true;
+    rt->shell_whitelist = NULL;
+    rt->shell_whitelist_len = 0;
+
     rt->js_heap_size = 16 << 20;
     rt->js_heap = mmap(NULL, rt->js_heap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     rt->js_heap_prot = PROT_READ | PROT_WRITE;
@@ -491,6 +497,10 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
     if (rt->mqjs_ctx) JS_FreeContext(rt->mqjs_ctx);
     if (rt->js_heap) munmap(rt->js_heap, rt->js_heap_size);
     explicit_bzero(rt->ipc_state.session_key, ALLOY_IPC_KEY_SIZE);
+    if (rt->shell_whitelist) {
+        for (int i = 0; i < rt->shell_whitelist_len; i++) free(rt->shell_whitelist[i]);
+        free(rt->shell_whitelist);
+    }
     free(rt);
 }
 
