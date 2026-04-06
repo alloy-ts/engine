@@ -1,4 +1,3 @@
-// src/core/config/schema.ts
 import { z } from "zod";
 
 export const LogLevelSchema = z.enum(["debug", "warn", "error"]);
@@ -170,6 +169,10 @@ export const PluginEntrySchema = z.object({
 	disabled: z.boolean().optional(),
 });
 
+export const PluginConfigEntrySchema = z.object({
+	default: z.unknown(),
+});
+
 export const AlloyConfigSchema = z.object({
 	preload: z.array(z.string()).optional(),
 	jsx: JsxModeSchema.optional(),
@@ -194,4 +197,5 @@ export const AlloyConfigSchema = z.object({
 	run: RunConfigSchema.optional(),
 	debug: DebugConfigSchema.optional(),
 	plugins: z.array(z.union([z.string(), PluginEntrySchema])).optional(),
+	pluginConfigs: z.record(z.record(z.unknown())).optional(),
 });
