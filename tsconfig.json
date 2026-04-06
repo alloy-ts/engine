@@ -33,7 +33,6 @@
 		"paths": {
 			"@/*": ["src/*"],
 			"@alloyscript/*": ["src/core/*"],
-			"alloy:*": ["src/core/*"]
 		},
 
 		// Best practices

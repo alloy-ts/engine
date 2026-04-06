@@ -289,7 +289,7 @@ Option                            | Description
 `WEBVIEW_ENABLE_PACKAGING`        | Enable packaging
 `WEBVIEW_INSTALL_DOCS`            | Install documentation
 `WEBVIEW_INSTALL_TARGETS`         | Install targets
-`WEBVIEW_IS_CI`                   | Initialized by the `CI` environment variable
+`WEBVIEW_IS_CI`                   | Initialised by the `CI` environment variable
 `WEBVIEW_PACKAGE_AMALGAMATION`    | Package amalgamated library
 `WEBVIEW_PACKAGE_DOCS`            | Package documentation
 `WEBVIEW_PACKAGE_HEADERS`         | Package headers

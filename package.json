@@ -15,7 +15,10 @@
 		"check": "bun x --bun @biomejs/biome check --fix .",
 		"format": "bun x --bun @biomejs/biome format --fix .",
 		"lint": "bun x --bun @biomejs/biome lint --fix .",
-		"start": "bun run src/main.ts"
+		"start": "bun run src/main.ts",
+		"transpile:bootstrap": "bun run src/main.ts transpile src/core/runtime_bootstrap.ts --out gen/runtime_bootstrap.es5.js",
+		"transpile:shims": "bun run src/main.ts transpile src/shims/web_api_shims.ts --out gen/web_api_shims.es5.js",
+		"transpile": "bun run transpile:bootstrap && bun run transpile:shims"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.5",

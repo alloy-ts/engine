@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 
 static char *base64_encode(const uint8_t *input, int length) {
     static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -75,7 +76,7 @@ int alloy_ipc_encrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
 
 int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
     if (msg->seq <= rt->ipc_state.last_inbound_seq) {
-        fprintf(stderr, "[alloy] IPC rejection: Replay attempt (seq %llu)\n", msg->seq);
+        fprintf(stderr, "[alloy] IPC rejection: Replay attempt (seq %lu)\n", msg->seq);
         return ALLOY_ERR_REPLAY;
     }
     if (msg->payload_len > ALLOY_IPC_MAX_MSG_SIZE) return ALLOY_ERR_MSG_TOO_LARGE;
@@ -100,7 +101,7 @@ int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
         rt->ipc_state.last_inbound_seq = msg->seq;
         return 0;
     }
-    fprintf(stderr, "[alloy] IPC rejection: Auth failed (seq %llu)\n", msg->seq);
+    fprintf(stderr, "[alloy] IPC rejection: Auth failed (seq %lu)\n", msg->seq);
     return ALLOY_ERR_AUTH_FAILED;
 }
 
@@ -112,13 +113,22 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
     char *payload_b64 = base64_encode(msg->payload, msg->payload_len);
 
     char *json = NULL;
-    asprintf(&json, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
+    asprintf(&json, "{\"seq\":%lu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
              msg->seq, nonce_b64, tag_b64, msg->type, payload_b64);
 
     char *js_call = NULL;
     asprintf(&js_call, "window.Alloy.handleMessage('%s')", json);
 
-    webview_eval(rt->webview, js_call);
+    webview_t webview = (webview_t)rt->webview_engine->engine_ctx;
+    if (rt->target == ALLOY_TARGET_BROWSER) {
+        /* Requirement 17.10: In browser mode, use postMessage */
+        char *browser_call = NULL;
+        asprintf(&browser_call, "window.postMessage({type:'ALLOY_IPC',payload:'%s'}, '*')", json);
+        webview_eval(webview, browser_call);
+        free(browser_call);
+    } else {
+        webview_eval(webview, js_call);
+    }
 
     free(nonce_b64);
     free(tag_b64);
@@ -129,13 +139,18 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
     return 0;
 }
 
+extern JSValue JS_ParseJSON(JSContext *ctx, const char *input, size_t input_len, const char *filename);
+extern void JS_FreeValue(JSContext *ctx, JSValue v);
+extern void JS_FreeCString(JSContext *ctx, const char *ptr);
+extern int JS_ToUint64(JSContext *ctx, uint64_t *pres, JSValue val);
+
 int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) {
     if (strlen(json) > ALLOY_IPC_MAX_MSG_SIZE * 2) {
         fprintf(stderr, "[alloy] IPC rejection: Message too large\n");
         return ALLOY_ERR_MSG_TOO_LARGE;
     }
 
-    JSContext *ctx = rt->mqjs_ctx;
+    JSContext *ctx = (JSContext *)rt->mqjs_engine->engine_ctx;
     mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
     JSValue val = JS_ParseJSON(ctx, json, strlen(json), "ipc_receive");
     if (JS_IsException(val)) {

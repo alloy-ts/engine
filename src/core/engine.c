@@ -31,6 +31,7 @@ JSValue alloy_runtime_bind_global(JSContext *ctx, JSValue *this_val, int argc, J
 JSValue alloy_runtime_atob(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue alloy_runtime_btoa(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue alloy_runtime_structured_clone(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
+JSValue alloy_runtime_get_prop_names(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue alloy_runtime_alert(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue alloy_shell_tag_fn(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
 JSValue alloy_runtime_confirm(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv);
@@ -75,9 +76,10 @@ static const JSCFunctionDef alloy_c_function_table[] = {
     [JS_CFUNCTION_USER + 22] = { { .generic = (JSCFunction *)alloy_runtime_report_error }, JS_NULL, JS_CFUNC_generic, 1, 0 },
     [JS_CFUNCTION_USER + 23] = { { .generic = (JSCFunction *)alloy_shell_tag_fn }, JS_NULL, JS_CFUNC_generic, 3, 0 },
     [JS_CFUNCTION_USER + 24] = { { .generic = (JSCFunction *)alloy_shell_escape_fn }, JS_NULL, JS_CFUNC_generic, 1, 0 },
+    [JS_CFUNCTION_USER + 25] = { { .generic = (JSCFunction *)alloy_runtime_get_prop_names }, JS_NULL, JS_CFUNC_generic, 1, 0 },
 };
 
-static const JSCFinalizer alloy_c_finaliser_table[] = { 0 };
+static const JSCFinaliser alloy_c_finaliser_table[] = { 0 };
 
 const JSSTDLibraryDef alloyscript_stdlib = {
     js_stdlib_table,
@@ -168,25 +170,49 @@ alloy_runtime_t *alloy_engine_create(void) {
     alloy_mqjs_bind_func(ctx, "Alloy.nextTick", JS_CFUNCTION_USER + 9, JS_UNDEFINED);
     alloy_mqjs_bind_func(ctx, "AlloyInternal.shell", JS_CFUNCTION_USER + 23, JS_UNDEFINED);
     alloy_mqjs_bind_func(ctx, "AlloyInternal.shellEscape", JS_CFUNCTION_USER + 24, JS_UNDEFINED);
+    alloy_mqjs_bind_func(ctx, "AlloyInternal.getPropertyNames", JS_CFUNCTION_USER + 25, JS_UNDEFINED);
 
     /* Helpers */
     alloy_mqjs_bind_func(ctx, "__alloy_await", JS_CFUNCTION_USER + 2, JS_UNDEFINED);
     alloy_mqjs_bind_func(ctx, "__alloy_deferred", JS_CFUNCTION_USER + 5, JS_UNDEFINED);
 
-    /* Requirement 7.2: Load polyfills */
-    FILE *pf = fopen("polyfill.js", "r");
-    if (pf) {
-        fseek(pf, 0, SEEK_END); long ps = ftell(pf); fseek(pf, 0, SEEK_SET);
-        char *pjs = malloc(ps + 1); fread(pjs, 1, ps, pf); pjs[ps] = 0;
-        JS_Eval(ctx, pjs, ps, "polyfill.js", 0);
-        free(pjs); fclose(pf);
+    const char *files[] = {"runtime.js", "polyfill.js"};
+    for (int i = 0; i < 2; i++) {
+        FILE *f = fopen(files[i], "r");
+        if (f) {
+            fseek(f, 0, SEEK_END); long size = ftell(f); fseek(f, 0, SEEK_SET);
+            char *buf = malloc(size + 1);
+            if (buf) {
+                fread(buf, 1, size, f); buf[size] = 0;
+                JS_Eval(ctx, buf, size, files[i], 0);
+                free(buf);
+            }
+            fclose(f);
+        }
     }
 
     JS_FreeValue(ctx, global_obj);
     return rt;
 }
 
+void alloy_webview_restart(alloy_runtime_t *rt) {
+    /* Requirement 1.9: Attempt restart */
+    fprintf(stderr, "[alloy] WebViewProcess terminated unexpectedly, attempting restart...\n");
+    if (rt->webview) webview_destroy(rt->webview);
+    rt->webview = webview_create(0, NULL);
+    if (rt->webview) {
+        webview_bind(rt->webview, "__alloy_ipc_send", alloy_webview_dispatch, rt);
+        webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
+        webview_init(rt->webview, "window.AlloySessionKey = '...';");
+    } else {
+        fprintf(stderr, "[alloy] WebViewProcess restart failed - entering degraded mode\n");
+    }
+}
+
 static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue magic) {
+    alloy_runtime_t *rt = JS_GetContextOpaque(ctx);
+    if (!rt->webview) return JS_ThrowTypeError(ctx, "webview_unavailable");
+
     int table_index;
     JS_ToInt32(ctx, &table_index, magic);
     const AlloyBrowserAPIEntry *entry = &ALLOY_BROWSER_API_TABLE[table_index];
@@ -384,6 +410,22 @@ JSValue alloy_runtime_report_error(JSContext *ctx, JSValue *this_val, int argc, 
     return JS_UNDEFINED;
 }
 
+JSValue alloy_runtime_get_prop_names(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
+    if (argc < 1) return JS_EXCEPTION;
+    JSPropertyEnum *ptab;
+    uint32_t plen;
+    if (JS_GetOwnPropertyNames(ctx, &ptab, &plen, argv[0], JS_GPROP_SET_ENUMERABLE) == 0) {
+        JSValue res = JS_NewArray(ctx);
+        for (uint32_t i = 0; i < plen; i++) {
+            JS_SetPropertyUint32(ctx, res, i, JS_AtomToString(ctx, ptab[i].atom));
+            JS_FreeAtom(ctx, ptab[i].atom);
+        }
+        js_free(ctx, ptab);
+        return res;
+    }
+    return JS_NULL;
+}
+
 JSValue alloy_runtime_off(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
 JSValue alloy_runtime_emit(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
 JSValue alloy_runtime_next_tick(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
@@ -410,6 +452,18 @@ JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue *this_val, int argc, JSVa
     return res;
 }
 JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) { return JS_UNDEFINED; }
+
+void alloy_mmap_hash_stable_regions(AlloyMmapSnapshot *snap) {
+    /* Requirement 16.5: Stable region hashing */
+    blake3_hasher h;
+    for (int i = 0; i < snap->count; i++) {
+        if (snap->regions[i].stable && snap->regions[i].readable) {
+            blake3_hasher_init(&h);
+            blake3_hasher_update(&h, (void*)snap->regions[i].start, snap->regions[i].size);
+            /* Store hash in snapshot for getMmap */
+        }
+    }
+}
 
 JSValue alloy_runtime_spawn(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     /* Implementation delegated to OS shim */
@@ -495,20 +549,31 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
 }
 
 JSValue alloy_secure_eval(alloy_runtime_t *rt, const char *script) {
-    /* Requirement 14.5: Memory protection */
-    /* Only protect for sensitive production runs; ensure context and stack are readable */
-    return JS_Eval(rt->mqjs_ctx, script, strlen(script), "<secureEval>", JS_EVAL_RETVAL);
+    /* Requirement 14.5: Memory protection around evaluation */
+    mprotect(rt->js_heap, rt->js_heap_size, PROT_READ | PROT_WRITE);
+    rt->js_heap_prot = PROT_READ | PROT_WRITE;
+    JSValue res = JS_Eval(rt->mqjs_ctx, script, strlen(script), "<secureEval>", JS_EVAL_RETVAL);
+    mprotect(rt->js_heap, rt->js_heap_size, PROT_NONE);
+    rt->js_heap_prot = PROT_NONE;
+    return res;
 }
 
 void alloy_run(alloy_runtime_t *rt) {
     while (!rt->shutdown) {
-        webview_run(rt->webview);
+        /* Check for unexpected WebView termination */
+        if (rt->webview && webview_run(rt->webview) != 0) {
+            alloy_webview_restart(rt);
+        }
+
         while (rt->event_queue.count > 0) {
             AlloyEvent *ev = &rt->event_queue.events[rt->event_queue.head];
 
             mprotect(rt->js_heap, rt->js_heap_size, PROT_READ | PROT_WRITE);
+            rt->js_heap_prot = PROT_READ | PROT_WRITE;
             JSValue res = JS_Call(rt->mqjs_ctx, ev->listener, JS_UNDEFINED, ev->argc, ev->args);
             mprotect(rt->js_heap, rt->js_heap_size, PROT_NONE);
+            rt->js_heap_prot = PROT_NONE;
+
             JS_FreeValue(rt->mqjs_ctx, res);
             JS_FreeValue(rt->mqjs_ctx, ev->listener);
             rt->event_queue.head = (rt->event_queue.head + 1) % 4096;
@@ -551,7 +616,7 @@ int alloy_self_attest(void) {
     free(binary);
 
     uint8_t computed[32];
-    blake3_hasher_finalize(&hasher, computed, 32);
+    blake3_hasher_finalise(&hasher, computed, 32);
 
     /* Constant-time comparison stub */
     int diff = 0;

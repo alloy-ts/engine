@@ -1,0 +1,20 @@
+#ifndef ALLOY_IPC_PROTO_H
+#define ALLOY_IPC_PROTO_H
+
+#include <stdint.h>
+
+typedef enum {
+    ALLOY_MSG_HANDSHAKE_REQUEST = 1,
+    ALLOY_MSG_HANDSHAKE_RESPONSE = 2,
+    ALLOY_MSG_BROWSER_API_REQUEST = 3,
+    ALLOY_MSG_BROWSER_API_RESPONSE = 4,
+    ALLOY_MSG_KEY_RENEGOTIATE = 5,
+    ALLOY_MSG_CHUNKED_STREAM = 6,
+    ALLOY_MSG_SHUTDOWN = 7,
+
+    /* GUI Messages (Task 1.5) */
+    ALLOY_MSG_GUI_COMMAND = 0x30,
+    ALLOY_MSG_GUI_EVENT   = 0x31,
+} AlloyMsgType;
+
+#endif /* ALLOY_IPC_PROTO_H */

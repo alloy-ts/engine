@@ -5,7 +5,7 @@
 int main() {
     alloy_runtime_t *rt = alloy_init(1024 * 1024 * 4);
     if (!rt) {
-        fprintf(stderr, "Failed to initialize AlloyScript runtime\n");
+        fprintf(stderr, "Failed to initialise AlloyScript runtime\n");
         return 1;
     }
 

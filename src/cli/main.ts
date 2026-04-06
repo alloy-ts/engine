@@ -3,14 +3,19 @@ import { parseArgs } from "node:util";
 import { compile } from "./compile";
 import { evaluate } from "./evaluate";
 import { generate } from "./generate";
+import { transpile } from "./transpile";
 
 export async function runCli() {
 	const { values, positionals } = parseArgs({
 		args: Bun.argv.slice(2),
 		options: {
-			outdir: { type: "string", short: "o" },
-			dialect: { type: "string", default: "sqlite" },
-			help: { type: "boolean", short: "h" },
+			outdir:      { type: "string",  short: "o" },
+			out:         { type: "string" },
+			dialect:     { type: "string",  default: "sqlite" },
+			watch:       { type: "boolean", short: "w", default: false },
+			web:         { type: "boolean", default: true },
+			"build-type":{ type: "string",  default: "release" },
+			help:        { type: "boolean", short: "h" },
 		},
 		allowPositionals: true,
 	});
@@ -20,16 +25,24 @@ export async function runCli() {
 Usage: alloy <command> [options] [arguments]
 
 Commands:
-  init [projectname] [-y silence]    Initialise a new AlloyScript project
-  repl                               Start the AlloyScript interactive REPL
-  compile <input> [-o <outdir>]      Compile AlloyScript files
-  evaluate <input>                   Evaluate AlloyScript files and print metadata
-  generate <input> [-o <outdir>]     Generate TypeScript types and SQL migrations from AlloyScript source
+  init [projectname]               Initialise a new AlloyScript project
+  repl                             Start the AlloyScript interactive REPL
+  compile  <input> [-o <outdir>]   Compile a TS file to a native binary
+             [--config <alloyconfig.toml>]
+             [--build-type debug]  Debug build (default: release)
+  transpile <input> [--out <file>] Transpile a TS file to ES5 for AlloyScript
+             [--watch]             Re-transpile on file change
+  evaluate <input>                 Evaluate AlloyScript files and print metadata
+  generate <input> [-o <outdir>]   Generate TypeScript types and SQL migrations
 
 Options:
-  -o, --outdir <dir>  Output directory
-  --dialect <dialect> Database dialect (default: sqlite)
-  -h, --help          Show this help message
+  -o, --outdir <dir>       Output directory (compile / generate)
+      --out    <file>      Output file path (transpile)
+  -w, --watch              Watch mode (transpile)
+      --no-web             Disable alloy:web (compile)
+      --build-type <type>  release | debug (compile, default: release)
+      --dialect <d>        Database dialect (default: sqlite)
+  -h, --help               Show this help message
 `);
 	}
 
@@ -48,28 +61,40 @@ Options:
 		process.exit(0);
 	}
 
-	const command = positionals[0];
-	const input = positionals[1];
+	const command  = positionals[0]!;
+	const input    = positionals[1];
 
-	if (
-		!input &&
-		(command === "compile" || command === "evaluate" || command === "generate")
-	) {
-		console.error(`Error: Missing input file for command "${command}"`);
+	const needsInput = ["compile", "transpile", "evaluate", "generate"];
+	if (!input && needsInput.includes(command)) {
+		console.error(`Error: missing input file for command "${command}"`);
 		showHelp();
 		process.exit(1);
 	}
 
 	switch (command) {
 		case "compile":
-			await compile(input!, values.outdir ?? "./dist");
+			await compile(input!, values.outdir ?? "./dist", {
+				web:       values.web,
+				buildType: (values["build-type"] as "release" | "debug") ?? "release",
+			});
 			break;
+
+		case "transpile":
+			await transpile({
+				input: input!,
+				out:   values.out,
+				watch: values.watch,
+			});
+			break;
+
 		case "evaluate":
 			await evaluate(input!);
 			break;
+
 		case "generate":
 			await generate(input!, values.dialect as string, values.outdir);
 			break;
+
 		default:
 			console.error(`Unknown command: ${command}`);
 			showHelp();
