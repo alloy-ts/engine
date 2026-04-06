@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { ConfigLoader } from "./config/loader";
 import { PluginRegistry } from "./config/plugins";
+import { ConfigManager } from "./config_manager";
+import { ConfigPlugin } from "./plugins/config/config_plugin";
 
 export abstract class Loader {
 	abstract load(url: string): Promise<string>;
@@ -29,10 +31,14 @@ export function getPlatformInfo() {
 
 export class BinaryManager {
 	private cacheDir: string;
-	private config = new ConfigLoader().load();
-	private plugins = new PluginRegistry(this.config);
+	private configManager: ConfigManager;
+	private plugins: PluginRegistry;
 
 	constructor() {
+		this.configManager = new ConfigManager();
+		this.plugins = new PluginRegistry(this.configManager.getConfig());
+		// Register core configuration plugin
+		this.plugins.register("alloy:config", new ConfigPlugin(this.configManager));
 		const { platform, arch } = getPlatformInfo();
 		this.cacheDir = join(homedir(), ".alloy", "bin", `${platform}-${arch}`);
 	}

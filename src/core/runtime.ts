@@ -42,6 +42,31 @@
 			});
 		},
 		/**
+		 * Plugin configuration hook (Requirement 11.2).
+		 */
+		useConfig: function (options) {
+			var pluginName = global.Alloy.currentPluginName || "default";
+			AlloyInternal.bridgeCall("__alloy_config_register", {
+				pluginName: pluginName,
+				schema: options,
+			});
+
+			return {
+				get: function (key) {
+					return AlloyInternal.bridgeCall("__alloy_config_get", {
+						key: "plugins." + pluginName + "." + key,
+					});
+				},
+				set: function (key, value, options) {
+					return AlloyInternal.bridgeCall("__alloy_config_set", {
+						key: "plugins." + pluginName + "." + key,
+						value: value,
+						options: options,
+					});
+				},
+			};
+		},
+		/**
 		 * Shell template literal tag (Requirement 1.1).
 		 */
 		$: (function () {
@@ -112,6 +137,7 @@
 
 	global.Alloy = Alloy;
 	global.$ = Alloy.$;
+	global.useConfig = Alloy.useConfig;
 
 	global.fetch = function (url, options) {
 		return new Promise(function (resolve, reject) {
