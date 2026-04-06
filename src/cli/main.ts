@@ -17,12 +17,14 @@ export async function runCli() {
 
 	function showHelp() {
 		console.log(`
-Usage: schemascript <command> [options] [arguments]
+Usage: alloy <command> [options] [arguments]
 
 Commands:
-  compile <input> [-o <outdir>]      Compile SchemaScript files
-  evaluate <input>                   Evaluate SchemaScript files and print metadata
-  generate <input> [-o <outdir>]     Generate SQL migrations from SchemaScript source
+  init [projectname] [-y silence]    Initialise a new AlloyScript project
+  repl                               Start the AlloyScript interactive REPL
+  compile <input> [-o <outdir>]      Compile AlloyScript files
+  evaluate <input>                   Evaluate AlloyScript files and print metadata
+  generate <input> [-o <outdir>]     Generate TypeScript types and SQL migrations from AlloyScript source
 
 Options:
   -o, --outdir <dir>  Output directory
