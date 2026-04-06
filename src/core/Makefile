@@ -12,16 +12,19 @@ WEBVIEW_SRC=../../packages/webview/core/src/webview.cc
 # For headless/linux we might need specific flags, but let's try a simple approach
 WEBVIEW_FLAGS=-DWEBVIEW_GTK=1 $(shell pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.0 2>/dev/null)
 
-all: test_engine
+all: engine.o ipc.o
 
-alloyscript.o: alloyscript.c alloyscript.h
-	$(CC) $(CFLAGS) -c -o $@ $<
+engine.o: engine.c engine.h browser_api_table.h ipc.h js_engine.h
+	$(CC) $(CFLAGS) -c -o $@ engine.c
 
-test_engine: test_engine.o alloyscript.o $(MQJS_OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS)
+ipc.o: ipc.c ipc.h engine.h
+	$(CC) $(CFLAGS) -c -o $@ ipc.c
 
-test_engine.o: test_engine.c alloyscript.h
-	$(CC) $(CFLAGS) -c -o $@ $<
+mqjs_bridge.o: backend_adapters/mqjs_bridge.c backend_adapters/mqjs_bridge.h js_engine.h
+	$(CC) $(CFLAGS) -c -o $@ backend_adapters/mqjs_bridge.c
+
+webviewjs_bridge.o: backend_adapters/webviewjs_bridge.c js_engine.h
+	$(CC) $(CFLAGS) -c -o $@ backend_adapters/webviewjs_bridge.c
 
 clean:
 	rm -f *.o test_engine

@@ -2,6 +2,8 @@
 #define ALLOYSCRIPT_ENGINE_H
 
 #include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include "mquickjs.h"
 #include "webview/webview.h"
 
@@ -9,10 +11,53 @@
 extern "C" {
 #endif
 
+typedef enum {
+    ALLOY_TARGET_NATIVE = 0,
+    ALLOY_TARGET_BROWSER = 1,
+} AlloyTarget;
+
+typedef struct {
+    uint8_t session_key[32];
+    uint64_t next_outbound_seq;
+    uint64_t last_inbound_seq;
+} AlloyIPCState;
+
+typedef struct {
+    uint32_t type;
+    char *name;
+    JSValue listener;
+    JSValue args[8];
+    uint8_t argc;
+} AlloyEvent;
+
+typedef struct {
+    AlloyEvent events[4096];
+    int head;
+    int tail;
+    int count;
+} AlloyEventQueue;
+
+typedef struct {
+    char *event_name;
+    JSValue listeners[8];
+    uint8_t count;
+} AlloyListenerEntry;
+
 typedef struct alloy_runtime {
     JSContext *mqjs_ctx;
     webview_t webview;
-    unsigned char session_key[32];
+    AlloyTarget target;
+    AlloyIPCState ipc_state;
+
+    void *js_heap;
+    size_t js_heap_size;
+    int js_heap_prot;
+
+    char *latest_ipc_response;
+    AlloyEventQueue event_queue;
+    AlloyListenerEntry listener_registry[32];
+
+    bool shutdown;
     void *mem_buf;
 } alloy_runtime_t;
 
