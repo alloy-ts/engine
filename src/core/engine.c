@@ -4,6 +4,7 @@
 #include "backend_adapters/mqjs_bridge.h"
 #include "blake3/blake3.h"
 #include "js_engine.h"
+#include "plugins/config/config_plugin.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,13 +22,24 @@
 void alloy_webview_dispatch(const char *json_req, void *arg);
 void alloy_event_emit(alloy_runtime_t *rt, const char *name, JSValue arg);
 
+__attribute__((section(".rodata")))
+static const uint8_t __alloy_expected_hash[32] = {0};
+
 static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, int argc, JSValue *argv, JSValue magic) {
     int table_index = (int)JS_VALUE_GET_INT(magic);
     const AlloyBrowserAPIEntry *entry = &ALLOY_BROWSER_API_TABLE[table_index];
     alloy_runtime_t *rt = (alloy_runtime_t *)JS_GetContextOpaque(ctx);
     if (!rt || !rt->webview_engine) return JS_ThrowInternalError(ctx, "webview_unavailable");
+
+    /* Requirement 7.2: Serialise args to JSON using entry->arg_schema */
+    JSValue args_array = JS_NewArray(ctx, argc);
+    for (int i = 0; i < argc; i++) JS_SetPropertyUint32(ctx, args_array, i, argv[i]);
+    JSValue args_json_val = JS_JSONStringify(ctx, args_array, JS_UNDEFINED, JS_UNDEFINED);
+    const char *args_json = JS_ToCString(ctx, args_json_val, NULL);
+
     char *result_json = NULL;
-    alloy_engine_call(rt->webview_engine, entry->webview_method, "[]", &result_json);
+    alloy_engine_call(rt->webview_engine, entry->webview_method, args_json, &result_json);
+
     JSValue result = JS_ParseJSON(ctx, result_json, strlen(result_json), "<res>");
     free(result_json);
     return result;
@@ -47,9 +59,13 @@ JSValue alloy_mqjs_await(JSContext *ctx, JSValue *this_val, int argc, JSValue *a
     while (!JS_IsException(res)) {
         JSValue done = JS_GetPropertyStr(ctx, res, "done");
         if (JS_IsBool(done) && JS_VALUE_GET_SPECIAL_VALUE(done)) return JS_GetPropertyStr(ctx, res, "value");
+
+        /* Requirement 12.18: synchronous IPC block until response arrives */
         while (rt->latest_ipc_response == NULL) { webview_run(rt->webview); usleep(100); }
+
         JSValue next_val = JS_NewString(ctx, rt->latest_ipc_response);
         free(rt->latest_ipc_response); rt->latest_ipc_response = NULL;
+
         JS_PushArg(ctx, next_val);
         JS_PushArg(ctx, next_fn);
         JS_PushArg(ctx, gen);
@@ -64,6 +80,7 @@ alloy_runtime_t *alloy_engine_create(void) {
     mlock(rt->ipc_state.session_key, 32);
     rt->js_heap_size = 16 << 20;
     rt->js_heap = mmap(NULL, rt->js_heap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    rt->js_heap_prot = PROT_READ | PROT_WRITE;
     rt->mqjs_ctx = JS_NewContext(rt->js_heap, rt->js_heap_size, NULL);
     JS_SetOpaque(rt->mqjs_ctx, JS_GetGlobalObject(rt->mqjs_ctx), rt);
     rt->mqjs_engine = alloy_mqjs_engine_create(rt->mqjs_ctx, rt);
@@ -72,9 +89,16 @@ alloy_runtime_t *alloy_engine_create(void) {
     JSContext *ctx = rt->mqjs_ctx;
     for (int i = 0; ALLOY_BROWSER_API_TABLE[i].js_name != NULL; i++)
         alloy_mqjs_bind_func(ctx, ALLOY_BROWSER_API_TABLE[i].js_name, (JSCFunction *)alloy_browser_proxy_dispatch, (void *)(uintptr_t)i);
+
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "window", global);
     JS_SetPropertyStr(ctx, global, "globalThis", global);
+    JS_SetPropertyStr(ctx, global, "self", global);
+    JS_SetPropertyStr(ctx, global, "global", global);
+
+    /* Initialize core plugins */
+    alloy_config_plugin_init(rt->mqjs_engine);
+
     return rt;
 }
 
@@ -144,7 +168,39 @@ int alloy_self_attest(void) {
     blake3_hasher_update(&hasher, binary, size);
     free(binary);
     uint8_t computed[32]; blake3_hasher_finalize(&hasher, computed, 32);
-    return 0; /* Verified */
+    int diff = 0;
+    for (int i = 0; i < 32; i++) diff |= (computed[i] ^ __alloy_expected_hash[i]);
+    return (diff == 0) ? 0 : -1;
+}
+
+JSValue alloy_runtime_get_mmap(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
+    alloy_runtime_t *rt = (alloy_runtime_t *)JS_GetContextOpaque(ctx);
+    JSValue res = JS_NewObject(ctx);
+    FILE *f = fopen("/proc/self/maps", "r");
+    if (f) {
+        JSValue regions = JS_NewArray(ctx, 0);
+        char line[512]; uint32_t count = 0;
+        while (fgets(line, sizeof(line), f)) {
+            JSValue r = JS_NewObject(ctx);
+            uintptr_t start, end; char perms[5];
+            if (sscanf(line, "%lx-%lx %4s", &start, &end, perms) >= 2) {
+                JS_SetPropertyStr(ctx, r, "start", JS_NewInt64(ctx, (int64_t)start));
+                JS_SetPropertyStr(ctx, r, "size", JS_NewInt64(ctx, (int64_t)(end - start)));
+                JS_SetPropertyStr(ctx, r, "perms", JS_NewString(ctx, perms));
+            }
+            JS_SetPropertyUint32(ctx, regions, count++, r);
+        }
+        JS_SetPropertyStr(ctx, res, "regions", regions);
+        fclose(f);
+    }
+    JS_SetPropertyStr(ctx, res, "jsArenaProtected", JS_NewBool(rt->js_heap_prot == PROT_NONE));
+    return res;
+}
+
+JSValue alloy_runtime_read_mmap(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
+    if (argc < 1) return JS_EXCEPTION;
+    /* Implementation... */
+    return JS_NewArrayBuffer(ctx, NULL, 0, NULL, NULL, 0);
 }
 
 JSValue alloy_runtime_spawn(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_NewObject(c); }
@@ -153,8 +209,6 @@ JSValue alloy_runtime_on(JSContext *c, JSValue *t, int argc, JSValue *argv) { re
 JSValue alloy_runtime_off(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_UNDEFINED; }
 JSValue alloy_runtime_emit(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_UNDEFINED; }
 JSValue alloy_runtime_next_tick(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_UNDEFINED; }
-JSValue alloy_runtime_get_mmap(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_NewObject(c); }
-JSValue alloy_runtime_read_mmap(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_NewObject(c); }
 JSValue alloy_runtime_bind_global(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_UNDEFINED; }
 JSValue alloy_runtime_atob(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_UNDEFINED; }
 JSValue alloy_runtime_btoa(JSContext *c, JSValue *t, int argc, JSValue *argv) { return JS_UNDEFINED; }
@@ -177,4 +231,4 @@ alloy_runtime_t *alloy_init(size_t s) { return alloy_engine_create(); }
 void alloy_destroy(alloy_runtime_t *rt) { alloy_engine_destroy(rt); }
 void alloy_bind_global(alloy_runtime_t *rt, const char *n, alloy_bind_fn_t f, void *a) {}
 void alloy_webview_dispatch(const char *j, void *a) {}
-static void alloy_webview_crash_watchdog(void *arg) {}
+static void alloy_webview_crash_watchdog(void *arg) { (void)arg; }

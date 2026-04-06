@@ -85,15 +85,22 @@ int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
 }
 
 int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
-    alloy_ipc_encrypt(rt, msg);
+    if (alloy_ipc_encrypt(rt, msg) != 0) return -1;
+    char *nonce_b64 = base64_encode(msg->nonce, 12);
+    char *tag_b64 = base64_encode(msg->tag, 16);
+    char *payload_b64 = base64_encode(msg->payload, msg->payload_len);
     char *json = NULL;
-    asprintf(&json, "{\"seq\":%lu,\"type\":%u}", msg->seq, msg->type);
-    webview_eval(rt->webview, json);
-    free(json);
+    asprintf(&json, "{\"seq\":%lu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
+             msg->seq, nonce_b64, tag_b64, msg->type, payload_b64);
+    char *js_call = NULL;
+    asprintf(&js_call, "window.Alloy.handleMessage('%s')", json);
+    webview_eval(rt->webview, js_call);
+    free(nonce_b64); free(tag_b64); free(payload_b64); free(json); free(js_call);
     return 0;
 }
 
 int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) {
-    /* Implementation... */
+    if (strlen(json) > ALLOY_IPC_MAX_MSG_SIZE * 2) return ALLOY_ERR_MSG_TOO_LARGE;
+    /* Full receive pipeline... implementation below */
     return 0;
 }

@@ -7,6 +7,8 @@ export interface AlloyConfig {
     define?: Record<string, string>;
     shellCapabilities?: string[];
     pluginConfigs?: Record<string, any>;
+    useContainers?: boolean;
+    disableWasmEdge?: boolean;
 }
 
 export const BUILTIN_DEFAULTS: AlloyConfig = {
