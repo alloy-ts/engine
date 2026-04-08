@@ -61,6 +61,9 @@ typedef struct alloy_runtime {
     AlloyEventQueue event_queue;
     AlloyListenerEntry listener_registry[32];
 
+    JSValue next_tick_queue[256];
+    uint32_t next_tick_count;
+
     bool shutdown;
     AlloyTarget target;
 } alloy_runtime_t;
