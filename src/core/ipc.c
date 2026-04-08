@@ -113,8 +113,8 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
     char *payload_b64 = base64_encode(msg->payload, msg->payload_len);
 
     char *json = NULL;
-    asprintf(&json, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"payload\":\"%s\"}",
-             msg->seq, nonce_b64, tag_b64, msg->type, payload_b64);
+    asprintf(&json, "{\"seq\":%llu,\"nonce\":\"%s\",\"tag\":\"%s\",\"type\":%u,\"cap_id\":\"%s\",\"payload\":\"%s\"}",
+             msg->seq, nonce_b64, tag_b64, msg->type, msg->cap_id, payload_b64);
 
     char *js_call = NULL;
     asprintf(&js_call, "window.Alloy.handleMessage('%s')", json);
@@ -149,9 +149,10 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     JSValue nonce_val = JS_GetPropertyStr(ctx, val, "nonce");
     JSValue tag_val = JS_GetPropertyStr(ctx, val, "tag");
     JSValue type_val = JS_GetPropertyStr(ctx, val, "type");
+    JSValue cap_val = JS_GetPropertyStr(ctx, val, "cap_id");
     JSValue payload_val = JS_GetPropertyStr(ctx, val, "payload");
 
-    if (JS_IsUndefined(seq_val) || JS_IsUndefined(nonce_val) || JS_IsUndefined(tag_val) || JS_IsUndefined(type_val) || JS_IsUndefined(payload_val)) {
+    if (JS_IsUndefined(seq_val) || JS_IsUndefined(nonce_val) || JS_IsUndefined(tag_val) || JS_IsUndefined(type_val) || JS_IsUndefined(cap_val) || JS_IsUndefined(payload_val)) {
         JS_FreeValue(ctx, val);
         fprintf(stderr, "[alloy] IPC rejection: Missing required fields\n");
         return ALLOY_ERR_BAD_SCHEMA;
@@ -170,6 +171,7 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
 
     const char *n_b64 = JS_ToCString(ctx, nonce_val, NULL);
     const char *t_b64 = JS_ToCString(ctx, tag_val, NULL);
+    const char *c_id = JS_ToCString(ctx, cap_val, NULL);
     const char *p_b64 = JS_ToCString(ctx, payload_val, NULL);
 
     int nlen, tlen, plen;
@@ -180,8 +182,9 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
 
     memcpy(out->nonce, nonce, 12);
     memcpy(out->tag, tag, 16);
+    strncpy(out->cap_id, c_id, sizeof(out->cap_id) - 1);
 
-    JS_FreeCString(ctx, n_b64); JS_FreeCString(ctx, t_b64); JS_FreeCString(ctx, p_b64);
+    JS_FreeCString(ctx, n_b64); JS_FreeCString(ctx, t_b64); JS_FreeCString(ctx, c_id); JS_FreeCString(ctx, p_b64);
     JS_FreeValue(ctx, seq_val); JS_FreeValue(ctx, nonce_val); JS_FreeValue(ctx, tag_val);
     JS_FreeValue(ctx, type_val); JS_FreeValue(ctx, payload_val); JS_FreeValue(ctx, val);
 

@@ -34,6 +34,7 @@ typedef struct {
     uint8_t nonce[ALLOY_IPC_NONCE_SIZE];
     uint8_t tag[ALLOY_IPC_TAG_SIZE];
     uint32_t type;
+    char cap_id[64]; /* Requirement 5: Capability ID */
     uint32_t payload_len;
     uint8_t *payload;
 } AlloyMessage;
