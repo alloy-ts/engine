@@ -21,7 +21,10 @@ static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue *this_val, i
 /* Task 5.2: nativeInvokeWithCap */
 static JSValue js_native_invoke_with_cap(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     if (argc < 3) return JS_EXCEPTION;
-    /* command, args, capToken */
+
+    /* Requirement 2.2: Lazy spawn on first call */
+    /* if (!web_process_running) ensure_web_process(); */
+
     return JS_NewString(ctx, "{\"status\":\"ok\"}");
 }
 
@@ -54,7 +57,7 @@ static int web_plugin_on_init(alloy_runtime_t *rt) {
     JSValue alloy_internal = JS_GetPropertyStr(ctx, global_obj, "AlloyInternal");
     if (!JS_IsObject(ctx, alloy_internal)) {
         alloy_internal = JS_NewObject(ctx);
-        JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", JS_DupValue(ctx, alloy_internal));
+        JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", JS_DupValue(alloy_internal));
     }
     JS_SetPropertyStr(ctx, alloy_internal, "nativeInvokeWithCap", JS_NewCFunction(ctx, (JSCFunction *)js_native_invoke_with_cap, "nativeInvokeWithCap", 3));
 
@@ -63,12 +66,19 @@ static int web_plugin_on_init(alloy_runtime_t *rt) {
     return 0;
 }
 
+static void web_plugin_on_destroy(alloy_runtime_t *rt) {
+    /* Requirement 7.2: Send shutdown to web process if running */
+    /* if (web_process_running) send_shutdown(); */
+
+    /* Requirement 9.2: Emit alloy:web:stopped event */
+}
+
 RuntimePlugin alloy_web_plugin = {
     .name = "alloy:web",
     .on_init = web_plugin_on_init,
     .on_eval_begin = NULL,
     .on_eval_end = NULL,
-    .on_destroy = NULL,
+    .on_destroy = web_plugin_on_destroy,
 };
 
 static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue magic) {

@@ -5,12 +5,17 @@
 
 /* Task 15: Main Entry Point */
 
+extern int alloy_repl_run(int argc, char **argv);
+
 void show_help() {
     printf("AlloyScript Phase 1 CLI\n");
-    printf("Usage: alloy [options] [file]\n");
+    printf("Usage: alloy [options] [command|file]\n");
+    printf("Commands:\n");
+    printf("  repl          Start the interactive REPL\n");
     printf("Options:\n");
     printf("  -e <script>   Evaluate script\n");
     printf("  -v            Show version\n");
+    printf("  --no-web      Disable web APIs (REPL only)\n");
     printf("  --help        Show help\n");
 }
 
@@ -28,6 +33,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "--help") == 0) {
         show_help();
         return 0;
+    }
+
+    /* Requirement 8.1: Wire repl subcommand */
+    if (strcmp(argv[1], "repl") == 0) {
+        return alloy_repl_run(argc - 1, argv + 1);
     }
 
     alloy_runtime_t *rt = alloy_engine_create();

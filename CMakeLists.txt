@@ -17,16 +17,36 @@ endif()
 # Task 1.5: Set static linking flags
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-include_directories(include include/alloy src/core src/core/backend_adapters packages/microquickjs)
+include_directories(
+    include
+    include/alloy
+    src/core
+    src/core/backend_adapters
+    packages/microquickjs
+    packages/webview/core/include
+)
 
 add_library(alloy_core STATIC
     src/core/engine.c
     src/core/stdlib/custom_stdlib.c
     src/core/capability/store.c
     src/core/crypto/crypto.c
+    src/core/crypto/encrypted_ram.c
+    src/core/ipc/broker.c
     src/core/plugins/config/config_plugin.c
     src/core/plugins/web/web_plugin.c
     src/core/plugins/shell/shell_plugin.c
+    src/repl/repl_main.c
+    packages/mquickjs/readline.c
+    packages/mquickjs/dtoa.c
+    packages/mquickjs/cutils.c
+    packages/mquickjs/libm.c
+    packages/mquickjs/mquickjs.c
 )
 
-add_executable(alloy src/main.ts) # Placeholder for main entry point
+add_executable(alloy src/core/main.c)
+target_link_libraries(alloy alloy_core sodium)
+
+add_executable(alloy_test_repl tests/test_repl.c)
+target_link_libraries(alloy_test_repl alloy_core sodium)
+add_test(NAME repl_tests COMMAND alloy_test_repl)
