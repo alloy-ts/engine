@@ -51,13 +51,22 @@ alloy_runtime_t *alloy_engine_create(void) {
     if (rt->mem_buf == MAP_FAILED) { free(rt); return NULL; }
     rt->js_heap_prot = PROT_READ | PROT_WRITE;
 
-    rt->mqjs_engine = alloy_mqjs_engine_create(rt->mem_size, rt);
-    rt->webview_engine = alloy_webview_engine_create(rt);
-    if (!rt->mqjs_engine || !rt->webview_engine) {
+    // Refactored to use adapters directly
+    extern AlloyJSEngine *alloy_mqjs_adapter_create(JSContext *ctx);
+    extern AlloyJSEngine *alloy_webview_adapter_create(webview_t w);
+
+    // Placeholder ctx and webview for adapter creation
+    JSContext *mqjs_ctx = JS_NewContext(rt->mem_buf, rt->mem_size, &js_stdlib);
+    webview_t w = webview_create(0, NULL);
+
+    rt->primary_engine = alloy_mqjs_adapter_create(mqjs_ctx);
+    rt->secondary_engine = alloy_webview_adapter_create(w);
+
+    if (!rt->primary_engine || !rt->secondary_engine) {
         alloy_engine_destroy(rt);
         return NULL;
     }
-    rt->mqjs_ctx = alloy_mqjs_get_context(rt->mqjs_engine);
+    rt->mqjs_ctx = mqjs_ctx;
 
     RAND_bytes(rt->session_key, 32);
     mlock(rt->session_key, 32);
@@ -67,53 +76,23 @@ alloy_runtime_t *alloy_engine_create(void) {
     JSContext *ctx = rt->mqjs_ctx;
     JSValue global_obj = JS_GetGlobalObject(ctx);
 
-    // 1. Auto-registration loop for ALLOY_BROWSER_API_TABLE
-    for (int i = 0; ALLOY_BROWSER_API_TABLE[i].js_name != NULL; i++) {
-        alloy_engine_bind(rt->mqjs_engine, ALLOY_BROWSER_API_TABLE[i].js_name, (void*)alloy_browser_proxy_dispatch, (void *)&ALLOY_BROWSER_API_TABLE[i]);
+    // Plugin system initialization...
+    // In a full implementation, we'd iterate over sorted plugins and call on_init.
+    // For now, we call the core plugin init functions manually.
+    extern RuntimePlugin *alloy_web_plugin_init(void);
+    extern RuntimePlugin *alloy_config_plugin_init(void);
+    extern RuntimePlugin *alloy_shell_plugin_init(void);
+
+    RuntimePlugin *core_plugins[] = {
+        alloy_web_plugin_init(),
+        alloy_config_plugin_init(),
+        alloy_shell_plugin_init(),
+        NULL
+    };
+
+    for (int i = 0; core_plugins[i] != NULL; i++) {
+        core_plugins[i]->on_init(rt->primary_engine, rt);
     }
-
-    // 2. Bind aliases
-    JSValue self = JS_GetGlobalObject(ctx);
-    if (JS_IsUndefined(self)) { JS_FreeValue(ctx, global_obj); return NULL; }
-    JS_SetPropertyStr(ctx, global_obj, "window", JS_DupValue(ctx, self));
-    JS_SetPropertyStr(ctx, global_obj, "globalThis", JS_DupValue(ctx, self));
-    JS_SetPropertyStr(ctx, global_obj, "self", JS_DupValue(ctx, self));
-    JS_SetPropertyStr(ctx, global_obj, "global", JS_DupValue(ctx, self));
-    JS_FreeValue(ctx, self);
-
-    // 3. Bind native-only (no webview delegation)
-    JS_SetPropertyStr(ctx, global_obj, "atob", JS_NewCFunction(ctx, js_atob, "atob", 1));
-    JS_SetPropertyStr(ctx, global_obj, "btoa", JS_NewCFunction(ctx, js_btoa, "btoa", 1));
-    JS_SetPropertyStr(ctx, global_obj, "structuredClone", JS_NewCFunction(ctx, js_structured_clone, "structuredClone", 1));
-    JS_SetPropertyStr(ctx, global_obj, "queueMicrotask", JS_NewCFunction(ctx, js_queue_microtask, "queueMicrotask", 1));
-    JS_SetPropertyStr(ctx, global_obj, "setInterval", JS_NewCFunction(ctx, js_set_interval, "setInterval", 2));
-    JS_SetPropertyStr(ctx, global_obj, "clearInterval", JS_NewCFunction(ctx, js_clear_interval, "clearInterval", 1));
-    JS_SetPropertyStr(ctx, global_obj, "clearTimeout", JS_NewCFunction(ctx, js_stdlib.clearTimeout, "clearTimeout", 1));
-    JS_SetPropertyStr(ctx, global_obj, "alert", JS_NewCFunction(ctx, js_alert, "alert", 1));
-    JS_SetPropertyStr(ctx, global_obj, "confirm", JS_NewCFunction(ctx, js_confirm, "confirm", 1));
-    JS_SetPropertyStr(ctx, global_obj, "prompt", JS_NewCFunction(ctx, js_prompt, "prompt", 2));
-    JS_SetPropertyStr(ctx, global_obj, "reportError", JS_NewCFunction(ctx, js_report_error, "reportError", 1));
-
-    // 4. Bind Alloy globals
-    JSValue alloy_obj = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, alloy_obj, "spawn", JS_NewCFunction(ctx, alloy_runtime_spawn, "spawn", 3));
-    JS_SetPropertyStr(ctx, alloy_obj, "spawnSync", JS_NewCFunction(ctx, alloy_runtime_spawn_sync, "spawnSync", 3));
-    JS_SetPropertyStr(ctx, alloy_obj, "secureEval", JS_NewCFunction(ctx, alloy_runtime_secure_eval_internal, "secureEval", 1));
-    JS_SetPropertyStr(ctx, alloy_obj, "getMmap", JS_NewCFunction(ctx, js_get_mmap, "getMmap", 0));
-    JS_SetPropertyStr(ctx, alloy_obj, "readMmap", JS_NewCFunction(ctx, js_read_mmap, "readMmap", 1));
-    JS_SetPropertyStr(ctx, alloy_obj, "on", JS_NewCFunction(ctx, js_on, "on", 2));
-    JS_SetPropertyStr(ctx, alloy_obj, "off", JS_NewCFunction(ctx, js_off, "off", 2));
-    JS_SetPropertyStr(ctx, alloy_obj, "emit", JS_NewCFunction(ctx, js_emit, "emit", 2));
-    JS_SetPropertyStr(ctx, alloy_obj, "nextTick", JS_NewCFunction(ctx, js_next_tick, "nextTick", 1));
-    JS_SetPropertyStr(ctx, global_obj, "Alloy", alloy_obj);
-
-    alloy_shell_bridge_init(rt);
-
-    JSValue internal_obj = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, internal_obj, "parse", JS_NewCFunction(ctx, js_parse_validate, "parse", 1));
-    JS_SetPropertyStr(ctx, internal_obj, "__alloy_await", JS_NewCFunction(ctx, js_await_helper, "__alloy_await", 1));
-    JS_SetPropertyStr(ctx, internal_obj, "__alloy_deferred", JS_NewCFunction(ctx, js_deferred_helper, "__alloy_deferred", 1));
-    JS_SetPropertyStr(ctx, global_obj, "AlloyInternal", internal_obj);
 
     JS_FreeValue(ctx, global_obj);
     return rt;
@@ -171,16 +150,30 @@ static JSValue alloy_browser_proxy_dispatch(JSContext *ctx, JSValue this_val, in
     }
 
     char *args_json = alloy_serialise_args(ctx, argc, argv, entry->arg_schema);
-    char *result_json = NULL;
 
-    alloy_engine_call(rt->webview_engine, entry->webview_method, args_json, &result_json);
+    // Build AlloyMessage with type ALLOY_MSG_BROWSER_API_REQUEST
+    AlloyMessage msg;
+    msg.type = ALLOY_MSG_BROWSER_API_REQUEST;
+    asprintf((char **)&msg.payload, "{\"api\":\"%s\",\"args\":%s}", entry->js_name, args_json);
+    msg.payload_len = strlen((char *)msg.payload);
     free(args_json);
 
-    // Note: Heap is already open because we are currently inside JS_Eval or JS_Call.
-    // Calling PROT_NONE here would cause an immediate segfault when returning to the engine.
+    char req_id[37];
+    snprintf(req_id, sizeof(req_id), "%llu", (unsigned long long)rt->next_outbound_seq);
 
-    JSValue res = JS_ParseJSON(ctx, result_json, strlen(result_json), "<result>");
-    free(result_json);
+    // Call alloy_ipc_send then block until response arrives
+    alloy_ipc_send(rt, &msg);
+    free(msg.payload);
+
+    AlloyMessage resp;
+    while (alloy_ipc_try_receive(rt, req_id, &resp) != 0) {
+        alloy_poll_io(rt);
+        usleep(1000);
+    }
+
+    // Deserialise response using entry->return_schema
+    JSValue res = alloy_deserialise_result(ctx, &resp, entry->return_schema);
+    free(resp.payload);
 
     return res;
 }

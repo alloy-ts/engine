@@ -62,12 +62,14 @@ extern RuntimePlugin *alloy_config_plugin_init(void);
 extern RuntimePlugin *alloy_shell_plugin_init(void);
 
 AlloyJSEngine *alloy_engine_create_v2(void *config, int type) {
+    alloy_runtime_t *rt = (alloy_runtime_t *)config;
     AlloyJSEngine *adapter = NULL;
     if (type == 0) {
         // MQJS init
-        // adapter = alloy_mqjs_adapter_create(ctx);
+        adapter = alloy_mqjs_adapter_create(rt->mqjs_ctx);
     } else {
         // WebView init
+        adapter = alloy_webview_adapter_create(rt->secondary_engine->engine);
     }
 
     if (!adapter) return NULL;

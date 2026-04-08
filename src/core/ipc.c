@@ -162,13 +162,19 @@ int alloy_ipc_try_receive(alloy_runtime_t *rt, const char *req_id, AlloyMessage 
 
 int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) {
     JSContext *ctx = rt->mqjs_ctx;
-    // Step 1: Parse JSON and basic size check
-    if (strlen(json) > ALLOY_IPC_MAX_MSG_SIZE * 2) return ALLOY_ERR_MSG_TOO_LARGE;
+    // Step 1: Parse JSON and basic size check (Requirement 4.3, 4.4)
+    if (strlen(json) > ALLOY_IPC_MAX_MSG_SIZE * 2) {
+        fprintf(stderr, "[alloy] IPC: Message too large\n");
+        return ALLOY_ERR_MSG_TOO_LARGE;
+    }
 
     JSValue val = JS_ParseJSON(ctx, json, strlen(json), "ipc_receive");
-    if (JS_IsException(val)) return ALLOY_ERR_BAD_SCHEMA;
+    if (JS_IsException(val)) {
+        fprintf(stderr, "[alloy] IPC: Invalid JSON schema\n");
+        return ALLOY_ERR_BAD_SCHEMA;
+    }
 
-    // Step 2: Schema check (required fields)
+    // Step 2: Schema check (required fields) (Requirement 4.5, 6.5)
     JSValue seq_val = JS_GetPropertyStr(ctx, val, "seq");
     JSValue nonce_val = JS_GetPropertyStr(ctx, val, "nonce");
     JSValue tag_val = JS_GetPropertyStr(ctx, val, "tag");
@@ -178,16 +184,17 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     if (JS_IsUndefined(seq_val) || JS_IsUndefined(nonce_val) || JS_IsUndefined(tag_val) ||
         JS_IsUndefined(type_val) || JS_IsUndefined(payload_val)) {
         JS_FreeValue(ctx, val);
-        // Free other values if they were retrieved
+        fprintf(stderr, "[alloy] IPC: Missing required fields in message\n");
         return ALLOY_ERR_BAD_SCHEMA;
     }
 
     JS_ToUint64(ctx, &out->seq, seq_val);
     JS_ToUint32(ctx, &out->type, type_val);
 
-    // Step 3: Unknown-type check
+    // Step 3: Unknown-type check (Requirement 4.6)
     if (out->type < 1 || out->type > 3) {
         JS_FreeValue(ctx, val);
+        fprintf(stderr, "[alloy] IPC: Unknown message type %u\n", out->type);
         return ALLOY_ERR_UNKNOWN_TYPE;
     }
 
@@ -205,6 +212,7 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     if (nlen != 12 || tlen != 16) {
         free(nonce); free(tag); free(out->payload);
         JS_FreeValue(ctx, val);
+        fprintf(stderr, "[alloy] IPC: Invalid nonce or tag size\n");
         return ALLOY_ERR_BAD_SCHEMA;
     }
 
@@ -215,9 +223,14 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     // Note: out->payload is freed by the caller of alloy_ipc_receive (the coroutine/event handler)
     JS_FreeValue(ctx, val);
 
-    // Step 4: Replay and Auth checks (inside decrypt)
+    // Step 4: Replay and Auth checks (Requirement 4.1, 4.2)
     int res = alloy_ipc_decrypt(rt, out);
-    if (res == 0 && out->type == ALLOY_MSG_BROWSER_API_RESPONSE) {
+    if (res != 0) {
+        fprintf(stderr, "[alloy] IPC: Decryption or authentication failed (code %d)\n", res);
+        return res;
+    }
+
+    if (out->type == ALLOY_MSG_BROWSER_API_RESPONSE) {
         // Extract ID and buffer it
         JSValue resp_val = JS_ParseJSON(ctx, (char*)out->payload, out->payload_len, "resp");
         JSValue id_val = JS_GetPropertyStr(ctx, resp_val, "id");

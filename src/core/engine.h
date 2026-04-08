@@ -56,8 +56,8 @@ typedef struct {
 #include "js_engine.h"
 
 typedef struct alloy_runtime {
-    AlloyJSEngine    *mqjs_engine;
-    AlloyJSEngine    *webview_engine;
+    AlloyJSEngine    *primary_engine;   /* mqjs_adapter */
+    AlloyJSEngine    *secondary_engine; /* webview_adapter */
     JSContext        *mqjs_ctx; // Still needed for some internal operations
     unsigned char     session_key[32];
     uint64_t          next_outbound_seq;

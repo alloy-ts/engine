@@ -9,17 +9,36 @@ static int g_handle_count = 0;
 
 static char *ffi_dlopen_handler(const char *args_json, void *userdata) {
     // args_json: ["path", "symbols_json"]
-    // Very simplified extraction
-    char path[256];
-    sscanf(args_json, "[\"%[^\"]\"", path);
+    alloy_runtime_t *rt = (alloy_runtime_t *)userdata;
+    JSContext *ctx = rt->mqjs_ctx;
+
+    JSValue val = JS_ParseJSON(ctx, args_json, strlen(args_json), "<ffi_dlopen>");
+    if (JS_IsException(val)) return strdup("{\"error\":\"invalid JSON\"}");
+
+    JSValue path_val = JS_GetPropertyUint32(ctx, val, 0);
+    JSCStringBuf buf;
+    const char *path = JS_ToCString(ctx, path_val, &buf);
+
+    if (!path) {
+        JS_FreeValue(ctx, path_val);
+        JS_FreeValue(ctx, val);
+        return strdup("{\"error\":\"missing path\"}");
+    }
 
     void *h = dlopen(path, RTLD_NOW);
-    if (!h) return strdup("{\"error\":\"dlopen failed\"}");
+    if (!h) {
+        JS_FreeValue(ctx, path_val);
+        JS_FreeValue(ctx, val);
+        return strdup("{\"error\":\"dlopen failed\"}");
+    }
 
     int id = g_handle_count++;
     g_handle_table[id] = h;
     char res[32];
     snprintf(res, sizeof(res), "%d", id);
+
+    JS_FreeValue(ctx, path_val);
+    JS_FreeValue(ctx, val);
     return strdup(res);
 }
 

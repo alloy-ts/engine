@@ -15,8 +15,27 @@ static char *shell_escape_handler(const char *args_json, void *userdata) {
 }
 
 static int shell_plugin_on_init(AlloyJSEngine *engine, void *userdata) {
+    alloy_runtime_t *rt = (alloy_runtime_t *)userdata;
+    JSContext *ctx = rt->mqjs_ctx;
+
+    // 1. Bind internal helpers
     alloy_engine_bind(engine, "__alloy_shell_exec", shell_exec_handler, userdata);
     alloy_engine_bind(engine, "__alloy_shell_escape", shell_escape_handler, userdata);
+
+    // 2. Bind Alloy globals
+    JSValue global_obj = JS_GetGlobalObject(ctx);
+    JSValue alloy_obj = JS_GetPropertyStr(ctx, global_obj, "Alloy");
+    if (JS_IsUndefined(alloy_obj)) {
+        alloy_obj = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, global_obj, "Alloy", JS_DupValue(ctx, alloy_obj));
+    }
+
+    JS_SetPropertyStr(ctx, alloy_obj, "spawn", JS_NewCFunction(ctx, alloy_runtime_spawn, "spawn", 3));
+    JS_SetPropertyStr(ctx, alloy_obj, "spawnSync", JS_NewCFunction(ctx, alloy_runtime_spawn_sync, "spawnSync", 3));
+
+    JS_FreeValue(ctx, alloy_obj);
+    JS_FreeValue(ctx, global_obj);
+
     return ALLOY_OK;
 }
 
