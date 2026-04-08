@@ -1,7 +1,7 @@
 // src/core/config/validator.ts
-import { AlloyConfigSchema } from "./schema";
+
 import type { AlloyConfig } from "./config";
-import type { ZodError } from "zod";
+import { AlloyConfigSchema } from "./schema";
 
 export interface ValidationError {
 	kind: "type_error" | "cross_field_error";
@@ -40,7 +40,7 @@ export class ConfigValidator {
 			if (!zodErrors && (result as any).error.message) {
 				try {
 					zodErrors = JSON.parse((result as any).error.message);
-				} catch (e) {}
+				} catch (_e) {}
 			}
 			if (zodErrors) {
 				for (const error of zodErrors) {
@@ -95,15 +95,9 @@ export class ConfigValidator {
 				const nestedShape = shape[key];
 				// Simple heuristic for nested objects in Zod
 				let shapeToUse: any = null;
-				if (nestedShape && nestedShape._def && nestedShape._def.shape) {
+				if (nestedShape?._def?.shape) {
 					shapeToUse = nestedShape._def.shape;
-				} else if (
-					nestedShape &&
-					nestedShape._def &&
-					nestedShape._def.innerType &&
-					nestedShape._def.innerType._def &&
-					nestedShape._def.innerType._def.shape
-				) {
+				} else if (nestedShape?._def?.innerType?._def?.shape) {
 					shapeToUse = nestedShape._def.innerType._def.shape;
 				}
 

@@ -3,12 +3,25 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "engine.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct alloy_runtime alloy_runtime_t;
 
 #define ALLOY_IPC_MAX_MSG_SIZE (1 * 1024 * 1024) 
 #define ALLOY_IPC_NONCE_SIZE 12
 #define ALLOY_IPC_TAG_SIZE 16
 #define ALLOY_IPC_KEY_SIZE 32
+
+/* Requirement 1.7: Define IPC error code constants */
+#define ALLOY_ERR_MSG_TOO_LARGE (-1)
+#define ALLOY_ERR_AUTH_FAILED   (-2)
+#define ALLOY_ERR_REPLAY        (-3)
+#define ALLOY_ERR_BAD_SCHEMA    (-4)
+#define ALLOY_ERR_UNKNOWN_TYPE  (-5)
+#define ALLOY_ERR_INVALID_ARG   (-6)
 
 typedef enum {
     ALLOY_MSG_BROWSER_API_REQUEST = 1,
@@ -29,5 +42,9 @@ int alloy_ipc_encrypt(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg);
 int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,7 @@
 // src/core/config/pretty_printer.ts
-import type { AlloyConfig } from "./config";
+
 import * as TOML from "@iarna/toml";
+import type { AlloyConfig } from "./config";
 
 export class PrettyPrinter {
 	print(config: AlloyConfig): string {

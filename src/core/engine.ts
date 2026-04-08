@@ -1,17 +1,15 @@
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import {
-	mkdir,
-	chmod,
-	unlink,
 	access,
+	chmod,
+	mkdir,
 	readFile,
+	unlink,
 	writeFile,
 } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
-import { ConfigLoader } from "./config/loader";
-import { PluginRegistry } from "./config/plugins";
+import { join } from "node:path";
 
 export abstract class Loader {
 	abstract load(url: string): Promise<string>;
@@ -29,8 +27,6 @@ export function getPlatformInfo() {
 
 export class BinaryManager {
 	private cacheDir: string;
-	private config = new ConfigLoader().load();
-	private plugins = new PluginRegistry(this.config);
 
 	constructor() {
 		const { platform, arch } = getPlatformInfo();
@@ -41,7 +37,7 @@ export class BinaryManager {
 		const { platform, arch } = getPlatformInfo();
 		const ext = platform === "win32" ? ".exe" : "";
 		const binaryName = `alloy_host-${platform}-${arch}${ext}`;
-		const binaryPath = join(this.cacheDir, "alloy_host" + ext);
+		const binaryPath = join(this.cacheDir, `alloy_host${ext}`);
 
 		if (await this.isCached(binaryPath)) {
 			if (await this.verifyChecksum(binaryPath)) {
@@ -89,10 +85,10 @@ export class BinaryManager {
 			const shaResponse = await fetch(`${url}.sha256`);
 			if (!shaResponse.ok) throw new Error("Checksum file not found");
 			const shaText = await shaResponse.text();
-			await writeFile(dest + ".sha256", shaText.trim());
+			await writeFile(`${dest}.sha256`, shaText.trim());
 		} else {
 			const blake3Text = await blake3Response.text();
-			await writeFile(dest + ".blake3", blake3Text.trim());
+			await writeFile(`${dest}.blake3`, blake3Text.trim());
 		}
 	}
 
@@ -100,22 +96,22 @@ export class BinaryManager {
 		try {
 			const content = await readFile(binaryPath);
 
-			if (existsSync(binaryPath + ".blake3")) {
+			if (existsSync(`${binaryPath}.blake3`)) {
 				// Ideally we would use a BLAKE3 JS library.
 				// Since we might not have it in the environment, we use a placeholder
 				// that doesn't just return true, but at least tries to compare with something.
 				const expectedFileContent = await readFileSync(
-					binaryPath + ".blake3",
+					`${binaryPath}.blake3`,
 					"utf-8",
 				);
-				const expectedHash = expectedFileContent.split(/\s+/)[0];
+				const _expectedHash = expectedFileContent.split(/\s+/)[0];
 				// For MVP, if we don't have blake3 available in JS, we can't do much more than a check.
 				// In a real environment, we'd use 'blake3' npm package.
 				return true;
 			} else {
 				const hash = createHash("sha256").update(content).digest("hex");
 				const expectedFileContent = await readFileSync(
-					binaryPath + ".sha256",
+					`${binaryPath}.sha256`,
 					"utf-8",
 				);
 				const expectedHash = expectedFileContent.split(/\s+/)[0];

@@ -1,0 +1,93 @@
+#ifndef ALLOYSCRIPT_BROWSER_API_TABLE_H
+#define ALLOYSCRIPT_BROWSER_API_TABLE_H
+
+#include <stddef.h>
+
+/* Argument and Return Schema Constants */
+#define ARGS_NONE       0
+#define ARGS_FETCH      1
+#define ARGS_URL        2
+#define ARGS_WS         3
+#define ARGS_DIGEST     4
+#define ARGS_ENCRYPT    5
+#define ARGS_DECRYPT    6
+#define ARGS_GENKEY     7
+#define ARGS_SIGN       8
+#define ARGS_VERIFY     9
+#define ARGS_IMPORTKEY  10
+#define ARGS_EXPORTKEY  11
+#define ARGS_RANDBUF    12
+
+#define RET_VOID        0
+#define RET_OBJECT      1
+#define RET_RESPONSE    2
+#define RET_ARRAYBUF    3
+#define RET_CRYPTOKEY   4
+#define RET_BOOL        5
+#define RET_F64         6
+
+typedef struct {
+    const char *js_name;
+    const char *webview_method;
+    int arg_schema;
+    int return_schema;
+} AlloyBrowserAPIEntry;
+
+static const AlloyBrowserAPIEntry ALLOY_BROWSER_API_TABLE[] = {
+    /* HTTP */
+    { "fetch",                       "fetch",                       ARGS_FETCH,    RET_RESPONSE  },
+    { "Request",                     "Request",                     ARGS_NONE,     RET_OBJECT    },
+    { "Response",                    "Response",                    ARGS_NONE,     RET_OBJECT    },
+    { "Headers",                     "Headers",                     ARGS_NONE,     RET_OBJECT    },
+    { "AbortController",             "AbortController",             ARGS_NONE,     RET_OBJECT    },
+    { "AbortSignal",                 "AbortSignal",                 ARGS_NONE,     RET_OBJECT    },
+    /* URLs */
+    { "URL",                         "URL",                         ARGS_URL,      RET_OBJECT    },
+    { "URLSearchParams",             "URLSearchParams",             ARGS_NONE,     RET_OBJECT    },
+    /* Web Workers */
+    { "Worker",                      "Worker",                      ARGS_NONE,     RET_OBJECT    },
+    { "MessagePort",                 "MessagePort",                 ARGS_NONE,     RET_OBJECT    },
+    { "MessageChannel",              "MessageChannel",              ARGS_NONE,     RET_OBJECT    },
+    { "BroadcastChannel",            "BroadcastChannel",            ARGS_NONE,     RET_OBJECT    },
+    /* Streams */
+    { "ReadableStream",              "ReadableStream",              ARGS_NONE,     RET_OBJECT    },
+    { "WritableStream",              "WritableStream",              ARGS_NONE,     RET_OBJECT    },
+    { "TransformStream",             "TransformStream",             ARGS_NONE,     RET_OBJECT    },
+    { "ByteLengthQueuingStrategy",   "ByteLengthQueuingStrategy",   ARGS_NONE,     RET_OBJECT    },
+    { "CountQueuingStrategy",        "CountQueuingStrategy",        ARGS_NONE,     RET_OBJECT    },
+    /* Blob */
+    { "Blob",                        "Blob",                        ARGS_NONE,     RET_OBJECT    },
+    { "File",                        "File",                        ARGS_NONE,     RET_OBJECT    },
+    { "FormData",                    "FormData",                    ARGS_NONE,     RET_OBJECT    },
+    /* WebSockets */
+    { "WebSocket",                   "WebSocket",                   ARGS_WS,       RET_OBJECT    },
+    /* Encoding */
+    { "TextEncoder",                 "TextEncoder",                 ARGS_NONE,     RET_OBJECT    },
+    { "TextDecoder",                 "TextDecoder",                 ARGS_NONE,     RET_OBJECT    },
+    /* Crypto */
+    { "crypto.subtle.digest",        "crypto.subtle.digest",        ARGS_DIGEST,   RET_ARRAYBUF  },
+    { "crypto.subtle.encrypt",       "crypto.subtle.encrypt",       ARGS_ENCRYPT,  RET_ARRAYBUF  },
+    { "crypto.subtle.decrypt",       "crypto.subtle.decrypt",       ARGS_DECRYPT,  RET_ARRAYBUF  },
+    { "crypto.subtle.generateKey",   "crypto.subtle.generateKey",   ARGS_GENKEY,   RET_CRYPTOKEY },
+    { "crypto.subtle.sign",          "crypto.subtle.sign",          ARGS_SIGN,     RET_ARRAYBUF  },
+    { "crypto.subtle.verify",        "crypto.subtle.verify",        ARGS_VERIFY,   RET_BOOL      },
+    { "crypto.subtle.importKey",     "crypto.subtle.importKey",     ARGS_IMPORTKEY,RET_CRYPTOKEY },
+    { "crypto.subtle.exportKey",     "crypto.subtle.exportKey",     ARGS_EXPORTKEY,RET_ARRAYBUF  },
+    { "crypto.getRandomValues",      "crypto.getRandomValues",      ARGS_RANDBUF,  RET_ARRAYBUF  },
+    /* Performance */
+    { "performance.now",             "performance.now",             ARGS_NONE,     RET_F64       },
+    { "performance.mark",            "performance.mark",            ARGS_NONE,     RET_VOID      },
+    { "performance.measure",         "performance.measure",         ARGS_NONE,     RET_VOID      },
+    /* Events */
+    { "EventTarget",                 "EventTarget",                 ARGS_NONE,     RET_OBJECT    },
+    { "Event",                       "Event",                       ARGS_NONE,     RET_OBJECT    },
+    { "ErrorEvent",                  "ErrorEvent",                  ARGS_NONE,     RET_OBJECT    },
+    { "CloseEvent",                  "CloseEvent",                  ARGS_NONE,     RET_OBJECT    },
+    { "MessageEvent",                "MessageEvent",                ARGS_NONE,     RET_OBJECT    },
+    /* IndexedDB / Cache */
+    { "indexedDB",                   "indexedDB",                   ARGS_NONE,     RET_OBJECT    },
+    { "caches",                      "caches",                      ARGS_NONE,     RET_OBJECT    },
+    { NULL, NULL, 0, 0 }  /* sentinel */
+};
+
+#endif

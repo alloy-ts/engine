@@ -1,4 +1,4 @@
-(function () {
+(() => {
 	var global = globalThis;
 	var AlloyInternal = global.AlloyInternal;
 
@@ -6,12 +6,12 @@
 		Transpiler: function (options) {
 			this.options = options || {};
 		},
-		bind_global: function (name, value) {
-			if (AlloyInternal && AlloyInternal.bindGlobal) {
+		bind_global: (name, value) => {
+			if (AlloyInternal?.bindGlobal) {
 				AlloyInternal.bindGlobal(name, value);
 			}
 		},
-		secureEval: function (code) {
+		secureEval: (code) => {
 			try {
 				var transpiler = new Alloy.Transpiler({ loader: "tsx" });
 				var transformed = transpiler.transformSync(code);
@@ -20,22 +20,17 @@
 				return { error: "transpile_failed", message: e.message };
 			}
 		},
-		spawnSync: function (cmd, args, opts) {
-			return AlloyInternal.spawnSync(cmd, args, opts);
-		},
-		spawn: function (cmd, args, opts) {
-			return new Promise(function (resolve, reject) {
-				AlloyInternal.spawn(cmd, args, opts, function (err, res) {
+		spawnSync: (cmd, args, opts) => AlloyInternal.spawnSync(cmd, args, opts),
+		spawn: (cmd, args, opts) =>
+			new Promise((resolve, reject) => {
+				AlloyInternal.spawn(cmd, args, opts, (err, res) => {
 					if (err) reject(err);
 					else resolve(res);
 				});
-			});
-		},
+			}),
 	};
 
-	Alloy.Transpiler.prototype.transformSync = function (code, loader) {
-		return code;
-	};
+	Alloy.Transpiler.prototype.transformSync = (code, _loader) => code;
 
 	global.Alloy = Alloy;
 
@@ -85,8 +80,8 @@
 	function createProxy(api) {
 		return function () {
 			var args = Array.prototype.slice.call(arguments);
-			return new Promise(function (resolve, reject) {
-				AlloyInternal.bridgeCall(api, args, function (err, res) {
+			return new Promise((resolve, reject) => {
+				AlloyInternal.bridgeCall(api, args, (err, res) => {
 					if (err) reject(err);
 					else resolve(res);
 				});
@@ -94,7 +89,7 @@
 		};
 	}
 
-	browserAPIs.forEach(function (api) {
+	browserAPIs.forEach((api) => {
 		var parts = api.split(".");
 		var target = global;
 		for (var i = 0; i < parts.length - 1; i++) {
@@ -113,21 +108,21 @@
 
 	global.console = {
 		log: function () {
-			if (AlloyInternal && AlloyInternal.log) {
+			if (AlloyInternal?.log) {
 				AlloyInternal.log("info", Array.prototype.slice.call(arguments));
 			} else {
 				print(Array.prototype.slice.call(arguments).join(" "));
 			}
 		},
 		warn: function () {
-			if (AlloyInternal && AlloyInternal.log) {
+			if (AlloyInternal?.log) {
 				AlloyInternal.log("warn", Array.prototype.slice.call(arguments));
 			} else {
 				print("WARN:", Array.prototype.slice.call(arguments).join(" "));
 			}
 		},
 		error: function () {
-			if (AlloyInternal && AlloyInternal.log) {
+			if (AlloyInternal?.log) {
 				AlloyInternal.log("error", Array.prototype.slice.call(arguments));
 			} else {
 				print("ERROR:", Array.prototype.slice.call(arguments).join(" "));
@@ -135,21 +130,21 @@
 		},
 	};
 
-	global.setTimeout = function (fn, delay) {
-		if (AlloyInternal && AlloyInternal.setTimeout) {
+	global.setTimeout = (fn, delay) => {
+		if (AlloyInternal?.setTimeout) {
 			return AlloyInternal.setTimeout(fn, delay);
 		}
 		return 0;
 	};
 
-	global.clearTimeout = function (id) {
-		if (AlloyInternal && AlloyInternal.clearTimeout) {
+	global.clearTimeout = (id) => {
+		if (AlloyInternal?.clearTimeout) {
 			AlloyInternal.clearTimeout(id);
 		}
 	};
 
-	global.__alloy_run_coroutine = function (gen) {
-		return new Promise(function (resolve, reject) {
+	global.__alloy_run_coroutine = (gen) =>
+		new Promise((resolve, reject) => {
 			function step(val) {
 				try {
 					var res = gen.next(val);
@@ -169,7 +164,6 @@
 			}
 			step();
 		});
-	};
 
 	/* Define alloy:ffi shim */
 	var ffi = global.__alloy_ffi || {};

@@ -1,12 +1,17 @@
 #!/usr/bin/env bun
-import { Command } from "commander";
-import { evaluate, startRepl, Transpiler } from "@alloyscript/engine";
-import { ensureAlloyHost } from "../core/host_manager";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { watch } from "node:fs";
-import { BinaryManager } from "../core/engine";
 import { spawn } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	watch,
+	writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { evaluate, Transpiler } from "@alloyscript/engine";
+import { Command } from "commander";
+import { BinaryManager } from "../core/engine";
+import { ensureAlloyHost } from "../core/host_manager";
 
 const program = new Command();
 

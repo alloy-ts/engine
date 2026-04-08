@@ -131,7 +131,7 @@ export class CString {
 
 export class JSCallback {
 	ptr: number;
-	constructor(fn: Function, options: any) {
+	constructor(_fn: Function, _options: any) {
 		this.ptr = 0; // Mocked
 	}
 	close() {}

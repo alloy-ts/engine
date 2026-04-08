@@ -1,4 +1,5 @@
 #include "ipc.h"
+#include "engine.h"
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <string.h>
@@ -135,11 +136,11 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
         return ALLOY_ERR_MSG_TOO_LARGE;
     }
 
+    /* Use simple manual parsing or a lightweight JSON parser here */
+    /* For Phase 1, we can reuse JS_ParseJSON since it's already there */
     JSContext *ctx = rt->mqjs_ctx;
-    mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
     JSValue val = JS_ParseJSON(ctx, json, strlen(json), "ipc_receive");
     if (JS_IsException(val)) {
-        mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
         fprintf(stderr, "[alloy] IPC rejection: Bad JSON schema\n");
         return ALLOY_ERR_BAD_SCHEMA;
     }
@@ -152,7 +153,6 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
 
     if (JS_IsUndefined(seq_val) || JS_IsUndefined(nonce_val) || JS_IsUndefined(tag_val) || JS_IsUndefined(type_val) || JS_IsUndefined(payload_val)) {
         JS_FreeValue(ctx, val);
-        mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
         fprintf(stderr, "[alloy] IPC rejection: Missing required fields\n");
         return ALLOY_ERR_BAD_SCHEMA;
     }
@@ -164,7 +164,6 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
         out->type != ALLOY_MSG_BROWSER_API_RESPONSE &&
         out->type != ALLOY_MSG_KEY_RENEGOTIATE) {
         JS_FreeValue(ctx, val);
-        mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
         fprintf(stderr, "[alloy] IPC rejection: Unknown type %u\n", out->type);
         return ALLOY_ERR_UNKNOWN_TYPE;
     }
@@ -186,29 +185,20 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
     JS_FreeValue(ctx, seq_val); JS_FreeValue(ctx, nonce_val); JS_FreeValue(ctx, tag_val);
     JS_FreeValue(ctx, type_val); JS_FreeValue(ctx, payload_val); JS_FreeValue(ctx, val);
 
-    mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
-
     free(nonce); free(tag);
 
     int res = alloy_ipc_decrypt(rt, out);
     if (res == 0 && out->type == ALLOY_MSG_BROWSER_API_RESPONSE) {
-        // Schema check for response body
-        // Must contain id, ok, status, body
-        mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
+        /* Requirement 6.5: validate response schema */
         JSValue resp_val = JS_ParseJSON(ctx, (char *)out->payload, out->payload_len, "resp_check");
-        if (JS_IsException(resp_val)) {
-            mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
-            return ALLOY_ERR_BAD_SCHEMA;
-        }
+        if (JS_IsException(resp_val)) return ALLOY_ERR_BAD_SCHEMA;
         JSValue id_val = JS_GetPropertyStr(ctx, resp_val, "id");
         JSValue ok_val = JS_GetPropertyStr(ctx, resp_val, "ok");
         if (JS_IsUndefined(id_val) || JS_IsUndefined(ok_val)) {
             JS_FreeValue(ctx, resp_val);
-            mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
             return ALLOY_ERR_BAD_SCHEMA;
         }
         JS_FreeValue(ctx, resp_val);
-        mprotect(rt->mem_buf, rt->js_heap_size, PROT_NONE);
     }
     return res;
 }

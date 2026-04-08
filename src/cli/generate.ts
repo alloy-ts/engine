@@ -10,7 +10,7 @@ async function generate(entrypoint: string, dialect: string, outdir?: string) {
 	try {
 		await compile(entrypoint, tempOutDir);
 
-		const filename = basename(entrypoint, extname(entrypoint)) + ".js";
+		const filename = `${basename(entrypoint, extname(entrypoint))}.js`;
 		const actualScriptPath = join(tempOutDir, filename);
 
 		console.info(`Generating migrations for ${actualScriptPath}...`);

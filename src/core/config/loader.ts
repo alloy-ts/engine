@@ -1,8 +1,8 @@
-import { AlloyConfig, DEFAULTS_LOCAL, DEFAULTS_SERVER } from "./config";
-import { ConfigValidator } from "./validator";
 import { existsSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { type AlloyConfig, DEFAULTS_LOCAL, DEFAULTS_SERVER } from "./config";
+import { ConfigValidator } from "./validator";
 
 export interface DiscoveryResult {
 	workspacePath: string | null;
@@ -88,7 +88,7 @@ export class ConfigLoader {
 		const defaults =
 			target === "local-first" ? DEFAULTS_LOCAL : DEFAULTS_SERVER;
 
-		let merged: any = { ...defaults };
+		const merged: any = { ...defaults };
 
 		const apply = (layer: any) => {
 			for (const key of Object.keys(layer)) {
@@ -133,7 +133,7 @@ export class ConfigLoader {
 					value = true;
 				} else if (value === "false") {
 					value = false;
-				} else if (!isNaN(Number(value))) {
+				} else if (!Number.isNaN(Number(value))) {
 					value = Number(value);
 				} else if (value.startsWith("[") && value.endsWith("]")) {
 					value = value
@@ -156,7 +156,7 @@ export class ConfigLoader {
 		const json = JSON.stringify(config);
 		const interpolated = json.replace(
 			/\$([A-Z0-9_]+)|\$\{([A-Z0-9_]+)\}/gi,
-			(match, p1, p2) => {
+			(_match, p1, p2) => {
 				const varName = p1 || p2;
 				return process.env[varName] || "";
 			},

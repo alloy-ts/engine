@@ -1,10 +1,18 @@
+import { Transpiler } from "bun";
+import { build, BuildOptions, BuildOutput } from "./build";
+
 export type Loader = "js" | "jsx" | "ts" | "tsx";
 
 export interface TranspilerOptions {
 	loader?: Loader;
 	target?: "browser" | "alloy" | "node";
 	define?: Record<string, string>;
+	tsconfig?: string | object;
+	macro?: Record<string, string>;
+	exports?: { eliminate?: string[]; replace?: Record<string, string> };
+	trimUnusedImports?: boolean;
 	minifyWhitespace?: boolean;
+	inline?: boolean;
 }
 
 export interface Import {
@@ -21,79 +29,72 @@ export interface Import {
 		| "entry-point-run";
 }
 
-/**
- * Implements a pipeline for ES5 downlevelling and async/await polyfilling.
- * Uses Bun.Transpiler for the first pass if available.
- */
-export class Transpiler {
-	constructor(private options: TranspilerOptions = {}) {}
+export class AlloyTranspiler {
+	private bunTranspiler: any;
 
-	/**
-	 * Synchronous transpilation — same thread, no worker.
-	 */
-	transformSync(code: string, loader: Loader = "ts"): string {
-		// Pass 1: TS/JSX -> ES5 (using Bun's built-in transpiler)
-		// @ts-ignore
-		const bunTranspiler = new Bun.Transpiler({
-			target: "browser",
-			loader: loader,
-			// @ts-ignore
-			define: this.options.define,
+	constructor(options?: TranspilerOptions) {
+		this.bunTranspiler = new Transpiler({
+			loader: options?.loader || "ts",
+			target: options?.target || "browser",
+			define: options?.define,
+			minifyWhitespace: options?.minifyWhitespace,
+			inline: options?.inline,
 		});
+	}
 
-		let output = bunTranspiler.transformSync(code);
+	transformSync(code: string, loader?: Loader): string {
+		let output = this.bunTranspiler.transformSync(code, loader);
 
-		// Pass 2: Async/await polyfill
-		output = output.replace(/\basync\s+function\b/g, "function*");
-		// Handle async arrow functions
-		output = output.replace(
-			/\basync\s*\(([^)]*)\)\s*=>\s*\{/g,
-			"function*($1) {",
-		);
-		output = output.replace(
-			/\basync\s*\(([^)]*)\)\s*=>\s*([^;{),\]} ]+)/g,
-			"function*($1) { return $2; }",
-		);
-
-		output = output.replace(
-			/\bawait\s+([\s\S]+?)(?=[;,)\]}]|$)/g,
-			'yield { __alloy_ipc: "__await__", args: [$1] }',
-		);
-		output = output.replace(/\bnew\s+Promise\b\s*\(/g, "__alloy_deferred(");
-
-		// Pass 3: MQJS compatibility (remaining ES6+ features not handled by Bun)
-		output = output.replace(/\bconst\b/g, "var");
-		output = output.replace(/\blet\b/g, "var");
-
-		if (output.includes("__alloy_ipc") || output.includes("__alloy_deferred")) {
+		if (
+			output.includes("async") ||
+			output.includes("await") ||
+			output.includes("Promise")
+		) {
+			output = this.rewriteAsync(output);
 			output =
-				"var __alloy_await = AlloyInternal.__alloy_await;\nvar __alloy_deferred = AlloyInternal.__alloy_deferred;\n" +
+				"var __alloy_await = AlloyInternal.__alloy_await;\n" +
+				"var __alloy_deferred = AlloyInternal.__alloy_deferred;\n" +
 				output;
+		}
+
+		output = output.replace(/\bconst\b/g, "var").replace(/\blet\b/g, "var");
+
+		// @ts-ignore
+		const parseError =
+			typeof AlloyInternal !== "undefined" && AlloyInternal.parse
+				? AlloyInternal.parse(output)
+				: null;
+		if (parseError) {
+			throw { error: "transpile_failed", message: parseError };
 		}
 
 		return output;
 	}
 
-	/**
-	 * Async transpilation — distributed across workers (Requirement 12.5).
-	 */
-	async transform(code: string, loader?: Loader): Promise<string> {
-		return Promise.resolve(this.transformSync(code, loader));
+	private rewriteAsync(code: string): string {
+		// Use word boundaries for better robustness
+		let res = code.replace(/\basync\s+function\b/g, "function* ");
+		res = res.replace(
+			/\bawait\s+([^;{}]+)/g,
+			"yield { __alloy_ipc: '__await__', args: [$1] }",
+		);
+		res = res.replace(/\bnew\s+Promise\b/g, "__alloy_deferred");
+		return res;
 	}
 
-	/**
-	 * Returns all non-type-only imports and exports (Requirement 12.7).
-	 */
+	async transform(code: string, loader?: Loader): Promise<string> {
+		return this.transformSync(code, loader);
+	}
+
 	scan(code: string): { exports: string[]; imports: Import[] } {
-		// @ts-ignore
-		const bunTranspiler = new Bun.Transpiler({ loader: "ts" });
-		const { exports, imports } = bunTranspiler.scan(code);
-		return {
-			exports,
-			imports: imports.map((i) => ({
-				...i,
-				kind: i.kind || "import-statement",
-			})),
-		};
+		return this.bunTranspiler.scan(code);
+	}
+
+	scanImports(code: string): Import[] {
+		return this.bunTranspiler.scanImports(code);
+	}
+
+	static async build(options: BuildOptions): Promise<BuildOutput> {
+		return build(options);
 	}
 }

@@ -1,5 +1,5 @@
-import { BinaryManager } from "../core/engine";
 import { spawn } from "node:child_process";
+import { BinaryManager } from "../core/engine";
 
 const binaryManager = new BinaryManager();
 try {
