@@ -13,12 +13,14 @@ typedef struct AlloyJSEngine AlloyJSEngine;
  * out_result:   caller-allocated buffer; handler writes JSON result here
  * result_size:  size of out_result buffer
  */
-typedef void (*AlloyBindHandler)(void *opaque,
+typedef void (*AlloyBindHandler)(AlloyJSEngine *engine,
+                                 void *opaque,
                                  const char *args_json,
                                  char *out_result,
                                  size_t result_size);
 
 struct AlloyJSEngine {
+    void *runtime; // Pointer back to alloy_runtime_t
     /*
      * Call a named JS function with JSON-encoded args.
      * Blocks until the result is available (synchronous for MQJS,

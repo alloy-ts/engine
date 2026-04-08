@@ -5,6 +5,7 @@
 
 typedef struct {
     const char *name;
+    const char **depends_on;
     int (*on_init)(AlloyJSEngine *engine);
     int (*on_eval_begin)(AlloyJSEngine *engine, const char *source);
     int (*on_eval_end)(AlloyJSEngine *engine);

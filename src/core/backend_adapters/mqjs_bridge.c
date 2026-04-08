@@ -57,9 +57,11 @@ static char *alloy_mqjs_to_json(JSContext *ctx, JSValue val) {
     JSValue json_obj = JS_GetPropertyStr(ctx, global, "JSON");
     JSValue stringify = JS_GetPropertyStr(ctx, json_obj, "stringify");
     JSValue str_val = JS_Call(ctx, stringify, json_obj, 1, &val);
-    const char *str = JS_ToCString(ctx, str_val, NULL);
+
+    JSCStringBuf buf;
+    const char *str = JS_ToCString(ctx, str_val, &buf);
     char *res = str ? strdup(str) : NULL;
-    JS_FreeCString(ctx, str);
+
     JS_FreeValue(ctx, str_val);
     JS_FreeValue(ctx, stringify);
     JS_FreeValue(ctx, json_obj);
@@ -119,6 +121,23 @@ static int mqjs_eval_fn(AlloyJSEngine *engine, const char *source, const char *f
     return status;
 }
 
+// 1.5 generic dispatcher for MQJS raw functions carrying opaque
+JSValue alloy_mqjs_raw_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params) {
+    AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
+
+    // Convert args to JSON for the handler
+    JSValue args_array = JS_NewArray(ctx, argc);
+    for (int i = 0; i < argc; i++) JS_SetPropertyUint32(ctx, args_array, i, JS_DupValue(ctx, argv[i]));
+    char *args_json = alloy_mqjs_to_json(ctx, args_array);
+    JS_FreeValue(ctx, args_array);
+
+    char result_buf[16384];
+    b->handler(b->engine, b->opaque, args_json, result_buf, sizeof(result_buf));
+    free(args_json);
+
+    return alloy_mqjs_from_json(ctx, result_buf);
+}
+
 // generic dispatcher for MQJS vtable
 JSValue alloy_mqjs_vtable_dispatch(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv, JSValue params) {
     AlloyMQJSBinding *b = (AlloyMQJSBinding *)(uintptr_t)JS_VALUE_GET_INT(params);
@@ -129,7 +148,7 @@ JSValue alloy_mqjs_vtable_dispatch(JSContext *ctx, JSValue *this_val, int argc, 
     JS_FreeValue(ctx, args_array);
 
     char result_buf[16384]; // larger buffer
-    b->handler(b->opaque, args_json, result_buf, sizeof(result_buf));
+    b->handler(b->engine, b->opaque, args_json, result_buf, sizeof(result_buf));
     free(args_json);
 
     JSValue res = alloy_mqjs_from_json(ctx, result_buf);
@@ -137,6 +156,7 @@ JSValue alloy_mqjs_vtable_dispatch(JSContext *ctx, JSValue *this_val, int argc, 
 }
 
 static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandler handler, void *opaque) {
+    if (!name || !handler) return -6; // ALLOY_ERR_INVALID_ARG
     AlloyMQJSEngine *e = (AlloyMQJSEngine *)engine;
     JSContext *ctx = e->ctx;
     mprotect(e->rt->mem_buf, e->rt->js_heap_size, PROT_READ | PROT_WRITE);
@@ -145,10 +165,11 @@ static int mqjs_bind_fn(AlloyJSEngine *engine, const char *name, AlloyBindHandle
     b->handler = handler;
     b->opaque = opaque;
     b->rt = e->rt;
+    b->engine = engine;
 
-    // Use slot JS_CFUNCTION_USER + 28 for generic vtable dispatch
+    // Use slot JS_CFUNCTION_USER + 38 for generic raw dispatch
     JSValue params = JS_NewInt64(ctx, (int64_t)(uintptr_t)b);
-    JSValue f = JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 28, params);
+    JSValue f = JS_NewCFunctionParams(ctx, JS_CFUNCTION_USER + 38, params);
 
     alloy_mqjs_set_dotted(ctx, name, f);
 
@@ -181,6 +202,7 @@ AlloyJSEngine *alloy_mqjs_engine_create(JSContext *ctx, alloy_runtime_t *rt) {
     e->base.emit_fn = mqjs_emit_fn;
     e->base.destroy_fn = mqjs_destroy_fn;
     e->base.name = "mqjs";
+    e->base.runtime = rt;
     e->ctx = ctx;
     e->rt = rt;
     e->next_func_idx = JS_CFUNCTION_USER + 30; // Start user funcs high

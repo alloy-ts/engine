@@ -92,7 +92,7 @@ static const AlloyBrowserAPIEntry ALLOY_BROWSER_API_TABLE[] = {
     /* IndexedDB / Cache */
     { "indexedDB",                   "indexedDB",                   ARGS_NONE,     RET_OBJECT    },
     { "caches",                      "caches",                      ARGS_NONE,     RET_OBJECT    },
-    { NULL, NULL, 0, 0 }  /* sentinel */
+    { NULL, NULL, (AlloyArgSchema)0, (AlloyReturnSchema)0 }  /* sentinel */
 };
 
 #endif
