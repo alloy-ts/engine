@@ -14,7 +14,11 @@ export interface CompileOptions {
 // ── Step 1: Transpile TS → ES5 ────────────────────────────────────────────
 
 async function transpileInput(inputPath: string): Promise<string> {
-  const source = await Bun.file(inputPath).text();
+  let source = await Bun.file(inputPath).text();
+
+  // Call on_parse equivalent (Bun macro logic would go here)
+  // For now, this is a placeholder for the transform step.
+
   const loader =
     inputPath.endsWith(".tsx") ? "tsx" :
     inputPath.endsWith(".jsx") ? "jsx" :

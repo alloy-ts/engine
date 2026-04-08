@@ -20,3 +20,12 @@ const char __alloy_web_shims_js[] =
 /* Empty stub so the symbol exists for LTO to eliminate */
 const char __alloy_web_shims_js[] = "/* web disabled */";
 #endif
+
+/* GUI API shims — only included when ALLOY_ENABLE_GUI=ON */
+#ifdef ALLOY_ENABLE_GUI
+const char __alloy_gui_shims_js[] =
+#include "gui_shims_js_embed.h"
+;
+#else
+const char __alloy_gui_shims_js[] = "/* gui disabled */";
+#endif

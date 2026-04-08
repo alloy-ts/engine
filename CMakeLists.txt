@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 # ── Feature flags ────────────────────────────────────────────────────────────
 option(ALLOY_ENABLE_WEB "Enable alloy:web hidden WebView process + web API shims" ON)
+option(ALLOY_ENABLE_GUI "Enable native GUI plugin" OFF)
 
 # ── LTO / ThinLTO ────────────────────────────────────────────────────────────
 include(CheckIPOSupported)
@@ -110,10 +111,16 @@ transpile_and_embed(
     ${CMAKE_BINARY_DIR}/gen/web_api_shims.es5.js
     ${SRC_CORE}/web_shims_js_embed.h
 )
+transpile_and_embed(
+    ${ALLOY_ROOT}/src/gui/gui_shims.ts
+    ${CMAKE_BINARY_DIR}/gen/gui_shims.es5.js
+    ${SRC_CORE}/gui_shims_js_embed.h
+)
 add_custom_target(gen_embedded_js
     DEPENDS
         ${SRC_CORE}/bootstrap_js_embed.h
         ${SRC_CORE}/web_shims_js_embed.h
+        ${SRC_CORE}/gui_shims_js_embed.h
 )
 
 # ── WebView (header-only on macOS/Linux, WebView2 on Windows) ────────────────
@@ -151,6 +158,8 @@ set(ALLOY_CORE_SOURCES
     ${SRC_CORE}/mqjs_compat.c
     ${SRC_CORE}/backend_adapters/mqjs_adapter.c
     ${SRC_CORE}/plugins/config/config_plugin.c
+    ${SRC_CORE}/crypto/x25519.c
+    ${SRC_CORE}/crypto/xchacha20poly1305.c
     ${SRC_WEB}/urn.c
     ${SRC_WEB}/did.c
 )
@@ -159,6 +168,13 @@ if(ALLOY_ENABLE_WEB)
     list(APPEND ALLOY_CORE_SOURCES
         ${SRC_WEB}/web_runtime.c
         ${SRC_CORE}/backend_adapters/webview_adapter.c
+    )
+endif()
+
+if(ALLOY_ENABLE_GUI)
+    list(APPEND ALLOY_CORE_SOURCES
+        src/gui/gui_plugin.c
+        src/gui/backends/mock_backend.c
     )
 endif()
 
@@ -198,6 +214,36 @@ if(DEFINED ALLOY_USER_SCRIPT_HEADER)
     message(STATUS "[alloy] embedding user script: ${ALLOY_USER_SCRIPT_HEADER}")
 endif()
 
+# ── alloy_gui — Native GUI process (alloy:gui plugin, ALLOY_ENABLE_GUI only) ──
+if(ALLOY_ENABLE_GUI)
+    add_executable(alloy_gui
+        ${SRC_CORE}/ipc_channel.c
+        src/gui/alloy_gui_main.c
+        src/gui/layout_engine.cpp
+        src/gui/backends/mock_backend.c
+    )
+    target_compile_definitions(alloy_gui PRIVATE ALLOY_MOCK_GUI)
+    target_include_directories(alloy_gui PRIVATE
+        ${INCLUDE_DIR}
+        ${SODIUM_INCLUDE}
+    )
+    target_link_libraries(alloy_gui PRIVATE
+        ${SODIUM_LIB}
+    )
+
+    add_executable(alloy_renderer
+        ${SRC_CORE}/ipc_channel.c
+        src/gui/alloy_renderer_main.c
+    )
+    target_include_directories(alloy_renderer PRIVATE
+        ${INCLUDE_DIR}
+        ${SODIUM_INCLUDE}
+    )
+    target_link_libraries(alloy_renderer PRIVATE
+        ${SODIUM_LIB}
+    )
+endif()
+
 # ── alloy_web — WebView sidecar (alloy:web plugin, ALLOY_ENABLE_WEB only) ─────
 if(ALLOY_ENABLE_WEB)
     add_executable(alloy_web ${SRC_WEB}/webview_process.c)
@@ -232,6 +278,17 @@ if(ALLOY_ENABLE_WEB)
     add_executable(alloy_test_web tests/test_web.c)
     target_link_libraries(alloy_test_web PRIVATE alloy_core)
     add_test(NAME web_tests COMMAND alloy_test_web)
+endif()
+
+if(ALLOY_ENABLE_GUI)
+    target_compile_definitions(alloy_core PUBLIC ALLOY_ENABLE_GUI=1)
+    add_executable(alloy_test_gui tests/test_gui_plugin.c)
+    target_link_libraries(alloy_test_gui PRIVATE alloy_core)
+    add_test(NAME gui_plugin_tests COMMAND alloy_test_gui)
+
+    add_executable(alloy_test_gui_props tests/test_gui_properties.c)
+    target_link_libraries(alloy_test_gui_props PRIVATE alloy_core)
+    add_test(NAME gui_property_tests COMMAND alloy_test_gui_props)
 endif()
 
 # ── Install ──────────────────────────────────────────────────────────────────

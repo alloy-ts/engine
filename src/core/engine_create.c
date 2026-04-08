@@ -25,6 +25,7 @@
 AlloyJSEngine *alloy_mqjs_adapter_create(JSContext *ctx);
 RuntimePlugin *alloy_config_plugin_create(AlloyRuntimeConfig cfg);
 RuntimePlugin *alloy_web_runtime_create(AlloyCapStore *cap_store);
+RuntimePlugin *alloy_gui_plugin_create(AlloyCapStore *cap_store);
 /** Returns true if the plugin was disabled by config after on_init ran. */
 bool alloy_web_runtime_is_disabled(RuntimePlugin *p);
 const JSSTDLibraryDef *alloy_get_stdlib(void);
@@ -169,6 +170,16 @@ AlloyRuntime *alloy_engine_create_with_config(AlloyRuntimeConfig cfg) {
                     free(sr);
                 }
             }
+        }
+    }
+#endif
+
+#ifdef ALLOY_ENABLE_GUI
+    {
+        RuntimePlugin *gui = alloy_gui_plugin_create(rt->cap_store);
+        if (gui) {
+            if (load_plugin(rt, gui) != ALLOY_OK)
+                fprintf(stderr, "[alloy] failed to load alloy:gui plugin\n");
         }
     }
 #endif

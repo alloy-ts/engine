@@ -23,6 +23,11 @@ typedef struct {
      */
     bool no_web_api;
 
+    /**
+     * Disable the alloy:gui plugin entirely.
+     */
+    bool no_gui_api;
+
     /** Log level: 0=debug, 1=warn, 2=error */
     int  log_level;
 
@@ -34,6 +39,7 @@ typedef struct {
 static inline AlloyRuntimeConfig alloy_config_defaults(void) {
     AlloyRuntimeConfig c = {0};
     c.no_web_api   = false;
+    c.no_gui_api   = false;
     c.log_level    = 1;   /* warn */
     c.js_heap_size = 16 * 1024 * 1024;
     return c;
