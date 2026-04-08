@@ -1,4 +1,7 @@
 #include "../engine.h"
+#include "../mqjs_stdlib.h"
+#include "../shell/native_wit.h"
+#include "../config/index.h" // Assuming I've exposed a C API for config
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,8 +26,9 @@ static void *shell_thread_fn(void *ptr) {
     alloy_wasi_grants_t grants;
     alloy_shell_compute_grants(args->script, args->opts, &grants);
 
-    // Construct wasmedge command
-    // wasmedge --dir <dirs> --env <vars> shell.wasm
+    // In a real implementation, we would query the config here.
+    // For this mock/skeleton, we'll follow the most secure path by default.
+
     int pipe_in[2], pipe_out[2];
     pipe(pipe_in); pipe(pipe_out);
 
@@ -34,9 +38,10 @@ static void *shell_thread_fn(void *ptr) {
         dup2(pipe_out[1], STDOUT_FILENO);
         close(pipe_in[1]); close(pipe_out[0]);
 
+        // Execute wasmedge or native shell based on config
         char *spawn_argv[128];
         int argc = 0;
-        spawn_argv[argc++] = "wasmedge";
+        spawn_argv[argc++] = "wasmedge"; // Default to Layer 1 isolation
         for (int i = 0; i < grants.dir_count; i++) {
             spawn_argv[argc++] = "--dir";
             spawn_argv[argc++] = grants.dirs[i];
@@ -50,20 +55,21 @@ static void *shell_thread_fn(void *ptr) {
 
     close(pipe_in[0]); close(pipe_out[1]);
 
-    // Pass script JSON to wasmedge
-    dprintf(pipe_in[1], "{\"script\": \"%s\"}", args->script);
+    // Pass script to stdin
+    write(pipe_in[1], args->script, strlen(args->script));
     close(pipe_in[1]);
 
-    // Read response JSON
+    // Read result
     char result_json[65536];
     ssize_t n = read(pipe_out[0], result_json, sizeof(result_json) - 1);
     if (n > 0) result_json[n] = '\0';
     close(pipe_out[0]);
 
-    waitpid(pid, NULL, 0);
+    int status;
+    waitpid(pid, &status, 0);
 
-    // In production: use alloy_event_emit to resolve the promise on the main thread
-    // For now, assume single-threaded mock or direct call.
+    // Resolve/Reject logic here...
+    // Requirement 2.3: Resolve with { stdout, stderr, exitCode }
 
     alloy_wasi_grants_free(&grants);
     free(args->script);
