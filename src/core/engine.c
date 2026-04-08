@@ -91,6 +91,10 @@ const JSSTDLibraryDef alloyscript_stdlib = {
     0, 0, 0, 0, JS_CLASS_USER + 16
 };
 
+static void* get_engine_ctx(AlloyJSEngine *e) {
+    return e->engine_ctx;
+}
+
 void alloy_webview_dispatch(const char *id, const char *json_req, void *arg) {
     alloy_runtime_t *rt = (alloy_runtime_t *)arg;
     AlloyMessage msg;
@@ -111,15 +115,16 @@ static void alloy_webview_exit_cb(webview_t w, void *arg) {
     fprintf(stderr, "[alloy] WebViewProcess terminated unexpectedly\n");
 
     /* Attempt recovery */
-    rt->webview = webview_create(0, NULL);
-    if (!rt->webview) {
+    rt->webview_engine = alloy_webview_engine_create();
+    if (!rt->webview_engine) {
         fprintf(stderr, "[alloy] WebView recovery failed. Entering degraded mode.\n");
         return;
     }
 
-    webview_bind(rt->webview, "__alloy_ipc_send", alloy_webview_dispatch, rt);
-    webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
-    webview_init(rt->webview, "window.AlloySessionKey = '...';");
+    webview_t webview = (webview_t)rt->webview_engine->engine_ctx;
+    webview_bind(webview, "__alloy_ipc_send", alloy_webview_dispatch, rt);
+    webview_set_size(webview, 1, 1, WEBVIEW_HINT_MIN);
+    webview_init(webview, "window.AlloySessionKey = '...';");
 }
 
 void* JS_GetContextOpaque(JSContext *ctx);
@@ -129,26 +134,23 @@ alloy_runtime_t *alloy_engine_create(void) {
     if (!rt) return NULL;
 
     RAND_bytes(rt->ipc_state.session_key, ALLOY_IPC_KEY_SIZE);
-    // mlock(rt->ipc_state.session_key, ALLOY_IPC_KEY_SIZE);
     rt->ipc_state.next_outbound_seq = 1;
     rt->ipc_state.last_inbound_seq = 0;
 
     rt->js_heap_size = 16 << 20;
     rt->js_heap = mmap(NULL, rt->js_heap_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     rt->js_heap_prot = PROT_READ | PROT_WRITE;
-    rt->mqjs_ctx = JS_NewContext(rt->js_heap, rt->js_heap_size, &alloyscript_stdlib);
-    JS_SetContextOpaque(rt->mqjs_ctx, rt);
 
-    rt->webview = webview_create(0, NULL);
-    /* Requirement 2.6: WebView crash watchdog */
-    /* Assuming webview_set_exit_callback exists in the vendored webview */
-    // webview_set_exit_callback(rt->webview, alloy_webview_exit_cb, rt);
+    rt->mqjs_engine = alloy_mqjs_engine_create(rt->js_heap, rt->js_heap_size);
+    JSContext *ctx = (JSContext *)rt->mqjs_engine->engine_ctx;
+    JS_SetContextOpaque(ctx, rt);
 
-    webview_bind(rt->webview, "__alloy_ipc_send", alloy_webview_dispatch, rt);
-    webview_set_size(rt->webview, 1, 1, WEBVIEW_HINT_MIN);
-    webview_init(rt->webview, "window.AlloySessionKey = '...';");
+    rt->webview_engine = alloy_webview_engine_create();
+    webview_t webview = (webview_t)rt->webview_engine->engine_ctx;
+    webview_bind(webview, "__alloy_ipc_send", alloy_webview_dispatch, rt);
+    webview_set_size(webview, 1, 1, WEBVIEW_HINT_MIN);
+    webview_init(webview, "window.AlloySessionKey = '...';");
 
-    JSContext *ctx = rt->mqjs_ctx;
     JSValue global_obj = JS_GetGlobalObject(ctx);
 
     /* Bind BrowserAPIs using opaque-carrying generic dispatcher */
@@ -323,8 +325,9 @@ JSValue alloy_mqjs_await(JSContext *ctx, JSValue *this_val, int argc, JSValue *a
         /* Requirement 12.18: synchronous IPC-backed coroutine continuation */
         /* Requirement 12.18: synchronous IPC-backed coroutine continuation */
         /* Drive the event loop until the specific IPC response arrives */
+        webview_t webview = (webview_t)rt->webview_engine->engine_ctx;
         while (rt->latest_ipc_response == NULL) {
-            webview_run(rt->webview);
+            webview_run(webview);
             usleep(100);
         }
 
@@ -345,6 +348,7 @@ JSValue alloy_mqjs_await(JSContext *ctx, JSValue *this_val, int argc, JSValue *a
     JS_FreeValue(ctx, next_val);
     return res;
 }
+
 
 JSValue alloy_runtime_on(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
     if (argc < 2) return JS_EXCEPTION;
@@ -559,8 +563,8 @@ JSValue alloy_mqjs_host_call(JSContext *ctx, JSValue *this_val, int argc, JSValu
 
 void alloy_engine_destroy(alloy_runtime_t *rt) {
     if (!rt) return;
-    if (rt->webview) webview_destroy(rt->webview);
-    if (rt->mqjs_ctx) JS_FreeContext(rt->mqjs_ctx);
+    if (rt->webview_engine) rt->webview_engine->destroy_fn(rt->webview_engine);
+    if (rt->mqjs_engine) rt->mqjs_engine->destroy_fn(rt->mqjs_engine);
     if (rt->js_heap) munmap(rt->js_heap, rt->js_heap_size);
     explicit_bzero(rt->ipc_state.session_key, ALLOY_IPC_KEY_SIZE);
     free(rt);
@@ -568,22 +572,24 @@ void alloy_engine_destroy(alloy_runtime_t *rt) {
 
 JSValue alloy_secure_eval(alloy_runtime_t *rt, const char *script) {
     /* Requirement 14.5: Memory protection */
-    /* Only protect for sensitive production runs; ensure context and stack are readable */
-    return JS_Eval(rt->mqjs_ctx, script, strlen(script), "<secureEval>", JS_EVAL_RETVAL);
+    JSContext *ctx = (JSContext *)rt->mqjs_engine->engine_ctx;
+    return JS_Eval(ctx, script, strlen(script), "<secureEval>", JS_EVAL_RETVAL);
 }
 
 void alloy_run(alloy_runtime_t *rt) {
     while (!rt->shutdown) {
-        webview_run(rt->webview);
+        webview_t webview = (webview_t)rt->webview_engine->engine_ctx;
+        webview_run(webview);
         while (rt->event_queue.count > 0) {
             AlloyEvent *ev = &rt->event_queue.events[rt->event_queue.head];
+            JSContext *ctx = (JSContext *)rt->mqjs_engine->engine_ctx;
 
             mprotect(rt->js_heap, rt->js_heap_size, PROT_READ | PROT_WRITE);
-            for(int i=0; i<ev->argc; i++) JS_PushArg(rt->mqjs_ctx, ev->args[i]);
-            JSValue res = JS_Call(rt->mqjs_ctx, ev->argc);
+            for(int i=0; i<ev->argc; i++) JS_PushArg(ctx, ev->args[i]);
+            JSValue res = JS_Call(ctx, ev->argc);
             mprotect(rt->js_heap, rt->js_heap_size, PROT_NONE);
-            JS_FreeValue(rt->mqjs_ctx, res);
-            JS_FreeValue(rt->mqjs_ctx, ev->listener);
+            JS_FreeValue(ctx, res);
+            JS_FreeValue(ctx, ev->listener);
             rt->event_queue.head = (rt->event_queue.head + 1) % 4096;
             rt->event_queue.count--;
         }

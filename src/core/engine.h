@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include "mquickjs.h"
 #include "webview/webview.h"
+#include "js_engine.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,8 +45,8 @@ typedef struct {
 } AlloyListenerEntry;
 
 typedef struct alloy_runtime {
-    JSContext *mqjs_ctx;
-    webview_t webview;
+    AlloyJSEngine *mqjs_engine;
+    AlloyJSEngine *webview_engine;
     AlloyTarget target;
     AlloyIPCState ipc_state;
 

@@ -21,6 +21,8 @@ typedef enum {
     ALLOY_MSG_BROWSER_API_REQUEST = 1,
     ALLOY_MSG_BROWSER_API_RESPONSE = 2,
     ALLOY_MSG_KEY_RENEGOTIATE = 3,
+    ALLOY_MSG_GUI_COMMAND = 0x30,
+    ALLOY_MSG_GUI_EVENT = 0x31,
 } AlloyMessageType;
 
 typedef struct {

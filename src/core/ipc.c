@@ -119,14 +119,15 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
     char *js_call = NULL;
     asprintf(&js_call, "window.Alloy.handleMessage('%s')", json);
 
+    webview_t webview = (webview_t)rt->webview_engine->engine_ctx;
     if (rt->target == ALLOY_TARGET_BROWSER) {
         /* Requirement 17.10: In browser mode, use postMessage */
         char *browser_call = NULL;
         asprintf(&browser_call, "window.postMessage({type:'ALLOY_IPC',payload:'%s'}, '*')", json);
-        webview_eval(rt->webview, browser_call);
+        webview_eval(webview, browser_call);
         free(browser_call);
     } else {
-        webview_eval(rt->webview, js_call);
+        webview_eval(webview, js_call);
     }
 
     free(nonce_b64);
@@ -149,7 +150,7 @@ int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) 
         return ALLOY_ERR_MSG_TOO_LARGE;
     }
 
-    JSContext *ctx = rt->mqjs_ctx;
+    JSContext *ctx = (JSContext *)rt->mqjs_engine->engine_ctx;
     mprotect(rt->mem_buf, rt->js_heap_size, PROT_READ | PROT_WRITE);
     JSValue val = JS_ParseJSON(ctx, json, strlen(json), "ipc_receive");
     if (JS_IsException(val)) {
