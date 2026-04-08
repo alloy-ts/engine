@@ -1,3 +1,5 @@
+import { build, BuildOptions, BuildOutput } from "./build";
+
 export type Loader = "js" | "jsx" | "ts" | "tsx";
 
 export interface TranspilerOptions {
@@ -43,7 +45,7 @@ export class Transpiler {
 
 		let output = bunTranspiler.transformSync(code);
 
-		// Pass 2: Async/await polyfill
+		// Pass 2: Async/await polyfill (Requirement 4.2, 4.3)
 		output = output.replace(/\basync\s+function\b/g, "function*");
 		// Handle async arrow functions
 		output = output.replace(
@@ -86,6 +88,13 @@ export class Transpiler {
 	 */
 	async transform(code: string, loader?: Loader): Promise<string> {
 		return Promise.resolve(this.transformSync(code, loader));
+	}
+
+	/**
+	 * Static build method (Requirement 5.2).
+	 */
+	static build(options: BuildOptions): Promise<BuildOutput> {
+		return build(options);
 	}
 
 	/**

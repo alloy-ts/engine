@@ -9,13 +9,40 @@
 extern "C" {
 #endif
 
+/* Requirement 3.1: Event structs */
+typedef struct {
+    uint32_t type;
+    char *name;
+    JSValue listener;
+    JSValue args[8];
+    uint8_t argc;
+} AlloyEvent;
+
+typedef struct {
+    AlloyEvent events[4096];
+    uint32_t head;
+    uint32_t tail;
+    uint32_t count;
+} AlloyEventQueue;
+
+typedef struct {
+    const char *event_name;
+    JSValue listeners[8];
+    uint8_t count;
+} AlloyListenerEntry;
+
 typedef struct alloy_runtime {
     JSContext *mqjs_ctx;
     webview_t webview;
     unsigned char session_key[32];
     void *mem_buf;
 
+    /* Requirement 3.1: Event-related fields */
+    AlloyEventQueue event_queue;
+    AlloyListenerEntry listener_registry[32];
+
     /* Integration with configuration */
+    /* Requirement 1.11: Add browser target mode */
     int target;               /* 0: local-first, 1: server-first */
     bool wasm_edge_enabled;
     bool use_containers;

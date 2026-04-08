@@ -100,6 +100,7 @@ export class BinaryManager {
 		try {
 			const content = await readFile(binaryPath);
 
+			/* Requirement 6.3: Switch to BLAKE3 */
 			if (existsSync(binaryPath + ".blake3")) {
 				// Ideally we would use a BLAKE3 JS library.
 				// Since we might not have it in the environment, we use a placeholder

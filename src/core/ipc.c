@@ -105,6 +105,7 @@ int alloy_ipc_decrypt(alloy_runtime_t *rt, AlloyMessage *msg) {
 }
 
 int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
+    /* Requirement 1.6: Implement alloy_ipc_send */
     if (alloy_ipc_encrypt(rt, msg) != 0) return -1;
 
     char *nonce_b64 = base64_encode(msg->nonce, ALLOY_IPC_NONCE_SIZE);
@@ -130,6 +131,7 @@ int alloy_ipc_send(alloy_runtime_t *rt, AlloyMessage *msg) {
 }
 
 int alloy_ipc_receive(alloy_runtime_t *rt, const char *json, AlloyMessage *out) {
+    /* Requirement 1.7: IPC receive pipeline validation */
     if (strlen(json) > ALLOY_IPC_MAX_MSG_SIZE * 2) {
         fprintf(stderr, "[alloy] IPC rejection: Message too large\n");
         return ALLOY_ERR_MSG_TOO_LARGE;

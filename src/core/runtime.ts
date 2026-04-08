@@ -108,6 +108,28 @@
 
 			return $;
 		})(),
+		/**
+		 * Requirement 4.6: Update JS surface
+		 */
+		on: function (event, listener) {
+			return AlloyInternal.on(event, listener);
+		},
+		off: function (event, listener) {
+			return AlloyInternal.off(event, listener);
+		},
+		emit: function (event) {
+			var args = Array.prototype.slice.call(arguments, 1);
+			return AlloyInternal.emit(event, args);
+		},
+		nextTick: function (fn) {
+			return AlloyInternal.nextTick(fn);
+		},
+		getMmap: function () {
+			return AlloyInternal.getMmap();
+		},
+		readMmap: function (region) {
+			return AlloyInternal.readMmap(region);
+		},
 	};
 
 	global.Alloy = Alloy;
