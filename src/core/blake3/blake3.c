@@ -1,5 +1,4 @@
-#include "blake3.h"
-#include <string.h>
+#include "blake3_impl.h"
 
 INLINE uint32_t rotr32(uint32_t w, uint32_t c) {
   return (w >> c) | (w << (32 - c));
@@ -61,38 +60,32 @@ void blake3_compress_xof_portable(const uint32_t cv[8],
   for (int i = 0; i < 8; i++) store32(&out[(i + 8) * 4], state[i + 8] ^ cv[i]);
 }
 
-void blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
-                               size_t blocks, const uint32_t key[8],
-                               uint64_t counter, bool increment_counter,
-                               uint8_t flags, uint8_t flags_start,
-                               uint8_t flags_end, uint8_t *out) {
-  while (num_inputs > 0) {
-    uint32_t cv[8]; memcpy(cv, key, 32);
-    uint8_t block_flags = flags | flags_start;
-    const uint8_t *input = inputs[0];
-    for (size_t i = 0; i < blocks; i++) {
-        if (i == blocks - 1) block_flags |= flags_end;
-        blake3_compress_in_place_portable(cv, input, 64, counter, block_flags);
-        input += 64; block_flags = flags;
-    }
-    store_cv_words(out, cv);
-    if (increment_counter) counter++;
-    inputs++; num_inputs--; out += 32;
-  }
+void blake3_hasher_init(blake3_hasher *self) {
+    memcpy(self->cv, IV, 32);
+    self->chunk_counter = 0;
+    self->buf_len = 0;
+    self->blocks_compressed = 0;
+    self->flags = 0;
 }
-void blake3_compress_in_place(uint32_t cv[8], const uint8_t block[64], uint8_t block_len, uint64_t counter, uint8_t flags) {
-    blake3_compress_in_place_portable(cv, block, block_len, counter, flags);
-}
-void blake3_compress_xof(const uint32_t cv[8], const uint8_t block[64], uint8_t block_len, uint64_t counter, uint8_t flags, uint8_t out[64]) {
-    blake3_compress_xof_portable(cv, block, block_len, counter, flags, out);
-}
-void blake3_xof_many(const uint32_t cv[8], const uint8_t block[64], uint8_t block_len, uint64_t counter, uint8_t flags, uint8_t out[64], size_t outblocks) {
-    while (outblocks--) {
-        blake3_compress_xof(cv, block, block_len, counter++, flags, out);
-        out += 64;
+
+void blake3_hasher_update(blake3_hasher *self, const void *input, size_t input_len) {
+    const uint8_t *p = (const uint8_t *)input;
+    while (input_len > 0) {
+        if (self->buf_len == BLAKE3_BLOCK_LEN) {
+            blake3_compress_in_place_portable(self->cv, self->buf, BLAKE3_BLOCK_LEN, self->chunk_counter, self->flags);
+            self->buf_len = 0;
+            self->blocks_compressed++;
+        }
+        size_t take = BLAKE3_BLOCK_LEN - self->buf_len;
+        if (take > input_len) take = input_len;
+        memcpy(self->buf + self->buf_len, p, take);
+        p += take; self->buf_len += (uint8_t)take; input_len -= take;
     }
 }
-void blake3_hash_many(const uint8_t *const *inputs, size_t num_inputs, size_t blocks, const uint32_t key[8], uint64_t counter, bool increment_counter, uint8_t flags, uint8_t flags_start, uint8_t flags_end, uint8_t *out) {
-    blake3_hash_many_portable(inputs, num_inputs, blocks, key, counter, increment_counter, flags, flags_start, flags_end, out);
+
+void blake3_hasher_finalize(const blake3_hasher *self, uint8_t *out, size_t out_len) {
+    uint32_t cv[8]; memcpy(cv, self->cv, 32);
+    uint8_t flags = self->flags | 0x08; // ROOT flag simplified
+    blake3_compress_in_place_portable(cv, self->buf, self->buf_len, self->chunk_counter, flags);
+    for (int i = 0; i < 8; i++) store32(out + i * 4, cv[i]);
 }
-size_t blake3_simd_degree(void) { return 1; }

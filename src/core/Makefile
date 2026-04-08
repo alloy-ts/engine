@@ -7,10 +7,8 @@ MQJS_OBJS=../../packages/mquickjs/mquickjs.o \
           ../../packages/mquickjs/libm.o \
           ../../packages/mquickjs/cutils.o
 
-# WebView source (compiling it directly since we don't have a prebuilt lib)
-WEBVIEW_SRC=../../packages/webview/core/src/webview.cc
-# For headless/linux we might need specific flags, but let's try a simple approach
-WEBVIEW_FLAGS=-DWEBVIEW_GTK=1 $(shell pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.0 2>/dev/null)
+# WebView source (mocking for headless tests in sandbox)
+WEBVIEW_MOCK_SRC=backend_adapters/webview_mock.c
 
 all: test_engine
 
@@ -29,7 +27,25 @@ webviewjs_bridge.o: backend_adapters/webviewjs_bridge.c
 blake3.o: blake3/blake3.c blake3/blake3.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test_engine: test_engine.o engine.o ipc.o mqjs_bridge.o webviewjs_bridge.o blake3.o $(MQJS_OBJS)
+os_process.o: os_process.c os_process.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+capability.o: capability.c capability.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+wasi_filesystem.o: wasi/wasi_filesystem.c wasi/wasi_filesystem.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+wasi_http.o: wasi/wasi_http.c wasi/wasi_http.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+gui_common.o: gui/gui_common.c gui/gui.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+webview_mock.o: backend_adapters/webview_mock.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+test_engine: test_engine.o engine.o ipc.o mqjs_bridge.o webviewjs_bridge.o blake3.o os_process.o capability.o wasi_filesystem.o wasi_http.o gui_common.o webview_mock.o $(MQJS_OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 test_engine.o: test_engine.c engine.h

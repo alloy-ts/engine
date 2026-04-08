@@ -43,9 +43,10 @@ struct AlloyJSEngine {
 #define alloy_engine_eval(e, src, file, out)    (e)->eval_fn(e, src, file, out)
 #define alloy_engine_bind(e, name, fn, opaque)  (e)->bind_fn(e, name, fn, opaque)
 #define alloy_engine_emit(e, ev, payload)       (e)->emit_fn(e, ev, payload)
-#define alloy_engine_destroy(e)                 (e)->destroy_fn(e)
+#define alloy_js_engine_destroy(e)              (e)->destroy_fn(e)
 
-AlloyJSEngine *alloy_mqjs_engine_create(JSContext *ctx, void *rt);
-AlloyJSEngine *alloy_webview_engine_create(webview_t w, void *rt);
+/* Factory functions are declared without webview_t to avoid circular dependency if webview/webview.h is not included */
+AlloyJSEngine *alloy_mqjs_engine_create(void *ctx, void *rt);
+AlloyJSEngine *alloy_webview_engine_create(void *w, void *rt);
 
 #endif

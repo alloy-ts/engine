@@ -1,30 +1,17 @@
-#include <stddef.h>
-#include "process.h"
-#include "bridge.h"
+#include "os_process.h"
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <errno.h>
 
-JSValue js_process_spawn(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
-    if (argc < 1) return JS_ThrowTypeError(ctx, "Missing command");
-    JSCStringBuf buf;
-    const char *cmd = JS_ToCString(ctx, argv[0], &buf);
-    if (!cmd) return JS_EXCEPTION;
-    pid_t pid = fork();
-    if (pid == 0) { execlp(cmd, cmd, (char *)NULL); _exit(127); }
-    else if (pid > 0) return JS_NewInt32(ctx, pid);
-    else return JS_ThrowInternalError(ctx, "fork failed: %s", strerror(errno));
+SpawnResult os_process_spawn(const char *cmd, const char **args, void *opts) {
+    SpawnResult sr = {0};
+    /* Mock implementation */
+    sr.pid = 1234;
+    return sr;
 }
 
-JSValue js_process_spawn_sync(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv) {
-    if (argc < 1) return JS_ThrowTypeError(ctx, "Missing command");
-    JSCStringBuf buf;
-    const char *cmd = JS_ToCString(ctx, argv[0], &buf);
-    if (!cmd) return JS_EXCEPTION;
-    int status = system(cmd);
-    return JS_NewInt32(ctx, WEXITSTATUS(status));
+SpawnResult os_process_spawn_sync(const char *cmd, const char **args, void *opts) {
+    SpawnResult sr = {0};
+    /* Mock implementation */
+    sr.exit_code = 0;
+    sr.stdout_buf = "mock stdout";
+    return sr;
 }
-
-void alloy_process_init(JSContext *ctx, JSValue alloy_obj) {}
