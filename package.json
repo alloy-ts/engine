@@ -21,6 +21,11 @@
 		"transpile": "bun run transpile:bootstrap && bun run transpile:shims"
 	},
 	"devDependencies": {
+		"@babel/core": "^7.29.0",
+		"@babel/generator": "^7.29.1",
+		"@babel/template": "^7.28.6",
+		"@babel/traverse": "^7.29.0",
+		"@babel/types": "^7.29.0",
 		"@biomejs/biome": "^2.4.5",
 		"@types/bun": "latest"
 	},
