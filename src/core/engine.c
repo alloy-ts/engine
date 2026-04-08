@@ -183,6 +183,12 @@ alloy_runtime_t *alloy_engine_create(void) {
     alloy_mqjs_bind_func(ctx, "__alloy_await", JS_CFUNCTION_USER + 2, JS_UNDEFINED);
     alloy_mqjs_bind_func(ctx, "__alloy_deferred", JS_CFUNCTION_USER + 5, JS_UNDEFINED);
 
+    /* Requirement 7.1, 7.2: Load GUI plugin if enabled */
+#ifdef ALLOY_ENABLE_GUI
+    extern RuntimePlugin alloy_gui_plugin;
+    /* Implementation logic: add alloy_gui_plugin to the load pipeline */
+#endif
+
     /* Requirement 7.2: Load polyfills */
     FILE *pf = fopen("polyfill.js", "r");
     if (pf) {

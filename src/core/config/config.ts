@@ -190,6 +190,8 @@ export interface AlloyConfig {
 	plugins?: (string | PluginEntry)[];
 	// Plugin-defined config sections — keyed by plugin name
 	pluginConfigs?: Record<string, Record<string, unknown>>;
+
+	noGuiAPI?: boolean; // Requirement 1.4: Build-flag gating
 }
 
 export const BUILTIN_DEFAULTS: AlloyConfig = {
@@ -231,6 +233,7 @@ export const BUILTIN_DEFAULTS: AlloyConfig = {
 	run: {
 		silent: false,
 	},
+	noGuiAPI: false,
 };
 
 export const DEFAULTS_LOCAL: AlloyConfig = {
