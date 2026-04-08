@@ -1,5 +1,6 @@
 import { Transpiler } from "../core/transpiler";
 import { run, ShellError, CapabilityError } from "../core/shell";
+import { runBuildPipeline } from "./build_pipeline";
 import { join, basename, extname, resolve, dirname } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,8 +17,14 @@ export interface CompileOptions {
 async function transpileInput(inputPath: string): Promise<string> {
   let source = await Bun.file(inputPath).text();
 
-  // Call on_parse equivalent (Bun macro logic would go here)
-  // For now, this is a placeholder for the transform step.
+  const ctx = {
+    filename: inputPath,
+    debug: false,
+    target: "desktop" as const
+  };
+
+  // Run build-time pipeline (Stage 2 + 3)
+  source = await runBuildPipeline(source, ctx);
 
   const loader =
     inputPath.endsWith(".tsx") ? "tsx" :

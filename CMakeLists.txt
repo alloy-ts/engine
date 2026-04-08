@@ -155,11 +155,16 @@ set(ALLOY_CORE_SOURCES
     ${SRC_CORE}/ipc_channel.c
     ${SRC_CORE}/event_loop.c
     ${SRC_CORE}/embedded_js.c
+    ${SRC_CORE}/async_bridge.c
+    ${SRC_CORE}/plugins/async/async_plugin.c
+    ${SRC_CORE}/plugin_registry.c
+    ${SRC_CORE}/blob_loader.c
     ${SRC_CORE}/mqjs_compat.c
     ${SRC_CORE}/backend_adapters/mqjs_adapter.c
     ${SRC_CORE}/plugins/config/config_plugin.c
     ${SRC_CORE}/crypto/x25519.c
     ${SRC_CORE}/crypto/xchacha20poly1305.c
+    ${SRC_CORE}/crypto/ed25519.c
     ${SRC_WEB}/urn.c
     ${SRC_WEB}/did.c
 )
@@ -290,6 +295,11 @@ if(ALLOY_ENABLE_GUI)
     target_link_libraries(alloy_test_gui_props PRIVATE alloy_core)
     add_test(NAME gui_property_tests COMMAND alloy_test_gui_props)
 endif()
+
+# ── Tools ────────────────────────────────────────────────────────────────────
+add_executable(alloyc_compile src/tools/alloyc_compile.c)
+target_include_directories(alloyc_compile PRIVATE ${MQJS_DIR} ${SODIUM_INCLUDE})
+target_link_libraries(alloyc_compile PRIVATE ${SODIUM_LIB})
 
 # ── Install ──────────────────────────────────────────────────────────────────
 install(TARGETS alloy_host DESTINATION bin)

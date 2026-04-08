@@ -50,23 +50,28 @@ typedef struct {
 static void gui_dispatch_event(GuiPluginState *st, const char *event_json) {
     /* Invoke global handlers */
     for (int i = 0; i < st->handler_count; i++) {
-        st->handlers[i].fn(st->engine, event_json, st->handlers[i].ud);
+        alloy_engine_call(st->engine, (char *)st->handlers[i].ud, event_json);
     }
 
     /* Route to window-specific callbacks */
     int win_id = -1;
-    char type[64];
-    if (sscanf(event_json, "{\"type\":\"%[^\"]\",\"windowId\":%d", type, &win_id) == 2) {
-        if (win_id > 0 && win_id <= st->window_count) {
-            WindowEntry *w = &st->windows[win_id-1];
-            char *ref = NULL;
-            if (strcmp(type, "created") == 0) ref = w->callbacks.on_init_ref;
-            else if (strcmp(type, "resized") == 0) ref = w->callbacks.on_resize_ref;
-            else if (strcmp(type, "closed") == 0) ref = w->callbacks.on_close_ref;
+    char type[64] = {0};
+    // Very basic parsing for windowId
+    const char *pw = strstr(event_json, "\"windowId\":");
+    const char *pt = strstr(event_json, "\"type\":\"");
+    if (pw && pt) {
+        sscanf(pw, "\"windowId\":%d", &win_id);
+        sscanf(pt + 8, "%63[^\"]", type);
+    }
+    if (win_id > 0 && win_id <= st->window_count) {
+        WindowEntry *w = &st->windows[win_id-1];
+        char *ref = NULL;
+        if (strcmp(type, "created") == 0) ref = w->callbacks.on_init_ref;
+        else if (strcmp(type, "resized") == 0) ref = w->callbacks.on_resize_ref;
+        else if (strcmp(type, "closed") == 0) ref = w->callbacks.on_close_ref;
 
-            if (ref && ref[0]) {
-                alloy_engine_call(st->engine, ref, event_json);
-            }
+        if (ref && ref[0]) {
+            alloy_engine_call(st->engine, ref, event_json);
         }
     }
 }
@@ -86,39 +91,118 @@ static void *gui_ipc_reader_thread(void *arg) {
 
 /* ── C Bridge Functions ──────────────────────────────────────────────────── */
 
-static char *gui_bridge_request_cap(AlloyJSEngine *eng, const char *args_json, void *ud) {
-    GuiPluginState *st = (GuiPluginState *)ud;
-    /* args_json: [resource, perms_json, scopes_json] */
-    char res[256], perms_json[512], scopes_json[512];
-    if (sscanf(args_json, "[\"%[^\"]\", %[^,], %[^]]]", res, perms_json, scopes_json) < 1) {
+static char *gui_bridge_request_cap(const char *name, const char *args_json, void *userdata) {
+    GuiPluginState *st = (GuiPluginState *)userdata;
+    /* args_json: [resource, perms_array, scopes_array] */
+
+    char *res = NULL;
+    char *perms_json = NULL;
+
+    // Very basic JSON array parsing for the prototype
+    const char *p = args_json;
+    if (*p == '[') p++;
+    if (*p == '"') {
+        p++;
+        const char *end = strchr(p, '"');
+        if (end) {
+            size_t len = (size_t)(end - p);
+            res = malloc(len + 1);
+            memcpy(res, p, len);
+            res[len] = '\0';
+            p = end + 1;
+        }
+    }
+
+    while (*p && *p != ',') p++;
+    if (*p == ',') p++;
+
+    // perms_array
+    if (*p == '[') {
+        const char *start = p;
+        int depth = 1;
+        p++;
+        while (*p && depth > 0) {
+            if (*p == '[') depth++;
+            else if (*p == ']') depth--;
+            p++;
+        }
+        size_t len = (size_t)(p - start);
+        perms_json = malloc(len + 1);
+        memcpy(perms_json, start, len);
+        perms_json[len] = '\0';
+    }
+
+    if (!res || !perms_json) {
+        free(res); free(perms_json);
         return strdup("{\"error\":\"invalid_args\"}");
     }
 
-    /* Simplified permission mapping for now */
     uint32_t perms = 0;
     if (strstr(perms_json, "create")) perms |= ALLOY_UI_PERM_WINDOW_CREATE | ALLOY_UI_PERM_CONTROL_CREATE;
     if (strstr(perms_json, "close"))  perms |= ALLOY_UI_PERM_WINDOW_CLOSE;
 
     char *cap_id = alloy_cap_issue(st->cap_store, res, perms, NULL, 0);
-    char buf[128];
-    snprintf(buf, sizeof(buf), "\"%s\"", cap_id);
+    char *buf = NULL;
+    asprintf(&buf, "\"%s\"", cap_id);
     free(cap_id);
-    return strdup(buf);
+    free(res);
+    free(perms_json);
+    return buf;
 }
 
 static bool validate_dimensions(int w, int h) {
     return w >= 1 && w <= 32767 && h >= 1 && h <= 32767;
 }
 
-static char *gui_bridge_create_window(AlloyJSEngine *eng, const char *args_json, void *ud) {
-    GuiPluginState *st = (GuiPluginState *)ud;
-    /* args_json: [opts_json, cap_id] */
-    char opts_json[1024], cap_id[128];
-    if (sscanf(args_json, "[%[^,], \"%[^\"]\"]", opts_json, cap_id) < 2) {
+static char *gui_bridge_create_window(const char *name, const char *args_json, void *userdata) {
+    GuiPluginState *st = (GuiPluginState *)userdata;
+    /* args_json: [opts_obj, cap_id] */
+
+    char *opts_json = NULL;
+    char *cap_id = NULL;
+
+    const char *p = args_json;
+    if (*p == '[') p++;
+
+    // opts_obj
+    if (*p == '{') {
+        const char *start = p;
+        int depth = 1;
+        p++;
+        while (*p && depth > 0) {
+            if (*p == '{' || *p == '[') depth++;
+            else if (*p == '}' || *p == ']') depth--;
+            p++;
+        }
+        size_t len = (size_t)(p - start);
+        opts_json = malloc(len + 1);
+        memcpy(opts_json, start, len);
+        opts_json[len] = '\0';
+    }
+
+    while (*p && *p != ',') p++;
+    if (*p == ',') p++;
+    while (*p && *p == ' ') p++;
+
+    // cap_id
+    if (*p == '"') {
+        p++;
+        const char *end = strchr(p, '"');
+        if (end) {
+            size_t len = (size_t)(end - p);
+            cap_id = malloc(len + 1);
+            memcpy(cap_id, p, len);
+            cap_id[len] = '\0';
+        }
+    }
+
+    if (!opts_json || !cap_id) {
+        free(opts_json); free(cap_id);
         return strdup("{\"error\":\"invalid_args\"}");
     }
 
     if (!alloy_cap_validate(st->cap_store, cap_id, "ui:window", ALLOY_UI_PERM_WINDOW_CREATE, NULL)) {
+        free(opts_json); free(cap_id);
         return strdup("{\"error\":\"capability_denied\"}");
     }
 
@@ -130,41 +214,61 @@ static char *gui_bridge_create_window(AlloyJSEngine *eng, const char *args_json,
     if (ph) sscanf(ph, "\"height\":%d", &h);
 
     if (!validate_dimensions(w, h)) {
+        free(opts_json); free(cap_id);
         return strdup("{\"error\":\"invalid_dimensions\"}");
     }
 
-    if (st->window_count >= 16) return strdup("{\"error\":\"too_many_windows\"}");
+    if (st->window_count >= 16) {
+        free(opts_json); free(cap_id);
+        return strdup("{\"error\":\"too_many_windows\"}");
+    }
 
     int win_id = ++st->window_count;
     st->windows[win_id-1].handle_id = win_id;
 
-    char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "{\"cmd\":\"create_window\",\"windowId\":%d,\"opts\":%s}", win_id, opts_json);
+    char *cmd = NULL;
+    asprintf(&cmd, "{\"cmd\":\"create_window\",\"windowId\":%d,\"opts\":%s}", win_id, opts_json);
     alloy_ipc_send(st->gui_ipc, ALLOY_MSG_GUI_COMMAND, (uint8_t*)cmd, strlen(cmd), cap_id);
+    free(cmd);
 
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%d", win_id);
-    return strdup(buf);
+    char *buf = NULL;
+    asprintf(&buf, "%d", win_id);
+    free(opts_json); free(cap_id);
+    return buf;
 }
 
-static char *gui_bridge_close_window(AlloyJSEngine *eng, const char *args_json, void *ud) {
-    GuiPluginState *st = (GuiPluginState *)ud;
+static char *gui_bridge_close_window(const char *name, const char *args_json, void *userdata) {
+    (void)name; (void)args_json; (void)userdata;
     return strdup("true");
 }
 
-static char *gui_bridge_add_control(AlloyJSEngine *eng, const char *args_json, void *ud) {
-    GuiPluginState *st = (GuiPluginState *)ud;
+static char *gui_bridge_add_control(const char *name, const char *args_json, void *userdata) {
+    (void)name; (void)args_json; (void)userdata;
     return strdup("1");
 }
 
-static char *gui_bridge_set_layout(AlloyJSEngine *eng, const char *args_json, void *ud) {
-    GuiPluginState *st = (GuiPluginState *)ud;
+static char *gui_bridge_set_layout(const char *name, const char *args_json, void *userdata) {
+    (void)name; (void)args_json; (void)userdata;
     return strdup("true");
 }
 
-static char *gui_bridge_on_event(AlloyJSEngine *eng, const char *args_json, void *ud) {
-    GuiPluginState *st = (GuiPluginState *)ud;
-    /* In a real implementation, we'd store the JS function reference */
+static char *gui_bridge_on_event(const char *name, const char *args_json, void *userdata) {
+    GuiPluginState *st = (GuiPluginState *)userdata;
+    /* args_json: [handler_fn, window_id] */
+
+    char handler_ref[64] = {0};
+    int win_id = -1;
+
+    if (sscanf(args_json, "[\"%63[^\"]\", %d]", handler_ref, &win_id) < 1) {
+        return strdup("{\"error\":\"invalid_args\"}");
+    }
+
+    if (st->handler_count < 64) {
+        st->handlers[st->handler_count].window_id = win_id;
+        st->handlers[st->handler_count].ud = strdup(handler_ref);
+        st->handler_count++;
+    }
+
     return strdup("true");
 }
 
@@ -202,12 +306,12 @@ static int gui_on_init(RuntimePlugin *plugin, AlloyJSEngine *eng) {
     }
 
     /* 3. Bind bridges */
-    alloy_engine_bind_fn(eng, "__alloy_ui_request_cap", gui_bridge_request_cap, st);
-    alloy_engine_bind_fn(eng, "__alloy_ui_create_window", gui_bridge_create_window, st);
-    alloy_engine_bind_fn(eng, "__alloy_ui_close_window", gui_bridge_close_window, st);
-    alloy_engine_bind_fn(eng, "__alloy_ui_add_control", gui_bridge_add_control, st);
-    alloy_engine_bind_fn(eng, "__alloy_ui_set_layout", gui_bridge_set_layout, st);
-    alloy_engine_bind_fn(eng, "__alloy_ui_on_event", gui_bridge_on_event, st);
+    alloy_engine_bind(eng, "__alloy_ui_request_cap", gui_bridge_request_cap, st);
+    alloy_engine_bind(eng, "__alloy_ui_create_window", gui_bridge_create_window, st);
+    alloy_engine_bind(eng, "__alloy_ui_close_window", gui_bridge_close_window, st);
+    alloy_engine_bind(eng, "__alloy_ui_add_control", gui_bridge_add_control, st);
+    alloy_engine_bind(eng, "__alloy_ui_set_layout", gui_bridge_set_layout, st);
+    alloy_engine_bind(eng, "__alloy_ui_on_event", gui_bridge_on_event, st);
 
     /* 4. Eval shims */
     char *r = alloy_engine_eval(eng, __alloy_gui_shims_js, "<gui_shims>");
