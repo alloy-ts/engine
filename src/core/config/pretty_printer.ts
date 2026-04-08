@@ -4,14 +4,25 @@ import * as TOML from "@iarna/toml";
 
 export class PrettyPrinter {
 	print(config: AlloyConfig): string {
-		// TOML.stringify doesn't guarantee the order or specific formatting requested
-		// but for a production-ready implementation, it's a good start.
-		// A more advanced pretty printer would handle comments and specific section ordering.
+		// Clean up undefined values to avoid empty keys in TOML
+		const clean = (obj: any): any => {
+			if (Array.isArray(obj)) return obj.map(clean);
+			if (obj !== null && typeof obj === "object") {
+				const newObj: any = {};
+				for (const [key, value] of Object.entries(obj)) {
+					if (value !== undefined) {
+						newObj[key] = clean(value);
+					}
+				}
+				return newObj;
+			}
+			return obj;
+		};
 
-		// Deep clone and clean up undefined values to avoid empty sections if possible,
-		// though TOML.stringify usually handles this.
-		const cleanConfig = JSON.parse(JSON.stringify(config));
+		const cleanedConfig = clean(config);
 
-		return TOML.stringify(cleanConfig);
+		// TOML.stringify handles basic TOML v1.0.
+		// For Requirement 7.7, it should guarantee round-trip deep-equality.
+		return TOML.stringify(cleanedConfig);
 	}
 }

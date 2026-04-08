@@ -1,7 +1,6 @@
 // src/core/config/validator.ts
-import { AlloyConfigSchema } from "./schema";
-import type { AlloyConfig } from "./config";
-import type { ZodError } from "zod";
+import { AlloyConfigSchema, PluginConfigEntrySchema } from "./schema";
+import type { AlloyConfig, PluginConfigSchema } from "./config";
 
 export interface ValidationError {
 	kind: "type_error" | "cross_field_error";
@@ -12,7 +11,7 @@ export interface ValidationError {
 }
 
 export interface ValidationWarning {
-	kind: "unknown_key";
+	kind: "unknown_key" | "cross_field_warning";
 	filePath: string;
 	line: number | null;
 	fieldPath: string;
@@ -30,28 +29,20 @@ export class ConfigValidator {
 		const errors: ValidationError[] = [];
 		const warnings: ValidationWarning[] = [];
 
-		// Check for unknown keys
-		this.checkUnknownKeys(raw, AlloyConfigSchema.shape, "", filePath, warnings);
+		// Check for unknown keys (Phase 1: defer [plugins.*])
+		this.checkUnknownKeys(raw, AlloyConfigSchema.shape, "", filePath, warnings, true);
 
 		// Zod validation for types
 		const result = AlloyConfigSchema.safeParse(raw);
 		if (!result.success) {
-			let zodErrors = (result as any).error.errors;
-			if (!zodErrors && (result as any).error.message) {
-				try {
-					zodErrors = JSON.parse((result as any).error.message);
-				} catch (e) {}
-			}
-			if (zodErrors) {
-				for (const error of zodErrors) {
-					errors.push({
-						kind: "type_error",
-						filePath,
-						line: null, // TOML parser might provide this, but Zod doesn't directly
-						fieldPath: error.path.join("."),
-						message: error.message,
-					});
-				}
+			for (const error of result.error.errors) {
+				errors.push({
+					kind: "type_error",
+					filePath,
+					line: null,
+					fieldPath: error.path.join("."),
+					message: error.message,
+				});
 			}
 		}
 
@@ -72,17 +63,66 @@ export class ConfigValidator {
 		};
 	}
 
+	validatePluginConfigs(
+		pluginConfigs: Record<string, Record<string, unknown>>,
+		registeredSchemas: Map<string, PluginConfigSchema>,
+		filePath: string,
+	): ValidationResult {
+		const errors: ValidationError[] = [];
+		const warnings: ValidationWarning[] = [];
+
+		for (const [pluginName, config] of Object.entries(pluginConfigs)) {
+			const schema = registeredSchemas.get(pluginName);
+			if (!schema) {
+				warnings.push({
+					kind: "cross_field_warning",
+					filePath,
+					line: null,
+					fieldPath: `plugins.${pluginName}`,
+					message: `[plugins.${pluginName}] section has no effect — plugin "${pluginName}" is not loaded`,
+				});
+				continue;
+			}
+
+			for (const [key, value] of Object.entries(config)) {
+				const entrySchema = schema.configs[key];
+				if (!entrySchema) {
+					warnings.push({
+						kind: "unknown_key",
+						filePath,
+						line: null,
+						fieldPath: `plugins.${pluginName}.${key}`,
+						message: `unknown plugin config key "plugins.${pluginName}.${key}" — not declared by plugin "${pluginName}"; ignored`,
+					});
+				} else {
+					// Optionally validate type of value against entrySchema.default's type
+					// but requirement 21.4 only mentions unknown keys.
+				}
+			}
+		}
+
+		return {
+			errors,
+			warnings,
+			valid: errors.length === 0,
+		};
+	}
+
 	private checkUnknownKeys(
 		obj: any,
 		shape: any,
 		prefix: string,
 		filePath: string,
 		warnings: ValidationWarning[],
+		deferPlugins: boolean,
 	) {
 		if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return;
 
 		for (const key in obj) {
 			const fullPath = prefix ? `${prefix}.${key}` : key;
+
+			if (deferPlugins && fullPath === "pluginConfigs") continue;
+
 			if (!(key in shape)) {
 				warnings.push({
 					kind: "unknown_key",
@@ -93,18 +133,18 @@ export class ConfigValidator {
 				});
 			} else {
 				const nestedShape = shape[key];
-				// Simple heuristic for nested objects in Zod
 				let shapeToUse: any = null;
-				if (nestedShape && nestedShape._def && nestedShape._def.shape) {
-					shapeToUse = nestedShape._def.shape;
-				} else if (
-					nestedShape &&
-					nestedShape._def &&
-					nestedShape._def.innerType &&
-					nestedShape._def.innerType._def &&
-					nestedShape._def.innerType._def.shape
-				) {
-					shapeToUse = nestedShape._def.innerType._def.shape;
+
+				if (nestedShape && nestedShape._def) {
+					const def = nestedShape._def;
+					if (def.shape) {
+						shapeToUse = def.shape;
+					} else if (def.innerType && def.innerType._def && def.innerType._def.shape) {
+						shapeToUse = def.innerType._def.shape;
+					} else if (def.schema && def.schema._def && def.schema._def.shape) {
+						// For union or similar
+						shapeToUse = def.schema._def.shape;
+					}
 				}
 
 				if (shapeToUse) {
@@ -116,6 +156,7 @@ export class ConfigValidator {
 						fullPath,
 						filePath,
 						warnings,
+						deferPlugins,
 					);
 				}
 			}
@@ -131,7 +172,7 @@ export class ConfigValidator {
 		// 1. test.seed set but test.randomize !== true
 		if (config.test?.seed !== undefined && config.test?.randomize !== true) {
 			warnings.push({
-				kind: "unknown_key", // The doc doesn't specify a "kind" for this warning, but using unknown_key for consistency or we could add cross_field_warning
+				kind: "cross_field_warning",
 				filePath,
 				line: null,
 				fieldPath: "test.seed",
@@ -176,6 +217,6 @@ export class ConfigValidator {
 			}
 		}
 
-		// 5. disableWasmEdge is not a boolean -> handled by Zod
+		// 5. disableWasmEdge non-boolean is handled by Zod
 	}
 }

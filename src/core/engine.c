@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "plugin.h"
 #include "mqjs_stdlib.h"
 #include "ipc.h"
 #include "browser_api_table.h"
@@ -181,6 +182,11 @@ alloy_runtime_t *alloy_engine_create(void) {
         JS_Eval(ctx, pjs, ps, "polyfill.js", 0);
         free(pjs); fclose(pf);
     }
+
+    /* Load core plugins in fixed order: alloy:ffi → alloy:config → alloy:shell */
+    /* Requirement 19.1: alloy:config loads first */
+    extern RuntimePlugin alloy_config_plugin;
+    alloy_config_plugin.on_init(rt);
 
     JS_FreeValue(ctx, global_obj);
     return rt;
