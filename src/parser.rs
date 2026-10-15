@@ -38,10 +38,15 @@ use oxc_span::SourceType;
 /// for that option.
 #[napi(object)]
 pub struct ParseOptions {
+  #[napi(js_name = "parse_regular_expression")]
   pub parse_regular_expression: Option<bool>,
+  #[napi(js_name = "allow_return_outside_function")]
   pub allow_return_outside_function: Option<bool>,
+  #[napi(js_name = "preserve_parens")]
   pub preserve_parens: Option<bool>,
+  #[napi(js_name = "allow_v8_intrinsics")]
   pub allow_v8_intrinsics: Option<bool>,
+  #[napi(js_name = "enable_ident_hashes")]
   pub enable_ident_hashes: Option<bool>,
 }
 
@@ -172,18 +177,31 @@ impl Parser {
   /// Unlike [`Parser::parser`], a syntax error here is a hard failure: the method
   /// throws (with the diagnostic messages joined) rather than returning an
   /// `errors` array.
-  #[napi]
-  pub fn parse_expression(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
-    let result = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
+  #[napi(js_name = "parse_expression")]
+  pub fn parse_expression(&self, env: &napi::Env, options: Option<ParseOptions>) -> NapiResult<Value> {
+    let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
-      .parse_expression();
+      .parse();
 
-    match result {
-      Ok(expr) => estree_to_value(&expr),
-      Err(diagnostics) => {
-        let errors = diagnostics_to_strings(&diagnostics);
-        Err(Error::from_reason(errors.join("\n")))
+    if !ret.diagnostics.is_empty() {
+      let errors = diagnostics_to_strings(&ret.diagnostics);
+      let msg = errors.join("\n");
+      env.throw_error(&msg, None)?;
+      return Err(Error::from_reason(msg));
+    }
+
+    if let Some(oxc_ast::ast::Statement::ExpressionStatement(stmt)) = ret.program.body.first() {
+      use oxc_span::GetSpan;
+      if (stmt.expression.span().end as usize) < self.source_text.trim_end().len() {
+        let msg = "Unexpected token";
+        env.throw_error(msg, None)?;
+        return Err(Error::from_reason(msg));
       }
+      estree_to_value(&stmt.expression)
+    } else {
+      let msg = "Failed to parse expression";
+      env.throw_error(msg, None)?;
+      Err(Error::from_reason(msg))
     }
   }
 }
