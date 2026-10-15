@@ -1,12 +1,10 @@
 
 use napi_derive::napi;
 
-pub mod future;
 pub mod engine;
 pub mod global;
 pub mod parser;
-mod poll;
-mod result;
+pub mod poll;
 
 #[napi]
 pub fn add(left: i32, right: i32) -> i32 {
