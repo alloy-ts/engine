@@ -22,9 +22,10 @@
 //! the generated `.d.ts` can hand JS a real object rather than a raw string.
 
 use napi::bindgen_prelude::Result as NapiResult;
+use napi::bindgen_prelude::*;
 use napi::Error;
 use napi_derive::napi;
-use serde_json::{json, Value};
+use serde_json::{json, Value as SerdeValue};
 
 use oxc_allocator::Allocator;
 use oxc_estree::{CompactSerializer, ESTree};
@@ -38,10 +39,15 @@ use oxc_span::SourceType;
 /// for that option.
 #[napi(object)]
 pub struct ParseOptions {
+  #[napi(js_name = "parse_regular_expression")]
   pub parse_regular_expression: Option<bool>,
+  #[napi(js_name = "allow_return_outside_function")]
   pub allow_return_outside_function: Option<bool>,
+  #[napi(js_name = "preserve_parens")]
   pub preserve_parens: Option<bool>,
+  #[napi(js_name = "allow_v8_intrinsics")]
   pub allow_v8_intrinsics: Option<bool>,
+  #[napi(js_name = "enable_ident_hashes")]
   pub enable_ident_hashes: Option<bool>,
 }
 
@@ -82,7 +88,7 @@ fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
 }
 
 /// Serialize an ESTree-serializable AST node into a `serde_json::Value`.
-fn estree_to_value<T: ESTree>(node: &T) -> NapiResult<Value> {
+fn estree_to_value<T: ESTree>(node: &T) -> NapiResult<SerdeValue> {
   let mut serializer = CompactSerializer::new(false, false);
   node.serialize(&mut serializer);
   let json = serializer.into_string();
@@ -152,19 +158,20 @@ impl Parser {
   /// { program: unknown, errors: string[], fatalError: boolean, isFlowLanguage: boolean }
   /// ```
   #[napi]
-  pub fn parser(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
+  pub fn parser<'env>(&self, env: &'env Env, options: Option<ParseOptions>) -> NapiResult<Unknown<'env>> {
     let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
       .parse();
 
     let program = estree_to_value(&ret.program)?;
     let errors = diagnostics_to_strings(&ret.diagnostics);
-    Ok(json!({
+    let val = json!({
       "program": program,
       "errors": errors,
       "fatalError": ret.fatal_error,
       "isFlowLanguage": ret.is_flow_language,
-    }))
+    });
+    env.to_js_value(&val)
   }
 
   /// Parse a single `Expression` (ESTree JSON).
@@ -172,17 +179,21 @@ impl Parser {
   /// Unlike [`Parser::parser`], a syntax error here is a hard failure: the method
   /// throws (with the diagnostic messages joined) rather than returning an
   /// `errors` array.
-  #[napi]
-  pub fn parse_expression(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
+  #[napi(js_name = "parse_expression")]
+  pub fn parse_expression<'env>(&self, env: &'env Env, options: Option<ParseOptions>) -> NapiResult<Unknown<'env>> {
     let result = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
       .parse_expression();
 
     match result {
-      Ok(expr) => estree_to_value(&expr),
+      Ok(expr) => {
+        let val = estree_to_value(&expr)?;
+        env.to_js_value(&val)
+      }
       Err(diagnostics) => {
         let errors = diagnostics_to_strings(&diagnostics);
-        Err(Error::from_reason(errors.join("\n")))
+        env.throw_error(&errors.join("\n"), None)?;
+        Err(Error::from_status(Status::PendingException))
       }
     }
   }
