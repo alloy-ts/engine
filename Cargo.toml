@@ -7,12 +7,14 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "3", features = ["serde-json"] }
+futures-executor = { version = "0.3.34", features = ["thread-pool"] }
+napi = { version = "3", features = ["serde-json", "napi6"] }
 napi-derive = "3"
-oxc = "0.152.0"
+oxc = { version = "0.152.0", features = ["full"] }
 oxc_allocator = "0.152.0"
 oxc_ast = { version = "0.152.0", features = ["serialize"] }
 oxc_estree = { version = "0.152.0", features = ["serialize"] }
+oxc_napi = "0.152.0"
 oxc_parser = "0.152.0"
 oxc_span = "0.152.0"
 rocket = "0.5.1"

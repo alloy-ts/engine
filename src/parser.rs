@@ -59,7 +59,8 @@ fn default_oxc_parse_options() -> OxcParseOptions {
   }
 }
 
-fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
+/// Shared with [`crate::oxc`], which forwards the same napi options object.
+pub(crate) fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
   let mut opts = default_oxc_parse_options();
   if let Some(o) = options {
     if let Some(v) = o.parse_regular_expression {
@@ -82,7 +83,9 @@ fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
 }
 
 /// Serialize an ESTree-serializable AST node into a `serde_json::Value`.
-fn estree_to_value<T: ESTree>(node: &T) -> NapiResult<Value> {
+///
+/// Shared with [`crate::oxc`].
+pub(crate) fn estree_to_value<T: ESTree>(node: &T) -> NapiResult<Value> {
   let mut serializer = CompactSerializer::new(false, false);
   node.serialize(&mut serializer);
   let json = serializer.into_string();
