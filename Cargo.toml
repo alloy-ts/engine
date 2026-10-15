@@ -1,5 +1,5 @@
 [package]
-name = "alloy-server-native"
+name = "alloy-engine-native"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "3", features = ["serde-json"] }
+napi = { version = "3", features = ["serde-json", "napi3", "napi6"] }
 napi-derive = "3"
 oxc = "0.152.0"
 oxc_allocator = "0.152.0"
