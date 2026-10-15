@@ -4,16 +4,17 @@
  * Public exports are re-exported from `./main.ts` (the vite-plus pack entry),
  * so that is the single import point tests should use — never the `.node`.
  *
- *   - `add`     — `src/lib.rs`
- *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `add`      — `src/lib.rs`
+ *   - `Parser`   — `src/parser.rs`
+ *   - `Engine`   — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `Compiler` — `src/compiler.rs`
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
  * `js_name` override is set, so these tests call `create_array`, `has_global`,
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { add, Compiler, Engine, Parser } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -91,6 +92,19 @@ describe("napi: Parser", () => {
   });
 });
 
+describe("napi: Compiler", () => {
+  test("executes compilation on valid source text", () => {
+    let compiler = new Compiler();
+    const result = compiler.execute("const a = 1;", "ts", "index.ts");
+    expect(typeof result).toBe("string");
+  });
+
+  test("throws on invalid syntax during execution", () => {
+    let compiler = new Compiler();
+    expect(() => compiler.execute("const = ;", "ts", "index.ts")).toThrow();
+  });
+});
+
 describe("napi: Engine", () => {
   test("constructs without arguments (context injected by NAPI)", () => {
     const engine = new Engine();
@@ -146,5 +160,20 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+
+  test("throw_error throws a synchronous JavaScript Error", () => {
+    const engine = new Engine();
+    expect(() => engine.throw_error("custom error message", "ERR_CUSTOM")).toThrow("custom error message");
+  });
+
+  test("throw_range_error throws RangeError", () => {
+    const engine = new Engine();
+    expect(() => engine.throw_range_error("out of bounds", "ERR_RANGE")).toThrow(RangeError);
+  });
+
+  test("throw_type_error throws TypeError", () => {
+    const engine = new Engine();
+    expect(() => engine.throw_type_error("invalid type", "ERR_TYPE")).toThrow(TypeError);
   });
 });

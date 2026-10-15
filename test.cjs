@@ -12,6 +12,15 @@ test('CJS require: Engine', () => {
   assert.strictEqual(engine.create_string('hello'), 'hello');
 });
 
+test('CJS require: Engine error handling', () => {
+  const engine = new Engine();
+  assert.throws(() => engine.throw_error('custom error', 'ERR_CUSTOM'), {
+    message: 'custom error',
+  });
+  assert.throws(() => engine.throw_range_error('range error', 'ERR_RANGE'), RangeError);
+  assert.throws(() => engine.throw_type_error('type error', 'ERR_TYPE'), TypeError);
+});
+
 test('CJS require: Parser', () => {
   const parser = new Parser('const x = 1;');
   const res = parser.parser();
@@ -27,4 +36,9 @@ test('CJS require: Compiler execute', () => {
   const compiler = new Compiler();
   const output = compiler.execute('const x = 1;', 'ts', 'app.ts');
   assert.ok(typeof output === 'string');
+});
+
+test('CJS require: Compiler execute throws on invalid syntax', () => {
+  const compiler = new Compiler();
+  assert.throws(() => compiler.execute('const = ;', 'ts', 'app.ts'));
 });

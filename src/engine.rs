@@ -2,36 +2,33 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::ffi::CString;
-use std::os::raw::{c_char, c_void};
-use std::ptr;
 
 use napi::bindgen_prelude::{
   Error, JsObjectValue, Object, Result, Status, ToNapiValue, Unknown,
 };
-use napi::{sys, Env as NapiEngine, JsGlobal};
+use napi::{sys, Env};
 use napi_derive::napi;
 
-pub type Callback = unsafe extern "C" fn(sys::napi_engine, sys::napi_callback_info) -> sys::napi_value;
+pub type Callback = unsafe extern "C" fn(sys::napi_env, sys::napi_callback_info) -> sys::napi_value;
 
 pub(crate) static EMPTY_VEC: Vec<u8> = vec![];
 
 /// `Engine` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
 #[napi]
-pub struct Engine(NapiEngine, Arc<AtomicBool>);
+pub struct Engine(Env, Arc<AtomicBool>);
 
-impl From<NapiEngine> for Engine {
-  fn from(engine: NapiEngine) -> Self {
+impl From<Env> for Engine {
+  fn from(engine: Env) -> Self {
     let disposed = Arc::new(AtomicBool::new(false));
     Engine(engine, disposed)
   }
 }
 
-// Let's add NAPI bindings for NAPI engine
+// NAPI bindings for NAPI engine
 #[napi]
 impl Engine {
   #[napi(constructor)]
-  pub fn new(env: &NapiEngine) -> Result<Self> {
+  pub fn new(env: &Env) -> Result<Self> {
     let e = *env;
     let disposed = Arc::new(AtomicBool::new(false));
 
@@ -44,8 +41,8 @@ impl Engine {
   }
 
   #[napi(js_name = "from_raw")]
-  pub fn from_raw(env: &NapiEngine) -> Self {
-    Self::new(env).unwrap()
+  pub fn from_raw(env: &Env) -> Result<Self> {
+    Self::new(env)
   }
 
   /// Whether the context has been unloaded.
