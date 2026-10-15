@@ -1,4 +1,3 @@
-
 use std::path::Path;
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
