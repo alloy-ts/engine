@@ -10,7 +10,7 @@
  * module, and it returns the module's namespace object.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { Context, Loader, Engine } from "./main.ts";
+import { Context, Engine, Loader } from "./main.ts";
 
 describe("napi: Loader (registry)", () => {
   test("add / has / keys / remove / clear", () => {
@@ -72,14 +72,17 @@ describe("napi: Engine + Loader (module resolution)", () => {
     const rt = new Engine(loader);
     const ctx = rt.create_context();
 
-    ctx.eval_module('import { doubled } from "pkg/index"; globalThis.out = doubled;');
+    ctx.eval_module(
+      'import { doubled } from "pkg/index"; globalThis.out = doubled;',
+    );
     expect(ctx.eval("globalThis.out")).toBe(42);
   });
 
   test("throws when an imported module is missing", () => {
     const rt = new Engine(new Loader());
     const ctx = rt.create_context();
-    expect(() => ctx.eval_module('import { x } from "does-not-exist";')).toThrow();
+    expect(() => ctx.eval_module('import { x } from "does-not-exist";'))
+      .toThrow();
   });
 
   test("a loader added to one runtime does not leak to a standalone Context", () => {
@@ -90,6 +93,7 @@ describe("napi: Engine + Loader (module resolution)", () => {
 
     // A standalone Context has its own private runtime (no loader).
     const standalone = new Context();
-    expect(() => standalone.eval_module('import { v } from "secret";')).toThrow();
+    expect(() => standalone.eval_module('import { v } from "secret";'))
+      .toThrow();
   });
 });

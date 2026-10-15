@@ -32,7 +32,7 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const ctx = engine.create_context();
 /// const arr = engine.create_array(3);   // host N-API value
 /// ```
-#[napi(js_name = "Engine")]
+#[napi]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
     inner: QjsRuntime,
@@ -70,7 +70,7 @@ impl JsEngine {
     ///
     /// After this, `import` statements in any of this engine's contexts resolve
     /// through the given `Loader`.
-    #[napi(js_name = "set_loader")]
+    #[napi]
     pub fn set_loader(&self, loader: &JsLoader) -> napi::Result<()> {
         self.inner.set_loader(loader.resolver(), loader.loader());
         Ok(())
@@ -82,7 +82,7 @@ impl JsEngine {
     /// need several realms on one engine, or when you want the engine configured
     /// (memory limits, etc.) before any context exists. Objects may be shared
     /// between contexts minted from the same engine.
-    #[napi(js_name = "create_context")]
+    #[napi]
     pub fn create_context(&self) -> napi::Result<JsContext> {
         let inner = QjsContext::full(&self.inner).map_err(to_napi_err)?;
         Ok(JsContext::from_inner(inner))
@@ -105,7 +105,7 @@ impl JsEngine {
     ///
     /// Note: a no-op when a custom allocator is in use (the `rust-alloc` /
     /// `allocator` features — not enabled here).
-    #[napi(js_name = "set_memory_limit")]
+    #[napi]
     pub fn set_memory_limit(&self, limit: f64) -> napi::Result<()> {
         self.inner.set_memory_limit(limit as usize);
         Ok(())
@@ -113,21 +113,21 @@ impl JsEngine {
 
     /// Set a limit (in bytes) on the max stack size the engine will use.
     /// The QuickJS default is `256 * 1024`.
-    #[napi(js_name = "set_max_stack_size")]
+    #[napi]
     pub fn set_max_stack_size(&self, limit: f64) -> napi::Result<()> {
         self.inner.set_max_stack_size(limit as usize);
         Ok(())
     }
 
     /// Set the memory threshold (in bytes) that triggers garbage collection.
-    #[napi(js_name = "set_gc_threshold")]
+    #[napi]
     pub fn set_gc_threshold(&self, threshold: f64) -> napi::Result<()> {
         self.inner.set_gc_threshold(threshold as usize);
         Ok(())
     }
 
     /// Set the engine's informational string (visible in debugging tooling).
-    #[napi(js_name = "set_info")]
+    #[napi]
     pub fn set_info(&self, info: String) -> napi::Result<()> {
         self.inner.set_info(info).map_err(to_napi_err)
     }
@@ -135,7 +135,7 @@ impl JsEngine {
     /// Manually run garbage collection. Most QuickJS values are reference
     /// counted and free themselves automatically; the GC only collects cyclic
     /// references.
-    #[napi(js_name = "run_gc")]
+    #[napi]
     pub fn run_gc(&self) -> napi::Result<()> {
         self.inner.run_gc();
         Ok(())
@@ -143,7 +143,7 @@ impl JsEngine {
 
     /// Memory-usage statistics as a plain object (field names match QuickJS'
     /// `JSMemoryUsage`).
-    #[napi(js_name = "memory_usage")]
+    #[napi]
     pub fn memory_usage(&self) -> napi::Result<serde_json::Value> {
         let u = self.inner.memory_usage();
         Ok(json!({
@@ -177,7 +177,7 @@ impl JsEngine {
     }
 
     /// Whether at least one job (e.g. resolved promise callback) is pending.
-    #[napi(js_name = "is_job_pending")]
+    #[napi]
     pub fn is_job_pending(&self) -> napi::Result<bool> {
         Ok(self.inner.is_job_pending())
     }
@@ -185,7 +185,7 @@ impl JsEngine {
     /// Execute the first pending job. Returns `true` if a job ran, `false` if the
     /// queue was empty. Throws (as a JS exception carrying the job's error) if a
     /// job threw.
-    #[napi(js_name = "execute_pending_job")]
+    #[napi]
     pub fn execute_pending_job(&self) -> napi::Result<bool> {
         self.inner.execute_pending_job().map_err(|job_ex| {
             // `JobException` is a thin wrapper around the `Context` the job ran
@@ -210,7 +210,7 @@ impl JsEngine {
 /// alive — use [`JsWeakEngine::try_ref`] to try to re-acquire a strong handle.
 /// Once the engine and every context created from it are dropped, `try_ref`
 /// returns `null`.
-#[napi(js_name = "WeakEngine")]
+#[napi]
 pub struct JsWeakEngine {
     inner: QjsWeakRuntime,
     /// A copy of the host environment and the alive flag, so a promoted handle
@@ -223,7 +223,7 @@ pub struct JsWeakEngine {
 impl JsWeakEngine {
     /// Attempt to promote this weak handle back to a strong [`JsEngine`].
     /// Returns `null` if the engine has already been freed.
-    #[napi(js_name = "try_ref")]
+    #[napi]
     pub fn try_ref(&self) -> napi::Result<Option<JsEngine>> {
         Ok(self.inner.try_ref().map(|inner| JsEngine {
             inner,
@@ -247,13 +247,13 @@ impl JsWeakEngine {
 #[napi]
 impl JsEngine {
     /// Whether the owning addon (and thus this context) has been unloaded.
-    #[napi(js_name = "is_disposed")]
+    #[napi]
     pub fn is_disposed(&self) -> bool {
         self.alive.load(Ordering::SeqCst)
     }
 
     /// `Engine::create_array` — build a JS array of the requested length.
-    #[napi(js_name = "create_array")]
+    #[napi]
     pub fn create_array(&self, len: u32) -> napi::Result<Array<'_>> {
         self.ensure_alive()?;
         let mut raw_val = std::ptr::null_mut();
@@ -267,28 +267,28 @@ impl JsEngine {
     }
 
     /// `Engine::create_string` — build a JS string.
-    #[napi(js_name = "create_string")]
+    #[napi]
     pub fn create_string(&self, value: String) -> napi::Result<napi::JsString<'_>> {
         self.ensure_alive()?;
         self.env.create_string(&value)
     }
 
     /// `Engine::create_int32` — build a JS number from an `i32`.
-    #[napi(js_name = "create_int32")]
+    #[napi]
     pub fn create_int32(&self, int: i32) -> napi::Result<napi::JsNumber<'_>> {
         self.ensure_alive()?;
         self.env.create_int32(int)
     }
 
     /// `Engine::create_double` — build a JS number from an `f64`.
-    #[napi(js_name = "create_double")]
+    #[napi]
     pub fn create_double(&self, value: f64) -> napi::Result<napi::JsNumber<'_>> {
         self.ensure_alive()?;
         self.env.create_double(value)
     }
 
     /// Does the host global object have this property?
-    #[napi(js_name = "has_global")]
+    #[napi]
     pub fn has_global(&self, name: String) -> napi::Result<bool> {
         self.ensure_alive()?;
         let global = self.env.get_global()?;
@@ -296,14 +296,14 @@ impl JsEngine {
     }
 
     /// `Engine::get_napi_version` — the N-API version of the host runtime.
-    #[napi(js_name = "get_napi_version")]
+    #[napi]
     pub fn get_napi_version(&self) -> napi::Result<u32> {
         self.ensure_alive()?;
         self.env.get_napi_version()
     }
 
     /// `Object::new` through the host context.
-    #[napi(js_name = "make_object")]
+    #[napi]
     pub fn make_object(&self) -> napi::Result<Object<'_>> {
         self.ensure_alive()?;
         let mut obj = Object::new(&self.env)?;
@@ -313,14 +313,14 @@ impl JsEngine {
     }
 
     /// `Engine::set_instance_data` — persist host-level state on the Agent.
-    #[napi(js_name = "set_instance_data")]
+    #[napi]
     pub fn set_instance_data(&self, value: String) -> napi::Result<()> {
         self.ensure_alive()?;
         self.env.set_instance_data(value, (), |_ctx| {})
     }
 
     /// `Engine::get_instance_data` — read back the persisted host-level state.
-    #[napi(js_name = "get_instance_data")]
+    #[napi]
     pub fn get_instance_data(&self) -> napi::Result<Option<String>> {
         self.ensure_alive()?;
         Ok(self

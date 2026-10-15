@@ -12,7 +12,7 @@ use rquickjs::{
 static MODULE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
-fn to_napi_err(e: rquickjs::Error) -> Error {
+pub(crate) fn to_napi_err(e: rquickjs::Error) -> Error {
     Error::from_reason(e.to_string())
 }
 
@@ -21,7 +21,7 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// Data types (objects, arrays, numbers, strings, booleans, null) round-trip
 /// losslessly. Functions / symbols / promises are not JSON-representable and
 /// collapse to `null` for now (see module docs).
-fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonValue> {
+pub(crate) fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonValue> {
     use rquickjs::String as QjsString;
 
     match value.type_of() {
@@ -60,7 +60,7 @@ fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonVal
 /// const ctx = new Context();
 /// const v = ctx.eval("1 + 1"); // 2
 /// ```
-#[napi(js_name = "Context")]
+#[napi]
 pub struct JsContext {
     /// The embedded QuickJS context. It keeps its runtime alive for us.
     inner: QjsContext,
@@ -83,6 +83,16 @@ impl JsContext {
         JsContext { inner }
     }
 
+    /// A clone of the embedded QuickJS context.
+    ///
+    /// Cheap (a refcount bump) and keeps the realm — and the runtime behind
+    /// it — alive independently of this handle. Native values that must
+    /// outlive a single call (e.g. [`crate::Atom`]) hold one so they can
+    /// re-enter the context later.
+    pub(crate) fn clone_inner(&self) -> QjsContext {
+        self.inner.clone()
+    }
+
     /// Evaluate `source` as a global script and return the result as a JS value.
     ///
     /// Runs in QuickJS strict mode. Throws (as a JS exception) if the script
@@ -97,7 +107,7 @@ impl JsContext {
 
     /// Evaluate `source` as an ES module (`import` / `export` allowed) and return
     /// its namespace object as a JS value.
-    #[napi(js_name = "eval_module")]
+    #[napi]
     pub fn eval_module(&self, source: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
             let seq = MODULE_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -110,7 +120,7 @@ impl JsContext {
     }
 
     /// Parse `json` inside the embedded engine and return it as a JS value.
-    #[napi(js_name = "json_parse")]
+    #[napi]
     pub fn json_parse(&self, json: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
             let value = ctx.json_parse(json).map_err(to_napi_err)?;
@@ -119,7 +129,7 @@ impl JsContext {
     }
 
     /// Enumerable own keys of the global object (`Object.keys(this)`).
-    #[napi(js_name = "global_keys")]
+    #[napi]
     pub fn global_keys(&self) -> napi::Result<Vec<String>> {
         self.inner.with(|ctx| {
             let keys: Vec<String> = ctx.eval("Object.keys(this)").map_err(to_napi_err)?;
@@ -128,7 +138,7 @@ impl JsContext {
     }
 
     /// Run a garbage-collection cycle over the embedded engine.
-    #[napi(js_name = "run_gc")]
+    #[napi]
     pub fn run_gc(&self) -> napi::Result<()> {
         self.inner.with(|ctx| ctx.run_gc());
         Ok(())
@@ -137,13 +147,13 @@ impl JsContext {
     /// Run one pending microtask/job (e.g. after a top-level `await`).
     ///
     /// Returns `true` if a job actually ran. Call in a loop to drain the queue.
-    #[napi(js_name = "execute_pending_job")]
+    #[napi]
     pub fn execute_pending_job(&self) -> napi::Result<bool> {
         Ok(self.inner.with(|ctx| ctx.execute_pending_job()))
     }
 
     /// Whether a JS exception is currently pending in this context.
-    #[napi(js_name = "has_exception")]
+    #[napi]
     pub fn has_exception(&self) -> napi::Result<bool> {
         Ok(self.inner.with(|ctx| ctx.has_exception()))
     }
