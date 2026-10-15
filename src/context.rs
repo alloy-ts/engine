@@ -12,7 +12,7 @@ use rquickjs::{
 static MODULE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
-fn to_napi_err(e: rquickjs::Error) -> Error {
+pub(crate) fn to_napi_err(e: rquickjs::Error) -> Error {
     Error::from_reason(e.to_string())
 }
 
@@ -81,6 +81,16 @@ impl JsContext {
 
     pub(crate) fn from_inner(inner: QjsContext) -> Self {
         JsContext { inner }
+    }
+
+    /// A clone of the embedded QuickJS context.
+    ///
+    /// Cheap (a refcount bump) and keeps the realm — and the runtime behind
+    /// it — alive independently of this handle. Native values that must
+    /// outlive a single call (e.g. [`crate::Atom`]) hold one so they can
+    /// re-enter the context later.
+    pub(crate) fn clone_inner(&self) -> QjsContext {
+        self.inner.clone()
     }
 
     /// Evaluate `source` as a global script and return the result as a JS value.
