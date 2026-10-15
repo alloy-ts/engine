@@ -7,8 +7,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "3", features = ["serde-json", "napi3", "napi6"] }
+napi = { version = "3", features = ["serde-json", "napi3", "napi5", "napi6"] }
 napi-derive = "3"
+num = "0.4.3"
 oxc = "0.152.0"
 oxc_allocator = "0.152.0"
 oxc_ast = { version = "0.152.0", features = ["serialize"] }
