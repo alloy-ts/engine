@@ -1,24 +1,37 @@
-//! `Engine`: a JS-visible NAPI class that owns the N-API context handle.
+#![allow(deprecated)]
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::ffi::CString;
+use std::os::raw::{c_char, c_void};
+use std::ptr;
 
 use napi::bindgen_prelude::{
   Error, JsObjectValue, Object, Result, Status, ToNapiValue, Unknown,
 };
-use napi::{Env, JsGlobal};
+use napi::{sys, Env as NapiEngine, JsGlobal};
 use napi_derive::napi;
 
-/// JS class wrapping the N-API context (`napi::Env`).
-#[napi]
-pub struct Engine(Env, Arc<AtomicBool>);
+pub type Callback = unsafe extern "C" fn(sys::napi_engine, sys::napi_callback_info) -> sys::napi_value;
 
+pub(crate) static EMPTY_VEC: Vec<u8> = vec![];
+
+/// `Engine` is used to represent a context that the underlying N-API implementation can use to persist VM-specific state.
+#[napi]
+pub struct Engine(NapiEngine, Arc<AtomicBool>);
+
+impl From<NapiEngine> for Engine {
+  fn from(engine: NapiEngine) -> Self {
+    let disposed = Arc::new(AtomicBool::new(false));
+    Engine(engine, disposed)
+  }
+}
+
+// Let's add NAPI bindings for NAPI engine
 #[napi]
 impl Engine {
-  /// Capture the `napi::Env` that the runtime injects and register a
-  /// cleanup hook so we learn when it stops being valid.
   #[napi(constructor)]
-  pub fn new(env: &Env) -> Result<Self> {
+  pub fn new(env: &NapiEngine) -> Result<Self> {
     let e = *env;
     let disposed = Arc::new(AtomicBool::new(false));
 
@@ -30,75 +43,89 @@ impl Engine {
     Ok(Self(e, disposed))
   }
 
-  /// Whether the owning addon (and thus this context) has been unloaded.
+  #[napi(js_name = "from_raw")]
+  pub fn from_raw(env: &NapiEngine) -> Self {
+    Self::new(env).unwrap()
+  }
+
+  /// Whether the context has been unloaded.
   #[napi(js_name = "is_disposed")]
   pub fn is_disposed(&self) -> bool {
     self.1.load(Ordering::SeqCst)
   }
 
-  /// `Engine::create_array` — build a JS array with the given length.
-  #[napi(js_name = "create_array")]
-  pub fn create_array(&self, len: u32) -> Result<Unknown<'_>> {
-    self.ensure_alive()?;
-    self.0.create_array(len)?.into_unknown(&self.0)
-  }
-
-  /// `Engine::create_string` — build a JS string.
-  #[napi(js_name = "create_string")]
-  pub fn create_string(&self, value: String) -> Result<Unknown<'_>> {
-    self.ensure_alive()?;
-    self.0.create_string(&value)?.into_unknown(&self.0)
-  }
-
-  /// `Engine::create_int32` — build a JS number from an `i32`.
+  /// Create a new JavaScript number from a Rust `i32`
   #[napi(js_name = "create_int32")]
   pub fn create_int32(&self, int: i32) -> Result<Unknown<'_>> {
     self.ensure_alive()?;
     self.0.create_int32(int)?.into_unknown(&self.0)
   }
 
-  /// `Engine::create_int64` — build a JS number from an `i64`.
+  /// Create a new JavaScript number from a Rust `i64`
   #[napi(js_name = "create_int64")]
   pub fn create_int64(&self, int: i64) -> Result<Unknown<'_>> {
     self.ensure_alive()?;
     self.0.create_int64(int)?.into_unknown(&self.0)
   }
 
-  /// `Engine::create_uint32` — build a JS number from a `u32`.
+  /// Create a new JavaScript number from a Rust `u32`
   #[napi(js_name = "create_uint32")]
   pub fn create_uint32(&self, number: u32) -> Result<Unknown<'_>> {
     self.ensure_alive()?;
     self.0.create_uint32(number)?.into_unknown(&self.0)
   }
 
-  /// `Engine::create_double` — build a JS number from an `f64`.
+  /// Create a new JavaScript number from a Rust `f64`
   #[napi(js_name = "create_double")]
-  pub fn create_double(&self, value: f64) -> Result<Unknown<'_>> {
+  pub fn create_double(&self, double: f64) -> Result<Unknown<'_>> {
     self.ensure_alive()?;
-    self.0.create_double(value)?.into_unknown(&self.0)
+    self.0.create_double(double)?.into_unknown(&self.0)
   }
 
-  /// Resolve the JS global object.
-  pub fn get_global(&self) -> Result<JsGlobal<'static>> {
-    self.0.get_global()
+  /// Create a new JavaScript string from a Rust string
+  #[napi(js_name = "create_string")]
+  pub fn create_string(&self, s: String) -> Result<Unknown<'_>> {
+    self.ensure_alive()?;
+    self.0.create_string(&s)?.into_unknown(&self.0)
   }
 
-  /// Does the global object have this property?
+  /// Create a new JavaScript array with a specific length
+  #[napi(js_name = "create_array")]
+  pub fn create_array(&self, len: u32) -> Result<Unknown<'_>> {
+    self.ensure_alive()?;
+    self.0.create_array(len)?.into_unknown(&self.0)
+  }
+
+  /// Create an empty JS object
+  #[napi(js_name = "create_object")]
+  pub fn create_object(&self) -> Result<Object<'_>> {
+    self.ensure_alive()?;
+    Object::new(&self.0)
+  }
+
+  /// Create an empty JS array
+  #[napi(js_name = "create_empty_array")]
+  pub fn create_empty_array(&self) -> Result<Unknown<'_>> {
+    self.ensure_alive()?;
+    self.0.create_array(0)?.into_unknown(&self.0)
+  }
+
+  /// Check property existence on global
   #[napi(js_name = "has_global")]
   pub fn has_global(&self, name: String) -> Result<bool> {
     self.ensure_alive()?;
-    let global = self.get_global()?;
+    let global = self.0.get_global()?;
     global.has_named_property(&name)
   }
 
-  /// `Engine::get_napi_version` — the N-API version of the host runtime.
+  /// Get NAPI version
   #[napi(js_name = "get_napi_version")]
   pub fn get_napi_version(&self) -> Result<u32> {
     self.ensure_alive()?;
     self.0.get_napi_version()
   }
 
-  /// `Object::new` through the captured context.
+  /// Object::new through captured context
   #[napi(js_name = "make_object")]
   pub fn make_object(&self) -> Result<Object<'_>> {
     self.ensure_alive()?;
@@ -108,49 +135,53 @@ impl Engine {
     Ok(obj)
   }
 
-  /// Create a JS object via the captured context.
-  #[napi(js_name = "create_object")]
-  pub fn create_object(&self) -> Result<Object<'_>> {
-    self.ensure_alive()?;
-    Object::new(&self.0)
-  }
-
-  /// Create an empty JS array.
-  #[napi(js_name = "create_empty_array")]
-  pub fn create_empty_array(&self) -> Result<Unknown<'_>> {
-    self.ensure_alive()?;
-    self.0.create_array(0)?.into_unknown(&self.0)
-  }
-
-  /// `Engine::set_instance_data` — persist VM-specific state on the Agent.
+  /// Persist instance data
   #[napi(js_name = "set_instance_data")]
   pub fn set_instance_data(&self, value: String) -> Result<()> {
     self.ensure_alive()?;
     self.0.set_instance_data(value, (), |_ctx| {})
   }
 
-  /// `Engine::get_instance_data` — read back the persisted VM-specific state.
+  /// Read back instance data
   #[napi(js_name = "get_instance_data")]
   pub fn get_instance_data(&self) -> Result<Option<String>> {
     self.ensure_alive()?;
     Ok(self.0.get_instance_data::<String>()?.cloned())
   }
 
-  /// Throw a JS error with an optional error code.
+  /// Throw JavaScript Error
   #[napi(js_name = "throw_error")]
   pub fn throw_error(&self, msg: String, code: Option<String>) -> Result<()> {
     self.ensure_alive()?;
     self.0.throw_error(&msg, code.as_deref())
   }
 
-  /// Run a script string in the engine context.
+  /// Throw JavaScript RangeError
+  #[napi(js_name = "throw_range_error")]
+  pub fn throw_range_error(&self, msg: String, code: Option<String>) -> Result<()> {
+    self.ensure_alive()?;
+    self.0.throw_range_error(&msg, code.as_deref())
+  }
+
+  /// Throw JavaScript TypeError
+  #[napi(js_name = "throw_type_error")]
+  pub fn throw_type_error(&self, msg: String, code: Option<String>) -> Result<()> {
+    self.ensure_alive()?;
+    self.0.throw_type_error(&msg, code.as_deref())
+  }
+
+  /// Run JavaScript script
   #[napi(js_name = "run_script")]
   pub fn run_script(&self, script: String) -> Result<Unknown<'_>> {
     self.ensure_alive()?;
     self.0.run_script::<_, Unknown>(&script)
   }
 
-  /// Guard: refuse to use a context that belongs to an unloaded addon.
+  /// Get raw sys napi_env pointer
+  pub fn raw(&self) -> sys::napi_env {
+    self.0.raw()
+  }
+
   fn ensure_alive(&self) -> Result<()> {
     if self.1.load(Ordering::SeqCst) {
       return Err(Error::new(

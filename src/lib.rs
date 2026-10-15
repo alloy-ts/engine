@@ -1,5 +1,6 @@
 use napi_derive::napi;
 
+pub mod compiler;
 pub mod engine;
 pub mod global;
 pub mod parser;

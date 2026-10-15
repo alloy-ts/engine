@@ -13,6 +13,7 @@ oxc = "=0.139.0"
 oxc_allocator = "=0.139.0"
 oxc_ast = { version = "=0.139.0", features = ["serialize"] }
 oxc_estree = { version = "=0.139.0", features = ["serialize"] }
+oxc_napi = "=0.139.0"
 oxc_parser = "=0.139.0"
 oxc_span = "=0.139.0"
 rocket = "0.5.1"
