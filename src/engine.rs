@@ -1,20 +1,4 @@
-//! `Engine`: a JS-visible NAPI class that owns the N-API context handle.
-//!
-//! The N-API context is `napi::Env` (aliased below as `NapiEngine`). We
-//! cannot put `#[napi]` on `napi::Env` itself — it is a foreign type — so
-//! our `Engine` *wraps* it and exposes a safe subset as JavaScript methods.
-//!
-//! ## The `napi::Env` contract
-//!
-//! 1. **Reuse the same context for nested calls.** Every method does all of its
-//!    N-API work through `self.0` — the very handle that entered the call.
-//! 2. **Never cache it for general reuse, and never share it between addon
-//!    instances or Worker threads.** Each `Engine` captures its *own* handle at
-//!    construction time, and the fields are private so it cannot leak out.
-//! 3. **It is invalid once the addon instance is unloaded.** We register an
-//!    engine cleanup hook (see [`Engine::new`]) that flips the disposed
-//!    flag, so every public method refuses to use a dangling handle. VM-specific
-//!    state lives in `set_instance_data`, which is notified on the same event.
+//! `JsEngine`: a JS-visible NAPI class that owns the N-API context handle (`napi::Engine`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -27,11 +11,11 @@ use napi_derive::napi;
 ///
 /// JS: `const engine = new Engine();` — the context is injected by NAPI, so the
 /// constructor takes no JavaScript arguments.
-#[napi]
-pub struct Engine(Env, Arc<AtomicBool>);
+#[napi(js_name = "Engine")]
+pub struct JsEngine(pub(crate) Env, pub(crate) Arc<AtomicBool>);
 
 #[napi]
-impl Engine {
+impl JsEngine {
     /// Capture the `napi::Env` that the runtime injects and register a
     /// cleanup hook so we learn when it stops being valid.
     #[napi(constructor)]
