@@ -20,8 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use napi::bindgen_prelude::{Error, Result, Status};
-use napi::sys;
-use napi::{Array, Engine as NapiEngine, JsGlobal, Object, Unknown, Value, ValueType};
+use napi::{Engine as NapiEngine, JsGlobal, Object, Unknown};
 
 /// JS class wrapping the N-API context (`napi::Engine`).
 ///
@@ -55,9 +54,9 @@ impl Engine {
     }
 
     #[napi]
-    pub fn create_array(&self, len: u32) -> Result<Array> {
+    pub fn create_array(&self, len: u32) -> Result<Unknown> {
         self.ensure_alive()?;
-        Ok(Array::new(self.0.raw(), len))
+        Ok(self.0.create_array(len)?.into_unknown())
     }
 
     /// `Engine::create_string` — build a JS string.
@@ -83,19 +82,7 @@ impl Engine {
 
     /// Resolve the JS global object (mirrors `napi::Engine::get_global`).
     pub fn get_global(&self) -> Result<JsGlobal<'static>> {
-        let mut global = std::ptr::null_mut();
-        napi::check_status!(
-            unsafe { sys::napi_get_global(self.0.raw(), &mut global) },
-            "Get global object from Env failed"
-        )?;
-        Ok(JsGlobal(
-            Value {
-                value: global,
-                env: self.0.raw(),
-                value_type: ValueType::Object,
-            },
-            std::marker::PhantomData,
-        ))
+        self.0.get_global()
     }
 
     /// Does the global object have this property?
