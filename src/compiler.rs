@@ -7,20 +7,22 @@ use oxc_parser::Parser;
 use oxc_span::SourceType;
 
 /// NAPI wrapper around the oxc compiler.
-#[napi]
-pub struct Compiler;
+#[napi(js_name = "Compiler")]
+pub struct JsCompiler {
+  _unused: Option<bool>,
+}
 
-impl Default for Compiler {
+impl Default for JsCompiler {
   fn default() -> Self {
     Self::new()
   }
 }
 
 #[napi]
-impl Compiler {
+impl JsCompiler {
   #[napi(constructor)]
   pub fn new() -> Self {
-    Compiler
+    JsCompiler { _unused: None }
   }
 
   /// Execute compilation/transformation on `source_text`.
