@@ -70,7 +70,7 @@ pub struct JsContext {
 impl JsContext {
     /// Create a `Context` backed by a freshly-created *private* QuickJS runtime.
     ///
-    /// This is the self-contained form. Prefer `new Runtime().create_context()`
+    /// This is the self-contained form. Prefer `new Engine().create_context()`
     /// to share one engine across several contexts.
     #[napi(constructor)]
     pub fn new() -> napi::Result<Self> {

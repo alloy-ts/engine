@@ -39,8 +39,7 @@ companion classes `Context`, `WeakEngine`, `Loader`, and `Global`.
 
 ## NAPI surface
 
-napi-rs exposes methods under their Rust (`snake_case`) name unless a `js_name`
-override is set, so the JS API mirrors the Rust names below.
+Both idiomatic JS camelCase methods (e.g. `createContext`, `execPendingJob`, `executePendingJob`) and snake_case methods (e.g. `create_context`, `execute_pending_job`) are supported on the `Engine` API.
 
 ### `add(left: number, right: number) -> number`
 
@@ -130,9 +129,9 @@ const weak = engine.weak();       // -> WeakEngine
 const strong = weak.try_ref();    // -> Engine | null (null once freed)
 ```
 
-Runtime methods: `set_loader`, `create_context`, `weak` (→ `WeakEngine`),
-`set_memory_limit`, `set_max_stack_size`, `set_gc_threshold`, `set_info`,
-`run_gc`, `memory_usage`, `is_job_pending`, `execute_pending_job`.
+Runtime methods: `set_loader` / `setLoader`, `create_context` / `createContext`, `weak` (→ `WeakEngine`),
+`set_memory_limit` / `setMemoryLimit`, `set_max_stack_size` / `setMaxStackSize`, `set_gc_threshold` / `setGcThreshold`, `set_info` / `setInfo`,
+`run_gc` / `runGc`, `memory_usage` / `memoryUsage`, `is_job_pending` / `isJobPending`, `execute_pending_job` / `executePendingJob` / `execPendingJob`.
 
 A few real QuickJS semantics worth knowing:
 
@@ -168,9 +167,9 @@ engine.get_instance_data();    // "vm-state"
 engine.is_disposed();         // false while the addon is loaded
 ```
 
-Host methods: `is_disposed`, `create_array`, `create_string`, `create_int32`,
-`create_double`, `has_global`, `get_napi_version`, `make_object`,
-`set_instance_data`, `get_instance_data`.
+Host methods: `is_disposed` / `isDisposed`, `create_array` / `createArray`, `create_string` / `createString`, `create_int32` / `createInt32`,
+`create_double` / `createDouble`, `has_global` / `hasGlobal`, `get_napi_version` / `getNapiVersion`, `make_object` / `makeObject`,
+`set_instance_data` / `setInstanceData`, `get_instance_data` / `getInstanceData`.
 
 #### Using both facets together
 
