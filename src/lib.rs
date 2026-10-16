@@ -1,4 +1,3 @@
-
 use napi_derive::napi;
 
 pub mod future;
@@ -7,6 +6,7 @@ pub mod global;
 pub mod parser;
 pub mod oxc;
 pub mod compiler;
+pub mod context;
 mod poll;
 mod result;
 
