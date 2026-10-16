@@ -1,39 +1,17 @@
 import { describe, expect, test } from "vite-plus/test";
-import { Context, Engine, JSContext, Runtime } from "./main.ts";
+import { Context, Engine, JSContext } from "./main.ts";
 
-describe("napi: Runtime & Context bindings", () => {
-  test("creates a Runtime and Configures limits", () => {
-    const rt = new Runtime();
-    expect(rt).toBeDefined();
-
-    rt.set_info("test-runtime");
-    rt.set_memory_limit(1024 * 1024);
-    rt.set_max_stack_size(256 * 1024);
-    rt.set_gc_threshold(1000);
-    rt.run_gc();
-
-    const mem = rt.memory_usage();
-    expect(mem).toBeDefined();
-    expect(mem.malloc_size).toBeGreaterThanOrEqual(0);
-  });
-
-  test("creates Context with full and base constructors", () => {
-    const rt = new Runtime();
-    const ctxFull = Context.full(undefined, rt);
+describe("napi: Context & Engine bindings", () => {
+  test("creates Context with full and base constructors using Engine", () => {
+    const engine = new Engine();
+    const ctxFull = Context.full(engine);
     expect(ctxFull).toBeDefined();
 
-    const ctxBase = Context.base(undefined, rt);
+    const ctxBase = Context.base(engine);
     expect(ctxBase).toBeDefined();
 
     const defaultCtx = new Context();
     expect(defaultCtx).toBeDefined();
-  });
-
-  test("creates Context with an Engine instance", () => {
-    const engine = new Engine();
-    const ctx = Context.full(engine);
-    expect(ctx).toBeDefined();
-    expect(ctx.eval("10 * 10")).toBe(100);
   });
 
   test("JSContext alias is identical to Context", () => {
@@ -86,12 +64,5 @@ describe("napi: Runtime & Context bindings", () => {
 
     const stringified = ctx.json_stringify({ y: 200 });
     expect(stringified).toBe('{"y":200}');
-  });
-
-  test("gets underlying runtime from context", () => {
-    const ctx = new Context();
-    const rt = ctx.get_runtime();
-    expect(rt).toBeDefined();
-    expect(rt.is_job_pending()).toBe(false);
   });
 });

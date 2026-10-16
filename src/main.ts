@@ -9,7 +9,6 @@ export {
   FileResolver,
   Global,
   Parser,
-  Runtime,
   ScriptLoader,
   add,
 } from "../dist/index.js";

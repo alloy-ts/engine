@@ -6,11 +6,7 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
- *
- * napi-rs exposes methods under their Rust (snake_case) name unless a
- * `js_name` override is set, so these tests call `create_array`, `has_global`,
- * … rather than camelCase equivalents.
+ *   - `Engine`  — `src/engine.rs`  (JS class wrapping QuickJS Runtime and N-API context)
  */
 import { describe, expect, test } from "vite-plus/test";
 import { add, Engine, Parser } from "./main.ts";
@@ -159,5 +155,17 @@ describe("napi: Engine", () => {
     const mem = engine.memory_usage();
     expect(mem).toBeDefined();
     expect(mem.malloc_size).toBeGreaterThanOrEqual(0);
+  });
+
+  test("tests QuickJS job queue execution with execPendingJob", () => {
+    const engine = new Engine();
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+  });
+
+  test("sets file loader on engine runtime", () => {
+    const engine = new Engine();
+    expect(() => engine.set_file_loader()).not.toThrow();
   });
 });

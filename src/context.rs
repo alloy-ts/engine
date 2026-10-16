@@ -7,7 +7,6 @@ use napi_derive::napi;
 use rquickjs::context::EvalOptions as QuickJsEvalOptions;
 
 use crate::engine::JsEngine;
-use crate::runtime::JsRuntime;
 
 /// Convert a QuickJS `Value` into a `serde_json::Value`.
 pub(crate) fn js_value_to_serde<'js>(
@@ -86,19 +85,17 @@ pub struct JsContext {
 
 #[napi]
 impl JsContext {
-  /// Create a full context associated with the given engine or runtime (or a new runtime if omitted).
+  /// Create a full context associated with the given engine (or a new runtime if omitted).
   #[napi(constructor)]
-  pub fn new(engine: Option<&JsEngine>, runtime: Option<&JsRuntime>) -> Result<Self> {
-    Self::full(engine, runtime)
+  pub fn new(engine: Option<&JsEngine>) -> Result<Self> {
+    Self::full(engine)
   }
 
   /// Create a base context with minimum registered intrinsics.
   #[napi(factory, js_name = "base")]
-  pub fn base(engine: Option<&JsEngine>, runtime: Option<&JsRuntime>) -> Result<Self> {
+  pub fn base(engine: Option<&JsEngine>) -> Result<Self> {
     let ctx = if let Some(e) = engine {
       rquickjs::Context::base(&e.qjs_runtime)
-    } else if let Some(rt) = runtime {
-      rquickjs::Context::base(&rt.inner)
     } else {
       let rt = rquickjs::Runtime::new().map_err(|e| Error::from_reason(e.to_string()))?;
       rquickjs::Context::base(&rt)
@@ -110,11 +107,9 @@ impl JsContext {
 
   /// Create a context with all standard intrinsics registered.
   #[napi(factory, js_name = "full")]
-  pub fn full(engine: Option<&JsEngine>, runtime: Option<&JsRuntime>) -> Result<Self> {
+  pub fn full(engine: Option<&JsEngine>) -> Result<Self> {
     let ctx = if let Some(e) = engine {
       rquickjs::Context::full(&e.qjs_runtime)
-    } else if let Some(rt) = runtime {
-      rquickjs::Context::full(&rt.inner)
     } else {
       let rt = rquickjs::Runtime::new().map_err(|e| Error::from_reason(e.to_string()))?;
       rquickjs::Context::full(&rt)
@@ -272,13 +267,5 @@ impl JsContext {
   #[napi(js_name = "run_gc")]
   pub fn run_gc(&self) {
     self.inner.with(|ctx| ctx.run_gc())
-  }
-
-  /// Returns the associated runtime wrapper.
-  #[napi(js_name = "get_runtime")]
-  pub fn get_runtime(&self) -> JsRuntime {
-    JsRuntime {
-      inner: self.inner.runtime().clone(),
-    }
   }
 }

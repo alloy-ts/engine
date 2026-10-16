@@ -7,7 +7,55 @@ use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
 
-use crate::runtime::JsMemoryUsage;
+/// Memory usage metrics of the QuickJS runtime.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct JsMemoryUsage {
+  #[napi(js_name = "malloc_size")]
+  pub malloc_size: i64,
+  #[napi(js_name = "malloc_limit")]
+  pub malloc_limit: i64,
+  #[napi(js_name = "memory_used_size")]
+  pub memory_used_size: i64,
+  #[napi(js_name = "malloc_count")]
+  pub malloc_count: i64,
+  #[napi(js_name = "memory_used_count")]
+  pub memory_used_count: i64,
+  #[napi(js_name = "atom_count")]
+  pub atom_count: i64,
+  #[napi(js_name = "atom_size")]
+  pub atom_size: i64,
+  #[napi(js_name = "str_count")]
+  pub str_count: i64,
+  #[napi(js_name = "str_size")]
+  pub str_size: i64,
+  #[napi(js_name = "obj_count")]
+  pub obj_count: i64,
+  #[napi(js_name = "obj_size")]
+  pub obj_size: i64,
+  #[napi(js_name = "prop_count")]
+  pub prop_count: i64,
+  #[napi(js_name = "prop_size")]
+  pub prop_size: i64,
+  #[napi(js_name = "shape_count")]
+  pub shape_count: i64,
+  #[napi(js_name = "shape_size")]
+  pub shape_size: i64,
+  #[napi(js_name = "js_func_count")]
+  pub js_func_count: i64,
+  #[napi(js_name = "js_func_size")]
+  pub js_func_size: i64,
+  #[napi(js_name = "js_func_code_size")]
+  pub js_func_code_size: i64,
+  #[napi(js_name = "c_func_count")]
+  pub c_func_count: i64,
+  #[napi(js_name = "array_count")]
+  pub array_count: i64,
+  #[napi(js_name = "fast_array_count")]
+  pub fast_array_count: i64,
+  #[napi(js_name = "fast_array_elements")]
+  pub fast_array_elements: i64,
+}
 
 /// JS class wrapping the N-API context (`napi::Env`) and QuickJS `Runtime`.
 #[napi(js_name = "Engine")]
@@ -177,13 +225,19 @@ impl JsEngine {
   }
 
   /// Execute the first pending job in queue.
-  #[napi(js_name = "execute_pending_job")]
-  pub fn execute_pending_job(&self) -> Result<bool> {
+  #[napi(js_name = "execPendingJob")]
+  pub fn exec_pending_job(&self) -> Result<bool> {
     self.ensure_alive()?;
     self
       .qjs_runtime
       .execute_pending_job()
       .map_err(|e| Error::from_reason(e.to_string()))
+  }
+
+  /// Execute the first pending job in queue (snake_case alias).
+  #[napi(js_name = "execute_pending_job")]
+  pub fn execute_pending_job(&self) -> Result<bool> {
+    self.exec_pending_job()
   }
 
   /// Retrieve memory usage statistics.
