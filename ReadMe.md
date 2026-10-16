@@ -1,27 +1,28 @@
 # JS Engine
 
-A JavaScript execution engine with a native (Rust) core as a Node-API addon wrapping QuickJS via `rquickjs`. The
+A JavaScript execution engine with a native (Rust) core as a Node-API addon wrapping oxc and QuickJS via `rquickjs`. The
 Rust side is compiled to `alloy-engine.<platform>.node` via
 [`@napi-rs/cli`](https://napi.rs), and the TypeScript side is bundled by
 [vite-plus](https://viteplus.dev).
 
-Today the addon exposes bindings including `add`, `Parser` (oxc-backed), `Engine` / `JsEngine` (QuickJS runtime), and `Context` (QuickJS execution context).
+Today the addon exposes bindings including `add`, `Parser` (oxc-backed), `Compiler` (oxc ESTree transformer), `Engine` / `JsEngine` (N-API context & QuickJS runtime), and `Context` (QuickJS execution context).
 
 ## Layout
 
-| Path             | Role                                                                   |
-| ---------------- | ---------------------------------------------------------------------- |
-| `src/lib.rs`     | Crate root: module declarations and the `add` binding                  |
-| `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)          |
-| `src/engine.rs`  | `Engine` — JS class wrapping the QuickJS runtime (`rquickjs::Runtime`) |
-| `src/context.rs` | `Context` — JS class wrapping `rquickjs::Context`                      |
-| `src/loader.rs`  | `Loader` — QuickJS module loader configuration                         |
-| `src/main.ts`    | vite-plus pack entry; re-exports the native bindings                   |
-| `src/*.test.ts`  | Unit tests (run by `vp test`)                                          |
-| `docs/engine.md` | API reference for `JsEngine` / `Engine`                                |
-| `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`          |
-| `vite.config.ts` | `pack` / `test` / `lint` / `fmt` configuration                         |
-| `Cargo.toml`     | Rust crate `alloy-engine-native` (`cdylib`)                            |
+| Path              | Role                                                                          |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `src/lib.rs`      | Crate root: module declarations and the `add` binding                         |
+| `src/parser.rs`   | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)                 |
+| `src/compiler.rs` | `Compiler` — NAPI wrapper around oxc ESTree compact serializer                |
+| `src/engine.rs`   | `Engine` — JS class wrapping N-API context (`napi::Engine`) & QuickJS runtime |
+| `src/context.rs`  | `Context` — JS class wrapping `rquickjs::Context`                             |
+| `src/loader.rs`   | `Loader` — QuickJS module loader configuration                                |
+| `src/main.ts`     | vite-plus pack entry; re-exports the native bindings                          |
+| `src/*.test.ts`   | Unit tests (run by `vp test`)                                                 |
+| `docs/engine.md`  | API reference for `JsEngine` / `Engine`                                       |
+| `build.ts`        | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`                 |
+| `vite.config.ts`  | `pack` / `test` / `lint` / `fmt` configuration                                |
+| `Cargo.toml`      | Rust crate `alloy-engine-native` (`cdylib`)                                   |
 
 ## NAPI surface
 
@@ -54,19 +55,26 @@ const { program, errors, fatalError, isFlowLanguage } = parser.parser();
 
 ### `Engine` / `JsEngine` & `Context`
 
-`Engine` (also exported as `JsEngine`) manages the QuickJS runtime. Pass `Engine` instances to `Context.full(engine)` to create execution contexts:
+`Engine` (also exported as `JsEngine`) wraps both the N-API context handle and QuickJS runtime. Pass `Engine` instances to `Context.full(engine)` to create QuickJS execution contexts:
 
 ```ts
 import { Context, Engine, JsEngine } from "@alloy-ts/engine";
 
 const engine = new JsEngine();
-engine.set_memory_limit(1024 * 1024 * 64); // 64MB
+engine.create_string("hello"); // N-API context API
+engine.set_memory_limit(1024 * 1024 * 64); // QuickJS runtime API
+engine.execPendingJob(); // QuickJS job execution
 
 const ctx = Context.full(engine);
 const result = ctx.eval("1 + 1"); // "2"
 ```
 
-Available `Engine` methods: `set_info`, `set_memory_limit`, `set_max_stack_size`, `set_gc_threshold`, `run_gc`, `is_job_pending`, `execute_pending_job` (`execPendingJob`). See [`docs/engine.md`](docs/engine.md) for the full API reference.
+Available `Engine` methods:
+
+- N-API Context: `is_disposed`, `create_array`, `create_string`, `create_int32`, `create_double`, `has_global`, `get_napi_version`, `make_object`, `set_instance_data`, `get_instance_data`.
+- QuickJS Runtime: `set_info`, `set_memory_limit`, `set_max_stack_size`, `set_gc_threshold`, `run_gc`, `is_job_pending`, `execute_pending_job` (`execPendingJob`).
+
+See [`docs/engine.md`](docs/engine.md) for the full API reference.
 
 ## Development
 

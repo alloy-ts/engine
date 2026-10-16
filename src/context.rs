@@ -17,7 +17,7 @@ impl Context {
   /// Creates a context with all standard available intrinsics registered.
   #[napi(factory)]
   pub fn full(engine: &Engine) -> Result<Self> {
-    let inner = QuickContext::full(&engine.inner)
+    let inner = QuickContext::full(engine.qjs_runtime())
       .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to create full context: {e}")))?;
     Ok(Self { inner })
   }
@@ -25,7 +25,7 @@ impl Context {
   /// Creates a base context with only the required functions registered.
   #[napi(factory)]
   pub fn base(engine: &Engine) -> Result<Self> {
-    let inner = QuickContext::base(&engine.inner)
+    let inner = QuickContext::base(engine.qjs_runtime())
       .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to create base context: {e}")))?;
     Ok(Self { inner })
   }
