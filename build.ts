@@ -15,6 +15,7 @@ async function run() {
   const cli = new NapiCli();
   await cli.build({
     platform: true,
+    js: true,
     esm: true,
     outputDir: "./dist",
     release: isRelease,

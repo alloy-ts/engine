@@ -172,7 +172,7 @@ impl Parser {
   /// Unlike [`Parser::parser`], a syntax error here is a hard failure: the method
   /// throws (with the diagnostic messages joined) rather than returning an
   /// `errors` array.
-  #[napi]
+  #[napi(js_name = "parse_expression")]
   pub fn parse_expression(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
     let result = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))

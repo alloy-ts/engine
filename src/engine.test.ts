@@ -87,7 +87,7 @@ describe("napi: Parser", () => {
 
   test("throws on a fatal expression parse error", () => {
     const parser = new Parser("1 +");
-    expect(() => parser.parse_expression(undefined)).toThrow();
+    expect(() => parser.parseExpression(undefined)).toThrow();
   });
 });
 
