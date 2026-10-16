@@ -1,4 +1,3 @@
-
 use std::path::Path;
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
@@ -36,7 +35,7 @@ impl Compiler {
     let allocator = Allocator::new();
     let ret = Parser::new(&allocator, &source_text, st).parse();
 
-    if !ret.diagnostics.is_empty() || ret.panicked {
+    if !ret.diagnostics.is_empty() {
       let errors: Vec<String> = ret.diagnostics.iter().map(|d| d.to_string()).collect();
       return Err(Error::from_reason(errors.join("\n")));
     }

@@ -116,30 +116,78 @@ describe("napi: Engine", () => {
   });
 });
 
+describe("qjs Engine API", () => {
+  test("engine.execPendingJob and camelCase method aliases work after const engine = new Engine()", () => {
+    const engine = new Engine();
+    expect(engine.isJobPending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.executePendingJob()).toBe(false);
+    expect(engine.exec_pending_job()).toBe(false);
+
+    const ctx = engine.createContext();
+    ctx.eval(`
+      globalThis.res = [];
+      Promise.resolve(100).then(v => globalThis.res.push(v));
+    `);
+
+    expect(engine.isJobPending()).toBe(true);
+    expect(engine.execPendingJob()).toBe(true);
+    expect(ctx.eval("globalThis.res")).toEqual([100]);
+
+    engine.setMemoryLimit(1 << 20);
+    engine.setMaxStackSize(256 * 1024);
+    engine.setGcThreshold(1024);
+    engine.setInfo("qjs-engine-test");
+    engine.runGc();
+
+    const stats = engine.memoryUsage() as { malloc_size: number };
+    expect(typeof stats.malloc_size).toBe("number");
+  });
+
+  test("engine.setLoader works via camelCase API", () => {
+    const loader = new Loader();
+    loader.add("calc", "export const sq = x => x * x;");
+    const engine = new Engine();
+    engine.setLoader(loader);
+    const ctx = engine.createContext();
+    ctx.eval_module('import { sq } from "calc"; globalThis.ans = sq(5);');
+    expect(ctx.eval("globalThis.ans")).toBe(25);
+  });
+});
+
 describe("napi: Engine host environment", () => {
   test("create_array allocates a JS array of the requested length", () => {
     const engine = new Engine();
     const arr = engine.create_array(3) as unknown[];
     expect(Array.isArray(arr)).toBe(true);
     expect(arr.length).toBe(3);
+
+    const camelArr = engine.createArray(4) as unknown[];
+    expect(Array.isArray(camelArr)).toBe(true);
+    expect(camelArr.length).toBe(4);
   });
 
   test("create_string / create_int32 / create_double build JS values", () => {
     const engine = new Engine();
     expect(engine.create_string("hello")).toBe("hello");
+    expect(engine.createString("world")).toBe("world");
     expect(engine.create_int32(42)).toBe(42);
+    expect(engine.createInt32(100)).toBe(100);
     expect(engine.create_double(1.5)).toBe(1.5);
+    expect(engine.createDouble(2.5)).toBe(2.5);
   });
 
   test("has_global reads the host global object", () => {
     const engine = new Engine();
     expect(engine.has_global("Math")).toBe(true);
+    expect(engine.hasGlobal("Math")).toBe(true);
     expect(engine.has_global("definitelyNotAGlobal")).toBe(false);
   });
 
   test("get_napi_version reports the host N-API version", () => {
     const engine = new Engine();
     expect(engine.get_napi_version()).toBeGreaterThan(0);
+    expect(engine.getNapiVersion()).toBeGreaterThan(0);
   });
 
   test("make_object builds a JS object via the host context", () => {
@@ -147,17 +195,24 @@ describe("napi: Engine host environment", () => {
     const obj = engine.make_object() as { ok: boolean; engine: string };
     expect(obj.ok).toBe(true);
     expect(obj.engine).toBe("napi");
+
+    const camelObj = engine.makeObject() as { ok: boolean; engine: string };
+    expect(camelObj.ok).toBe(true);
   });
 
   test("set_instance_data persists host-level state on the Agent", () => {
     const engine = new Engine();
     engine.set_instance_data("vm-state");
     expect(engine.get_instance_data()).toBe("vm-state");
+
+    engine.setInstanceData("vm-state-camel");
+    expect(engine.getInstanceData()).toBe("vm-state-camel");
   });
 
   test("is_disposed is false while the addon is loaded", () => {
     const engine = new Engine();
     expect(engine.is_disposed()).toBe(false);
+    expect(engine.isDisposed()).toBe(false);
   });
 
   test("each instance captures its own context handle", () => {
