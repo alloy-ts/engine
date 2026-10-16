@@ -11,4 +11,5 @@ export {
   Runtime,
   WeakRuntime,
   Loader,
+  Compiler,
 } from "../dist/index.js";

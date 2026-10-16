@@ -5,23 +5,24 @@ QuickJS (`rquickjs`) and OXC. The Rust side is compiled to `alloy-engine.<platfo
 [`@napi-rs/cli`](https://napi.rs), and the TypeScript side is bundled by
 [vite-plus](https://viteplus.dev).
 
-Today the addon exposes bindings for: `add`, `Parser` (oxc-backed), `Engine`, `Context`, `Runtime`, `WeakRuntime`, and `Loader`.
+Today the addon exposes bindings for: `add`, `Parser` (oxc-backed), `Compiler` (oxc-backed), `Engine`, `Context`, `Runtime`, `WeakRuntime`, and `Loader`.
 
 ## Layout
 
-| Path             | Role                                                                 |
-| ---------------- | -------------------------------------------------------------------- |
-| `src/lib.rs`     | Crate root: module declarations and the `add` binding                |
-| `src/context.rs` | `Context` — NAPI bindings for QuickJS execution contexts (`Context`) |
-| `src/engine.rs`  | `Engine` — Unifies N-API context (`napi::Env`) & QuickJS `Runtime`   |
-| `src/runtime.rs` | `Runtime` & `WeakRuntime` — Standalone QuickJS runtime bindings      |
-| `src/loader.rs`  | `Loader` — QuickJS module resolution and loader configuration        |
-| `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)        |
-| `src/main.ts`    | vite-plus pack entry; re-exports the native bindings                 |
-| `src/*.test.ts`  | Unit tests (run by `vp test`)                                        |
-| `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`        |
-| `vite.config.ts` | `pack` / `test` / `lint` / `fmt` configuration                       |
-| `Cargo.toml`     | Rust crate `alloy-engine-native` (`cdylib`)                          |
+| Path              | Role                                                                 |
+| ----------------- | -------------------------------------------------------------------- |
+| `src/lib.rs`      | Crate root: module declarations and the `add` binding                |
+| `src/compiler.rs` | `Compiler` — NAPI wrapper around OXC compilation/transformation      |
+| `src/context.rs`  | `Context` — NAPI bindings for QuickJS execution contexts (`Context`) |
+| `src/engine.rs`   | `Engine` — Unifies N-API context (`napi::Env`) & QuickJS `Runtime`   |
+| `src/runtime.rs`  | `Runtime` & `WeakRuntime` — Standalone QuickJS runtime bindings      |
+| `src/loader.rs`   | `Loader` — QuickJS module resolution and loader configuration        |
+| `src/parser.rs`   | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)        |
+| `src/main.ts`     | vite-plus pack entry; re-exports the native bindings                 |
+| `src/*.test.ts`   | Unit tests (run by `vp test`)                                        |
+| `build.ts`        | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`        |
+| `vite.config.ts`  | `pack` / `test` / `lint` / `fmt` configuration                       |
+| `Cargo.toml`      | Rust crate `alloy-engine-native` (`cdylib`)                          |
 
 ## NAPI surface
 
@@ -36,6 +37,17 @@ Plain function binding from `src/lib.rs`.
 import { add } from "@alloy-ts/engine";
 
 add(2, 3); // 5
+```
+
+### `Compiler`
+
+NAPI wrapper around the OXC compiler/parser pipeline.
+
+```ts
+import { Compiler } from "@alloy-ts/engine";
+
+const compiler = new Compiler();
+const astString = compiler.execute("const x = 1;", "js", "index.js");
 ```
 
 ### `Parser`

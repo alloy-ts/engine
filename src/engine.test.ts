@@ -13,7 +13,7 @@
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Context, Engine, Loader, Parser, Runtime } from "./main.ts";
+import { add, Compiler, Context, Engine, Loader, Parser, Runtime } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -223,6 +223,20 @@ describe("napi: Context", () => {
   test("compile validates script syntax", () => {
     const ctx = Context.new();
     expect(() => ctx.compile("const x = 1;", "test.js", true)).not.toThrow();
+  });
+});
+
+describe("napi: Compiler", () => {
+  test("Compiler executes compilation and outputs AST string", () => {
+    const compiler = new Compiler();
+    const result = compiler.execute("const x = 1;", undefined, "index.js");
+    expect(typeof result).toBe("string");
+    expect(result).toContain("Program");
+  });
+
+  test("Compiler throws on syntax error", () => {
+    const compiler = new Compiler();
+    expect(() => compiler.execute("const =", undefined, "index.js")).toThrow();
   });
 });
 
