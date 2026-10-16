@@ -6,13 +6,15 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `Engine`  — `src/engine.rs`  (JS class wrapping N-API context and QuickJS Runtime)
+ *   - `Context` — `src/context.rs` (QuickJS Context)
+ *   - `Loader`  — `src/loader.rs`  (QuickJS Loader)
  *
  * napi-rs automatically converts Rust method names to camelCase for JS,
  * so these tests call `createArray`, `hasGlobal`, etc.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { add, Context, Engine, Loader, Parser } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -145,5 +147,31 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.isDisposed()).toBe(false);
     expect(b.isDisposed()).toBe(false);
+  });
+
+  test("QuickJS runtime methods on Engine", () => {
+    const engine = new Engine();
+    engine.setMemoryLimit(1024 * 1024);
+    engine.setMaxStackSize(256 * 1024);
+    engine.setGcThreshold(64 * 1024);
+    engine.runGc();
+    expect(engine.isJobPending()).toBe(false);
+  });
+
+  test("Loader setup on Engine", () => {
+    const engine = new Engine();
+    const loader = new Loader();
+    loader.addPath("./modules");
+    loader.addModule("foo", "export const foo = 42;");
+    engine.setLoader(loader);
+  });
+});
+
+describe("napi: Context", () => {
+  test("creates a QuickJS context from Engine and evaluates code", () => {
+    const engine = new Engine();
+    const ctx = Context.full(engine);
+    expect(ctx.eval("1 + 1")).toBe("2");
+    expect(ctx.eval("'hello'")).toBe("hello");
   });
 });
