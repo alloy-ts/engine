@@ -10,7 +10,7 @@
  *
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { add, Engine, Loader, Parser, Resolver } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -145,14 +145,18 @@ describe("napi: Engine", () => {
     expect(b.isDisposed()).toBe(false);
   });
 
-  test("supports runtime configuration and management methods", () => {
+  test("supports QuickJS Engine runtime API (executePendingJob, isJobPending, runGc, setLoader)", () => {
     const engine = new Engine();
-    expect(() => engine.setInfo("info")).not.toThrow();
-    expect(() => engine.setMemoryLimit(1024)).not.toThrow();
-    expect(() => engine.setMaxStackSize(2048)).not.toThrow();
-    expect(() => engine.setGcThreshold(512)).not.toThrow();
-    expect(() => engine.setLoader(undefined, undefined)).not.toThrow();
+    const resolver = new Resolver();
+    const loader = new Loader();
+
+    expect(() => engine.setInfo("test-engine")).not.toThrow();
+    expect(() => engine.setMemoryLimit(0xffff)).not.toThrow();
+    expect(() => engine.setMaxStackSize(256 * 1024)).not.toThrow();
+    expect(() => engine.setGcThreshold(0xff)).not.toThrow();
+    expect(() => engine.setLoader(resolver, loader)).not.toThrow();
     expect(() => engine.runGc()).not.toThrow();
+
     expect(engine.isJobPending()).toBe(false);
     expect(engine.executePendingJob()).toBe(false);
   });
