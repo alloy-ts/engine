@@ -12,4 +12,5 @@ export {
   WeakRuntime,
   Loader,
   Compiler,
+  Atom,
 } from "../dist/index.js";

@@ -5,13 +5,14 @@ QuickJS (`rquickjs`) and OXC. The Rust side is compiled to `alloy-engine.<platfo
 [`@napi-rs/cli`](https://napi.rs), and the TypeScript side is bundled by
 [vite-plus](https://viteplus.dev).
 
-Today the addon exposes bindings for: `add`, `Parser` (oxc-backed), `Compiler` (oxc-backed), `Engine`, `Context`, `Runtime`, `WeakRuntime`, and `Loader`.
+Today the addon exposes bindings for: `add`, `Parser` (oxc-backed), `Compiler` (oxc-backed), `Engine`, `Context`, `Runtime`, `WeakRuntime`, `Loader`, and `Atom`.
 
 ## Layout
 
 | Path              | Role                                                                 |
 | ----------------- | -------------------------------------------------------------------- |
 | `src/lib.rs`      | Crate root: module declarations and the `add` binding                |
+| `src/atom.rs`     | `Atom` — QuickJS atom (interned string / property key) NAPI bindings |
 | `src/compiler.rs` | `Compiler` — NAPI wrapper around OXC compilation/transformation      |
 | `src/context.rs`  | `Context` — NAPI bindings for QuickJS execution contexts (`Context`) |
 | `src/engine.rs`   | `Engine` — Unifies N-API context (`napi::Env`) & QuickJS `Runtime`   |
@@ -48,6 +49,17 @@ import { Compiler } from "@alloy-ts/engine";
 
 const compiler = new Compiler();
 const astString = compiler.execute("const x = 1;", "js", "index.js");
+```
+
+### `Atom`
+
+NAPI wrapper around QuickJS Atom (interned string / property index).
+
+```ts
+import { Atom } from "@alloy-ts/engine";
+
+const atom = new Atom("foo");
+atom.to_string(); // "foo"
 ```
 
 ### `Parser`

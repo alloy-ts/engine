@@ -13,7 +13,7 @@
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Compiler, Context, Engine, Loader, Parser, Runtime } from "./main.ts";
+import { add, Atom, Compiler, Context, Engine, Loader, Parser, Runtime } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -223,6 +223,26 @@ describe("napi: Context", () => {
   test("compile validates script syntax", () => {
     const ctx = Context.new();
     expect(() => ctx.compile("const x = 1;", "test.js", true)).not.toThrow();
+  });
+});
+
+describe("napi: Atom", () => {
+  test("creates Atom from string, numbers, and bools", () => {
+    const atomStr = new Atom("foo");
+    expect(atomStr.to_string()).toBe("foo");
+    expect(atomStr.to_value()).toBe("foo");
+
+    const atomU32 = Atom.from_u32(123);
+    expect(atomU32.to_string()).toBe("123");
+
+    const atomI32 = Atom.from_i32(-456);
+    expect(atomI32.to_string()).toBe("-456");
+
+    const atomBool = Atom.from_bool(true);
+    expect(atomBool.to_string()).toBe("true");
+
+    const atomF64 = Atom.from_f64(3.14);
+    expect(atomF64.to_string()).toBe("3.14");
   });
 });
 
