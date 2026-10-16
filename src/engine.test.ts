@@ -9,13 +9,14 @@
  *   - `Engine`   — `src/engine.rs`  (JS class wrapping the N-API context & QuickJS engine)
  *   - `Compiler` — `src/compiler.rs`
  *   - `Context`  — `src/context.rs`
+ *   - `Atom`     — `src/atom.rs`
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
  * `js_name` override is set, so these tests call `create_array`, `has_global`,
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Compiler, Context, Engine, Parser } from "./main.ts";
+import { add, Atom, Compiler, Context, Engine, Parser } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -110,6 +111,22 @@ describe("napi: Context", () => {
   test("evaluates script and returns stringified JSON result", () => {
     const ctx = new Context();
     expect(ctx.eval("1 + 1")).toBe("2");
+  });
+});
+
+describe("napi: Atom", () => {
+  test("creates Atom and converts back to string", () => {
+    const a1 = new Atom("foo");
+    expect(a1.to_string()).toBe("foo");
+
+    const a2 = Atom.from_str("bar");
+    expect(a2.to_string()).toBe("bar");
+
+    const a3 = Atom.from_u32(42);
+    expect(a3.to_string()).toBe("42");
+
+    const a4 = Atom.from_bool(true);
+    expect(a4.to_string()).toBe("true");
   });
 });
 

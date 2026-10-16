@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { add, Engine, Parser, Compiler, Context, Resolver } = require('./dist/index.js');
+const { add, Engine, Parser, Compiler, Context, Resolver, Atom } = require('./dist/index.js');
 
 test('CJS require: add', () => {
   assert.strictEqual(add(2, 3), 5);
@@ -60,4 +60,9 @@ test('CJS require: Context eval', () => {
 test('CJS require: Resolver resolve', () => {
   const resolver = new Resolver();
   assert.strictEqual(resolver.resolve('/app/src/index.js', './utils.js'), '/app/src/utils.js');
+});
+
+test('CJS require: Atom creation and conversion', () => {
+  const atom = Atom.from_str('test_atom');
+  assert.strictEqual(atom.to_string(), 'test_atom');
 });
