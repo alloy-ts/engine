@@ -67,21 +67,21 @@ arguments — NAPI injects the context:
 import { Engine } from "@alloy-ts/engine";
 
 const engine = new Engine();
-engine.create_string("hello"); // "hello"
-engine.create_int32(42); // 42
-engine.create_array(3); // [ <3 empty items> ]
-engine.has_global("Math"); // true
-engine.get_napi_version(); // host N-API version
+engine.createString("hello"); // "hello"
+engine.createInt32(42); // 42
+engine.createArray(3); // [ <3 empty items> ]
+engine.hasGlobal("Math"); // true
+engine.getNapiVersion(); // host N-API version
 
-engine.set_instance_data("vm-state");
-engine.get_instance_data(); // "vm-state"
+engine.setInstanceData("vm-state");
+engine.getInstanceData(); // "vm-state"
 
-engine.is_disposed(); // false while the addon is loaded
+engine.isDisposed(); // false while the addon is loaded
 ```
 
-Available methods: `is_disposed`, `create_array`, `create_string`,
-`create_int32`, `create_double`, `has_global`, `get_napi_version`,
-`make_object`, `set_instance_data`, `get_instance_data`.
+Available methods: `isDisposed`, `createArray`, `createString`,
+`createInt32`, `createDouble`, `hasGlobal`, `getNapiVersion`,
+`makeObject`, `setInstanceData`, `getInstanceData`.
 
 #### The N-API context contract
 
@@ -95,7 +95,7 @@ VM-specific state. `Engine` follows its rules:
    private so it cannot leak out.
 3. **It becomes invalid when the addon instance is unloaded.** `Engine::new`
    registers an environment cleanup hook that flips a disposed flag, and every
-   public method refuses to use a dangling handle. `set_instance_data`'s
+   public method refuses to use a dangling handle. `setInstanceData`'s
    finalize callback observes the same unload event.
 
 ## Development
