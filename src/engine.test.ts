@@ -6,14 +6,18 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
- *
- * napi-rs exposes methods under their Rust (snake_case) name unless a
- * `js_name` override is set, so these tests call `create_array`, `has_global`,
- * … rather than camelCase equivalents.
+ *   - `Engine`  — `src/engine.rs`  (JS class wrapping N-API context + QuickJS Runtime)
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import {
+  BuiltinLoader,
+  BuiltinResolver,
+  FileResolver,
+  ScriptLoader,
+  add,
+  Engine,
+  Parser,
+} from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -146,5 +150,56 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+
+  test("create_context and create_base_context work", () => {
+    const engine = new Engine();
+    const ctx = engine.create_context();
+    expect(ctx).toBeDefined();
+    expect(ctx.eval("1 + 1")).toBe(2);
+
+    const baseCtx = engine.create_base_context();
+    expect(baseCtx).toBeDefined();
+  });
+
+  test("set_info sets description without throwing", () => {
+    const engine = new Engine();
+    expect(() => engine.set_info("test-engine")).not.toThrow();
+  });
+
+  test("memory limit, stack size, and GC threshold configuration", () => {
+    const engine = new Engine();
+    expect(() => engine.set_memory_limit(1024 * 1024)).not.toThrow();
+    expect(() => engine.set_max_stack_size(256 * 1024)).not.toThrow();
+    expect(() => engine.set_gc_threshold(512 * 1024)).not.toThrow();
+    expect(() => engine.set_dump_flags(0)).not.toThrow();
+  });
+
+  test("run_gc and memory_usage", () => {
+    const engine = new Engine();
+    expect(() => engine.run_gc()).not.toThrow();
+    const mem = engine.memory_usage();
+    expect(mem).toBeDefined();
+    expect(typeof mem.mallocSize).toBe("number");
+    expect(typeof mem.memoryUsedSize).toBe("number");
+  });
+
+  test("job queue status and execution", () => {
+    const engine = new Engine();
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+  });
+
+  test("module loaders setup", () => {
+    const engine = new Engine();
+    const fileResolver = new FileResolver();
+    fileResolver.add_path("src");
+    const scriptLoader = new ScriptLoader();
+    expect(() => engine.set_file_loader(fileResolver, scriptLoader)).not.toThrow();
+
+    const builtinResolver = new BuiltinResolver();
+    builtinResolver.add_module("my-module");
+    const builtinLoader = new BuiltinLoader();
+    expect(() => engine.set_builtin_loader(builtinResolver, builtinLoader)).not.toThrow();
   });
 });
