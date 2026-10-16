@@ -97,54 +97,54 @@ describe("napi: Engine", () => {
     expect(engine).toBeDefined();
   });
 
-  test("create_array allocates a JS array of the requested length", () => {
+  test("createArray allocates a JS array of the requested length", () => {
     const engine = new Engine();
-    const arr = engine.create_array(3) as unknown[];
+    const arr = engine.createArray(3) as unknown[];
     expect(Array.isArray(arr)).toBe(true);
     expect(arr.length).toBe(3);
   });
 
-  test("create_string / create_int32 / create_double build JS values", () => {
+  test("createString / createInt32 / createDouble build JS values", () => {
     const engine = new Engine();
-    expect(engine.create_string("hello")).toBe("hello");
-    expect(engine.create_int32(42)).toBe(42);
-    expect(engine.create_double(1.5)).toBe(1.5);
+    expect(engine.createString("hello")).toBe("hello");
+    expect(engine.createInt32(42)).toBe(42);
+    expect(engine.createDouble(1.5)).toBe(1.5);
   });
 
-  test("has_global reads the global object through the context", () => {
+  test("hasGlobal reads the global object through the context", () => {
     const engine = new Engine();
-    expect(engine.has_global("Math")).toBe(true);
-    expect(engine.has_global("definitelyNotAGlobal")).toBe(false);
+    expect(engine.hasGlobal("Math")).toBe(true);
+    expect(engine.hasGlobal("definitelyNotAGlobal")).toBe(false);
   });
 
-  test("get_napi_version reports the host N-API version", () => {
+  test("getNapiVersion reports the host N-API version", () => {
     const engine = new Engine();
-    expect(engine.get_napi_version()).toBeGreaterThan(0);
+    expect(engine.getNapiVersion()).toBeGreaterThan(0);
   });
 
-  test("make_object builds a JS object via the context", () => {
+  test("makeObject builds a JS object via the context", () => {
     const engine = new Engine();
-    const obj = engine.make_object() as { ok: boolean; engine: string };
+    const obj = engine.makeObject() as { ok: boolean; engine: string };
     expect(obj.ok).toBe(true);
     expect(obj.engine).toBe("napi");
   });
 
-  test("set_instance_data persists VM-specific state on the Agent", () => {
+  test("setInstanceData persists VM-specific state on the Agent", () => {
     const engine = new Engine();
-    engine.set_instance_data("vm-state");
-    expect(engine.get_instance_data()).toBe("vm-state");
+    engine.setInstanceData("vm-state");
+    expect(engine.getInstanceData()).toBe("vm-state");
   });
 
-  test("is_disposed is false while the addon is loaded", () => {
+  test("isDisposed is false while the addon is loaded", () => {
     const engine = new Engine();
-    expect(engine.is_disposed()).toBe(false);
+    expect(engine.isDisposed()).toBe(false);
   });
 
   test("each instance captures its own context handle", () => {
     const a = new Engine();
     const b = new Engine();
     // Two engines must not alias the same context; both are independently live.
-    expect(a.is_disposed()).toBe(false);
-    expect(b.is_disposed()).toBe(false);
+    expect(a.isDisposed()).toBe(false);
+    expect(b.isDisposed()).toBe(false);
   });
 });
