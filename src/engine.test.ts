@@ -164,6 +164,13 @@ describe("napi: Engine", () => {
     expect(stats).toBeDefined();
     expect(typeof stats.malloc_count).toBe("number");
   });
+
+  test("Engine supports execPendingJob and is_job_pending", () => {
+    const engine = new Engine();
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+  });
 });
 
 describe("napi: Context", () => {

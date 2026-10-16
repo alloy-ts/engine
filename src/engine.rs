@@ -171,6 +171,12 @@ impl JsEngine {
         })
     }
 
+    /// Execute the first pending QuickJS job (camelCase alias).
+    #[napi(js_name = "execPendingJob")]
+    pub fn exec_pending_job(&self) -> Result<bool> {
+        self.execute_pending_job()
+    }
+
     #[napi(js_name = "create_array")]
     pub fn create_array(&self, len: u32) -> Result<Array<'_>> {
         self.ensure_alive()?;
