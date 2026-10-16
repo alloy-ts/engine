@@ -82,6 +82,30 @@ describe("napi: Engine", () => {
     expect(ctx.eval("globalThis.log")).toEqual([42]);
   });
 
+  test("execPendingJob drains promise jobs after const engine = new Engine()", () => {
+    const engine = new Engine();
+    const ctx = engine.create_context();
+    ctx.eval(`
+      globalThis.results = [];
+      Promise.resolve("qjs-job").then((res) => { globalThis.results.push(res); });
+    `);
+    expect(engine.is_job_pending()).toBe(true);
+    expect(engine.execPendingJob()).toBe(true);
+    expect(ctx.eval("globalThis.results")).toEqual(["qjs-job"]);
+  });
+
+  test("exec_pending_job snake_case alias drains promise jobs after const engine = new Engine()", () => {
+    const engine = new Engine();
+    const ctx = engine.create_context();
+    ctx.eval(`
+      globalThis.results = [];
+      Promise.resolve("snake-job").then((res) => { globalThis.results.push(res); });
+    `);
+    expect(engine.is_job_pending()).toBe(true);
+    expect(engine.exec_pending_job()).toBe(true);
+    expect(ctx.eval("globalThis.results")).toEqual(["snake-job"]);
+  });
+
   test("execute_pending_job surfaces a throwing microtask as a thrown exception", () => {
     const engine = new Engine();
     const ctx = engine.create_context();
