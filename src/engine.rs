@@ -7,13 +7,15 @@ use napi::bindgen_prelude::*;
 pub use napi::Env as Engine;
 use napi::Env;
 use napi_derive::napi;
+use rquickjs::Runtime as QuickRuntime;
 
-/// JS class wrapping the N-API context (`napi::Env`).
-///
-/// JS: `const engine = new Engine();` — the context is injected by NAPI, so the
-/// constructor takes no JavaScript arguments.
+/// JS class wrapping N-API context (`napi::Env`) and QuickJS `Runtime`.
 #[napi(js_name = "Engine")]
-pub struct JsEngine(pub(crate) Env, pub(crate) Arc<AtomicBool>);
+pub struct JsEngine {
+    pub(crate) env: Env,
+    pub(crate) disposed: Arc<AtomicBool>,
+    pub(crate) quick_runtime: Option<QuickRuntime>,
+}
 
 #[napi]
 impl JsEngine {
@@ -30,13 +32,19 @@ impl JsEngine {
             flag.store(true, Ordering::SeqCst);
         })?;
 
-        Ok(Self(env, disposed))
+        let quick_runtime = QuickRuntime::new().ok();
+
+        Ok(Self {
+            env,
+            disposed,
+            quick_runtime,
+        })
     }
 
     /// Whether the owning addon (and thus this context) has been unloaded.
     #[napi]
     pub fn is_disposed(&self) -> bool {
-        self.1.load(Ordering::SeqCst)
+        self.disposed.load(Ordering::SeqCst)
     }
 
     #[napi]
@@ -44,78 +52,95 @@ impl JsEngine {
         self.ensure_alive()?;
         let mut raw_val = std::ptr::null_mut();
         napi::check_status!(
-            unsafe { napi::sys::napi_create_array_with_length(self.0.raw(), len as usize, &mut raw_val) },
+            unsafe { napi::sys::napi_create_array_with_length(self.env.raw(), len as usize, &mut raw_val) },
             "Create array with length failed"
         )?;
-        unsafe { Array::from_napi_value(self.0.raw(), raw_val) }
+        unsafe { Array::from_napi_value(self.env.raw(), raw_val) }
     }
 
-    /// `Engine::create_string` — build a JS string.
+    /// `Engine::createString` — build a JS string.
     #[napi]
     pub fn create_string(&self, value: String) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
-        self.0.create_string(&value)?.into_unknown(&self.0)
+        self.env.create_string(&value)?.into_unknown(&self.env)
     }
 
-    /// `Engine::create_int32` — build a JS number from an `i32`.
+    /// `Engine::createInt32` — build a JS number from an `i32`.
     #[napi]
     pub fn create_int32(&self, int: i32) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
-        self.0.create_int32(int)?.into_unknown(&self.0)
+        self.env.create_int32(int)?.into_unknown(&self.env)
     }
 
-    /// `Engine::create_double` — build a JS number from an `f64`.
+    /// `Engine::createDouble` — build a JS number from an `f64`.
     #[napi]
     pub fn create_double(&self, value: f64) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
-        self.0.create_double(value)?.into_unknown(&self.0)
+        self.env.create_double(value)?.into_unknown(&self.env)
     }
 
     /// Does the global object have this property?
     #[napi]
     pub fn has_global(&self, name: String) -> Result<bool> {
         self.ensure_alive()?;
-        let global = self.0.get_global()?;
+        let global = self.env.get_global()?;
         global.has_named_property(&name)
     }
 
-    /// `Engine::get_napi_version` — the N-API version of the host runtime.
+    /// `Engine::getNapiVersion` — the N-API version of the host runtime.
     #[napi]
     pub fn get_napi_version(&self) -> Result<u32> {
         self.ensure_alive()?;
-        self.0.get_napi_version()
+        self.env.get_napi_version()
     }
 
     /// `Object::new` through the captured context.
     #[napi]
     pub fn make_object(&self) -> Result<Object<'_>> {
         self.ensure_alive()?;
-        let mut obj = Object::new(&self.0)?;
+        let mut obj = Object::new(&self.env)?;
         obj.set_named_property("ok", true)?;
         obj.set_named_property("engine", "napi")?;
         Ok(obj)
     }
 
-    /// `Engine::set_instance_data` — persist VM-specific state on the Agent.
-    ///
-    /// The finalize callback runs when the Agent (addon instance) is torn down,
-    /// i.e. the same unload event the cleanup hook observes.
+    /// `Engine::setInstanceData` — persist VM-specific state on the Agent.
     #[napi]
     pub fn set_instance_data(&self, value: String) -> Result<()> {
         self.ensure_alive()?;
-        self.0.set_instance_data(value, (), |_ctx| {})
+        self.env.set_instance_data(value, (), |_ctx| {})
     }
 
-    /// `Engine::get_instance_data` — read back the persisted VM-specific state.
+    /// `Engine::getInstanceData` — read back the persisted VM-specific state.
     #[napi]
     pub fn get_instance_data(&self) -> Result<Option<String>> {
         self.ensure_alive()?;
-        Ok(self.0.get_instance_data::<String>()?.map(|s: &mut String| s.clone()))
+        Ok(self.env.get_instance_data::<String>()?.map(|s: &mut String| s.clone()))
+    }
+
+    /// QuickJS GC execution
+    #[napi]
+    pub fn run_gc(&self) -> Result<()> {
+        self.ensure_alive()?;
+        if let Some(rt) = &self.quick_runtime {
+            rt.run_gc();
+        }
+        Ok(())
+    }
+
+    /// Set memory limit for QuickJS runtime
+    #[napi]
+    pub fn set_memory_limit(&self, limit: u32) -> Result<()> {
+        self.ensure_alive()?;
+        if let Some(rt) = &self.quick_runtime {
+            rt.set_memory_limit(limit as usize);
+        }
+        Ok(())
     }
 
     /// Guard: refuse to use a context that belongs to an unloaded addon.
     fn ensure_alive(&self) -> Result<()> {
-        if self.1.load(Ordering::SeqCst) {
+        if self.disposed.load(Ordering::SeqCst) {
             return Err(Error::new(
                 Status::GenericFailure,
                 "Engine: N-API context has been disposed (addon unloaded)",
