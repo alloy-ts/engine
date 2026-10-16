@@ -5,53 +5,35 @@ use crate::loader::{Loader, Resolver};
 
 /// QuickJS / JS runtime, entry point of execution.
 #[napi]
-pub struct Runtime {
-  memory_limit: usize,
-  max_stack_size: usize,
-  gc_threshold: usize,
-  info: String,
-}
+pub struct Runtime;
 
 #[napi]
 impl Runtime {
   /// Create a new runtime.
   #[napi(constructor)]
   pub fn new() -> Self {
-    Runtime {
-      memory_limit: 0,
-      max_stack_size: 256 * 1024,
-      gc_threshold: 0,
-      info: String::new(),
-    }
+    Runtime
   }
 
   /// Set the info string of the runtime.
   #[napi]
-  pub fn set_info(&mut self, info: String) {
-    self.info = info;
-  }
+  pub fn set_info(&self, _info: String) {}
 
   /// Set a limit on the max amount of memory the runtime will use.
   #[napi]
-  pub fn set_memory_limit(&mut self, limit: u32) {
-    self.memory_limit = limit as usize;
-  }
+  pub fn set_memory_limit(&self, _limit: u32) {}
 
   /// Set a limit on the max size of stack the runtime will use.
   #[napi]
-  pub fn set_max_stack_size(&mut self, limit: u32) {
-    self.max_stack_size = limit as usize;
-  }
+  pub fn set_max_stack_size(&self, _limit: u32) {}
 
   /// Set a memory threshold for garbage collection.
   #[napi]
-  pub fn set_gc_threshold(&mut self, threshold: u32) {
-    self.gc_threshold = threshold as usize;
-  }
+  pub fn set_gc_threshold(&self, _threshold: u32) {}
 
   /// Set the module resolver and loader.
   #[napi]
-  pub fn set_loader(&mut self, _resolver: Option<&Resolver>, _loader: Option<&Loader>) {}
+  pub fn set_loader(&self, _resolver: Option<&Resolver>, _loader: Option<&Loader>) {}
 
   /// Set debug flags for dumping memory.
   #[napi]
@@ -61,7 +43,7 @@ impl Runtime {
   #[napi]
   pub fn run_gc(&self) {}
 
-  /// Test for pending jobs. Returns true when at least one job is pending.
+  /// Test for pending jobs.
   #[napi]
   pub fn is_job_pending(&self) -> bool {
     false

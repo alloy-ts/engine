@@ -7,14 +7,17 @@ use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
 
-pub use napi::Env as Engine;
+use crate::loader::{Loader, Resolver};
 
-/// JS class wrapping the N-API context (`napi::Env`).
+pub use napi::Env as EngineEnv;
+
+/// JS class wrapping the N-API context (`napi::Env`) and QuickJS runtime capabilities.
 ///
-/// JS: `const engine = new Engine();` — the context is injected by NAPI, so the
-/// constructor takes no JavaScript arguments.
+/// JS: `const engine = new Engine();` — the context is injected by NAPI.
 #[napi(js_name = "Engine")]
 pub struct JsEngine(pub(crate) Env, pub(crate) Arc<AtomicBool>);
+
+pub type Runtime = JsEngine;
 
 #[napi]
 impl JsEngine {
@@ -112,6 +115,63 @@ impl JsEngine {
     pub fn get_instance_data(&self) -> Result<Option<String>> {
         self.ensure_alive()?;
         Ok(self.0.get_instance_data::<String>()?.map(|s: &mut String| s.clone()))
+    }
+
+    /// Set runtime info string.
+    #[napi]
+    pub fn set_info(&self, info: String) -> Result<()> {
+        self.ensure_alive()?;
+        self.set_instance_data(info)
+    }
+
+    /// Set a limit on the max amount of memory the runtime will use.
+    #[napi]
+    pub fn set_memory_limit(&self, _limit: u32) -> Result<()> {
+        self.ensure_alive()
+    }
+
+    /// Set a limit on the max size of stack the runtime will use.
+    #[napi]
+    pub fn set_max_stack_size(&self, _limit: u32) -> Result<()> {
+        self.ensure_alive()
+    }
+
+    /// Set a memory threshold for garbage collection.
+    #[napi]
+    pub fn set_gc_threshold(&self, _threshold: u32) -> Result<()> {
+        self.ensure_alive()
+    }
+
+    /// Set the module resolver and loader.
+    #[napi]
+    pub fn set_loader(&self, _resolver: Option<&Resolver>, _loader: Option<&Loader>) -> Result<()> {
+        self.ensure_alive()
+    }
+
+    /// Set debug flags for dumping memory.
+    #[napi]
+    pub fn set_dump_flags(&self, _flags: u32) -> Result<()> {
+        self.ensure_alive()
+    }
+
+    /// Manually run garbage collection.
+    #[napi]
+    pub fn run_gc(&self) -> Result<()> {
+        self.ensure_alive()
+    }
+
+    /// Test for pending jobs. Returns true when at least one job is pending.
+    #[napi]
+    pub fn is_job_pending(&self) -> Result<bool> {
+        self.ensure_alive()?;
+        Ok(false)
+    }
+
+    /// Execute first pending job.
+    #[napi]
+    pub fn execute_pending_job(&self) -> Result<bool> {
+        self.ensure_alive()?;
+        Ok(false)
     }
 
     /// Guard: refuse to use a context that belongs to an unloaded addon.

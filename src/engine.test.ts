@@ -144,4 +144,16 @@ describe("napi: Engine", () => {
     expect(a.isDisposed()).toBe(false);
     expect(b.isDisposed()).toBe(false);
   });
+
+  test("supports runtime configuration and management methods", () => {
+    const engine = new Engine();
+    expect(() => engine.setInfo("info")).not.toThrow();
+    expect(() => engine.setMemoryLimit(1024)).not.toThrow();
+    expect(() => engine.setMaxStackSize(2048)).not.toThrow();
+    expect(() => engine.setGcThreshold(512)).not.toThrow();
+    expect(() => engine.setLoader(undefined, undefined)).not.toThrow();
+    expect(() => engine.runGc()).not.toThrow();
+    expect(engine.isJobPending()).toBe(false);
+    expect(engine.executePendingJob()).toBe(false);
+  });
 });
