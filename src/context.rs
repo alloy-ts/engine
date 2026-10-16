@@ -3,7 +3,7 @@
 use napi_derive::napi;
 use rquickjs::Context as QjsContext;
 
-use crate::runtime::Runtime;
+use crate::engine::JsEngine as Engine;
 
 /// JS-visible wrapper for `rquickjs::Context`.
 #[napi(js_name = "Context")]
@@ -13,13 +13,13 @@ pub struct Context {
 
 #[napi]
 impl Context {
-  /// Create a new QuickJS Context from an optional Runtime.
+  /// Create a new QuickJS Context from an optional Engine.
   ///
-  /// If no Runtime is provided, a new default Runtime is created internally.
+  /// If no Engine is provided, a new default QuickJS Runtime is created internally.
   #[napi(constructor)]
-  pub fn new(runtime: Option<&Runtime>) -> napi::Result<Self> {
-    let inner = match runtime {
-      Some(rt) => QjsContext::full(&rt.inner)
+  pub fn new(engine: Option<&Engine>) -> napi::Result<Self> {
+    let inner = match engine {
+      Some(eng) => QjsContext::full(&eng.qjs_runtime)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?,
       None => {
         let rt = rquickjs::Runtime::new()
@@ -33,16 +33,16 @@ impl Context {
 
   /// Create a base Context with only required intrinsics registered.
   #[napi]
-  pub fn base(runtime: &Runtime) -> napi::Result<Self> {
-    let inner = QjsContext::base(&runtime.inner)
+  pub fn base(engine: &Engine) -> napi::Result<Self> {
+    let inner = QjsContext::base(&engine.qjs_runtime)
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(Self { inner })
   }
 
   /// Create a full Context with all standard intrinsics registered.
   #[napi]
-  pub fn full(runtime: &Runtime) -> napi::Result<Self> {
-    let inner = QjsContext::full(&runtime.inner)
+  pub fn full(engine: &Engine) -> napi::Result<Self> {
+    let inner = QjsContext::full(&engine.qjs_runtime)
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(Self { inner })
   }

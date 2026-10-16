@@ -1,31 +1,31 @@
 /**
- * Tests for Context, Runtime, and Loader NAPI bindings.
+ * Tests for Context, Engine, and Loader NAPI bindings.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { Context, Loader, Runtime } from "./main.ts";
+import { Context, Engine, Loader } from "./main.ts";
 
-describe("napi: Runtime, Context & Loader", () => {
-  test("constructs Runtime and sets limits", () => {
-    const runtime = new Runtime();
-    expect(runtime).toBeDefined();
+describe("napi: Context & Engine", () => {
+  test("constructs Engine and sets limits", () => {
+    const engine = new Engine();
+    expect(engine).toBeDefined();
 
-    runtime.setMemoryLimit(1024 * 1024 * 16);
-    runtime.setMaxStackSize(1024 * 1024);
-    runtime.runGc();
+    engine.setMemoryLimit(1024 * 1024 * 16);
+    engine.setMaxStackSize(1024 * 1024);
+    engine.runGc();
   });
 
-  test("constructs Loader and initializes Runtime with Loader", () => {
+  test("constructs Loader and initializes Engine with Loader", () => {
     const loader = new Loader();
     loader.addModule("my_mod", "export const foo = 42;");
 
-    const runtime = new Runtime(loader);
-    expect(runtime).toBeDefined();
+    const engine = new Engine(loader);
+    expect(engine).toBeDefined();
 
-    const context = Context.full(runtime);
+    const context = Context.full(engine);
     expect(context).toBeDefined();
   });
 
-  test("constructs Context with default Runtime and evaluates JS", () => {
+  test("constructs Context with default Engine and evaluates JS", () => {
     const context = new Context(undefined);
     expect(context).toBeDefined();
 
@@ -33,15 +33,15 @@ describe("napi: Runtime, Context & Loader", () => {
     expect(result).toBe("3");
   });
 
-  test("constructs Context with explicit Runtime using full and base constructors", () => {
-    const runtime = new Runtime();
-    const fullCtx = Context.full(runtime);
+  test("constructs Context with explicit Engine using full and base constructors", () => {
+    const engine = new Engine();
+    const fullCtx = Context.full(engine);
     expect(fullCtx).toBeDefined();
 
     const fullResult = fullCtx.eval("({ a: 1 })");
     expect(JSON.parse(fullResult)).toEqual({ a: 1 });
 
-    const baseCtx = Context.base(runtime);
+    const baseCtx = Context.base(engine);
     expect(baseCtx).toBeDefined();
 
     fullCtx.runGc();
