@@ -4,11 +4,11 @@ export function main(): string {
 
 export {
   Engine,
+  Engine as Runtime,
   Global,
   Parser,
   add,
   Context,
-  Runtime,
   WeakRuntime,
   Loader,
 } from "../dist/index.js";
