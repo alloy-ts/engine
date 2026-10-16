@@ -2,13 +2,16 @@ const test = require("node:test");
 const assert = require("node:assert");
 const native = require("./dist/index.js");
 
-test("native addon exports Context, Runtime, Engine, Parser, add", () => {
+test("native addon exports Context, Engine, Parser, add", () => {
   assert.strictEqual(typeof native.add, "function");
   assert.strictEqual(native.add(2, 3), 5);
   assert.strictEqual(typeof native.Context, "function");
-  assert.strictEqual(typeof native.Runtime, "function");
   assert.strictEqual(typeof native.Engine, "function");
   assert.strictEqual(typeof native.Parser, "function");
+
+  const engine = new native.Engine();
+  assert.ok(engine);
+  assert.strictEqual(engine.execPendingJob(), false);
 
   const ctx = new native.Context();
   assert.ok(ctx);

@@ -4,7 +4,7 @@ use napi::bindgen_prelude::{FromNapiValue, JsObjectValue, Object, ToNapiValue, U
 use napi::{Env, Result as NapiResult};
 use napi_derive::napi;
 
-use crate::runtime::{JSRuntime, Runtime};
+use crate::engine::{JsEngine as Engine, JSRuntime};
 
 pub use rquickjs::context::intrinsic;
 pub use rquickjs::context::ContextBuilder;
@@ -50,46 +50,46 @@ fn get_undefined<'env>(env: &'env Env) -> NapiResult<Unknown<'env>> {
 #[derive(Clone)]
 pub struct Context {
   pub(crate) inner: rquickjs::Context,
-  pub(crate) runtime: Runtime,
+  pub(crate) engine: Engine,
 }
 
 unsafe impl Send for Context {}
 unsafe impl Sync for Context {}
 
 impl Context {
-  pub unsafe fn from_raw(ctx: std::ptr::NonNull<JSContext>, rt: Runtime) -> Self {
-    let inner = unsafe { rquickjs::Context::from_raw(ctx, rt.inner.clone()) };
-    Self { inner, runtime: rt }
+  pub unsafe fn from_raw(ctx: std::ptr::NonNull<JSContext>, engine: Engine) -> Self {
+    let inner = unsafe { rquickjs::Context::from_raw(ctx, engine.inner_runtime().clone()) };
+    Self { inner, engine }
   }
 
   pub fn as_raw(&self) -> std::ptr::NonNull<JSContext> {
     self.inner.as_raw()
   }
 
-  pub fn base(runtime: &Runtime) -> NapiResult<Self> {
-    let inner = rquickjs::Context::base(&runtime.inner)
+  pub fn base(engine: &Engine) -> NapiResult<Self> {
+    let inner = rquickjs::Context::base(engine.inner_runtime())
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(Self {
       inner,
-      runtime: runtime.clone(),
+      engine: engine.clone(),
     })
   }
 
-  pub fn custom<I: Intrinsic>(runtime: &Runtime) -> NapiResult<Self> {
-    let inner = rquickjs::Context::custom::<I>(&runtime.inner)
+  pub fn custom<I: Intrinsic>(engine: &Engine) -> NapiResult<Self> {
+    let inner = rquickjs::Context::custom::<I>(engine.inner_runtime())
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(Self {
       inner,
-      runtime: runtime.clone(),
+      engine: engine.clone(),
     })
   }
 
-  pub fn full(runtime: &Runtime) -> NapiResult<Self> {
-    let inner = rquickjs::Context::full(&runtime.inner)
+  pub fn full(engine: &Engine) -> NapiResult<Self> {
+    let inner = rquickjs::Context::full(engine.inner_runtime())
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(Self {
       inner,
-      runtime: runtime.clone(),
+      engine: engine.clone(),
     })
   }
 
@@ -97,8 +97,8 @@ impl Context {
     rquickjs::Context::builder()
   }
 
-  pub fn runtime(&self) -> &Runtime {
-    &self.runtime
+  pub fn engine(&self) -> &Engine {
+    &self.engine
   }
 
   pub fn get_runtime_ptr(&self) -> *mut JSRuntime {
@@ -116,21 +116,21 @@ impl Context {
 #[napi]
 impl Context {
   #[napi(constructor)]
-  pub fn new() -> napi::Result<Self> {
-    let rt = Runtime::new()?;
-    Context::full(&rt)
+  pub fn new(env: Env) -> napi::Result<Self> {
+    let engine = Engine::new(env)?;
+    Context::full(&engine)
   }
 
   #[napi(factory, js_name = "createBase")]
-  pub fn create_base() -> napi::Result<Self> {
-    let rt = Runtime::new()?;
-    Context::base(&rt)
+  pub fn create_base(env: Env) -> napi::Result<Self> {
+    let engine = Engine::new(env)?;
+    Context::base(&engine)
   }
 
   #[napi(factory, js_name = "createFull")]
-  pub fn create_full() -> napi::Result<Self> {
-    let rt = Runtime::new()?;
-    Context::full(&rt)
+  pub fn create_full(env: Env) -> napi::Result<Self> {
+    let engine = Engine::new(env)?;
+    Context::full(&engine)
   }
 
   #[napi]
@@ -230,7 +230,7 @@ impl Context {
 
   #[napi]
   pub fn run_gc(&self) {
-    self.runtime.run_gc();
+    self.engine.run_gc();
   }
 
   #[napi]
@@ -243,10 +243,20 @@ impl Context {
 mod test {
   use super::*;
 
+  fn test_engine() -> Engine {
+    let qjs_rt = rquickjs::Runtime::new().unwrap();
+    qjs_rt.set_max_stack_size(0);
+    Engine {
+      env: unsafe { std::mem::zeroed() },
+      disposed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+      qjs_runtime: qjs_rt,
+    }
+  }
+
   #[test]
   fn basic() {
-    let rt = Runtime::new().unwrap();
-    let ctx = Context::full(&rt).unwrap();
+    let engine = test_engine();
+    let ctx = Context::full(&engine).unwrap();
     ctx.with(|ctx| {
       let val: i32 = ctx.eval("1+1").unwrap();
       assert_eq!(val, 2);
@@ -255,15 +265,14 @@ mod test {
 
   #[test]
   fn minimal() {
-    let rt = Runtime::new().unwrap();
-    rt.set_max_stack_size(0);
+    let engine = test_engine();
     let ctx = Context::builder()
       .with::<intrinsic::Eval>()
-      .build(&rt.inner)
+      .build(engine.inner_runtime())
       .unwrap();
     let context = Context {
       inner: ctx,
-      runtime: rt,
+      engine,
     };
     context.with(|ctx| {
       let val: i32 = ctx.eval("1+1").unwrap();
@@ -273,22 +282,21 @@ mod test {
 
   #[test]
   fn base() {
-    let rt = Runtime::new().unwrap();
-    let _ = Context::base(&rt).unwrap();
+    let engine = test_engine();
+    let _ = Context::base(&engine).unwrap();
   }
 
   #[test]
   fn clone_ctx() {
-    let rt = Runtime::new().unwrap();
-    rt.set_max_stack_size(0);
+    let engine = test_engine();
     let ctx = Context::builder()
       .with::<intrinsic::Eval>()
-      .build(&rt.inner)
+      .build(engine.inner_runtime())
       .unwrap();
 
     let context = Context {
       inner: ctx,
-      runtime: rt,
+      engine,
     };
 
     let ctx_clone = context.clone();
@@ -308,9 +316,8 @@ mod test {
   fn parallel() {
     use std::thread;
 
-    let rt = Runtime::new().unwrap();
-    rt.set_max_stack_size(0);
-    let ctx = Context::full(&rt).unwrap();
+    let engine = test_engine();
+    let ctx = Context::full(&engine).unwrap();
     thread::spawn(move || {
       ctx.with(|ctx| {
         let val: i32 = ctx.eval("1+1").unwrap();
@@ -328,9 +335,9 @@ mod test {
 
     let wait_for_entry = Arc::new(Barrier::new(2));
 
-    let rt = Runtime::new().unwrap();
-    let ctx_1 = Context::full(&rt).unwrap();
-    let ctx_2 = Context::full(&rt).unwrap();
+    let engine = test_engine();
+    let ctx_1 = Context::full(&engine).unwrap();
+    let ctx_2 = Context::full(&engine).unwrap();
     let wait_for_entry_c = wait_for_entry.clone();
     thread::spawn(move || {
       wait_for_entry_c.wait();

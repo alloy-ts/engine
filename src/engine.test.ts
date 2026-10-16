@@ -6,11 +6,7 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
- *
- * napi-rs exposes methods under their Rust (snake_case) name unless a
- * `js_name` override is set, so these tests call `create_array`, `has_global`,
- * … rather than camelCase equivalents.
+ *   - `Engine`  — `src/engine.rs`  (JS class wrapping N-API context & QuickJS engine)
  */
 import { describe, expect, test } from "vite-plus/test";
 import { add, Engine, Parser } from "./main.ts";
@@ -143,8 +139,40 @@ describe("napi: Engine", () => {
   test("each instance captures its own context handle", () => {
     const a = new Engine();
     const b = new Engine();
-    // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+
+  test("qjs Engine API: execPendingJob and job pending status", () => {
+    const engine = new Engine();
+    expect(engine.isJobPending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+  });
+
+  test("qjs Engine API: memory usage and limits configuration", () => {
+    const engine = new Engine();
+    expect(() => engine.setInfo("test-engine")).not.toThrow();
+    expect(() => engine.setMemoryLimit(1024 * 1024)).not.toThrow();
+    expect(() => engine.setMaxStackSize(512 * 1024)).not.toThrow();
+    expect(() => engine.setGcThreshold(64 * 1024)).not.toThrow();
+    expect(() => engine.setDumpFlags(0)).not.toThrow();
+    expect(() => engine.runGc()).not.toThrow();
+
+    const usage = engine.memoryUsage();
+    expect(usage).toBeDefined();
+    expect(typeof usage.memoryUsedSize).toBe("number");
+  });
+
+  test("qjs Engine API: weak engine reference", () => {
+    const engine = new Engine();
+    const weak = engine.weak();
+    expect(weak).toBeDefined();
+  });
+
+  test("qjs Engine API: module loader configurations", () => {
+    const engine = new Engine();
+    expect(() => engine.setBuiltinLoader()).not.toThrow();
+    expect(() => engine.setFileLoader()).not.toThrow();
+    expect(() => engine.setLoader("builtin", "builtin")).not.toThrow();
   });
 });

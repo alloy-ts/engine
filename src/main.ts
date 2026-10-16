@@ -12,8 +12,7 @@ export {
   ModuleLoader,
   NativeLoader,
   Parser,
-  Runtime,
   ScriptLoader,
-  WeakRuntime,
+  WeakEngine,
   add,
 } from "../dist/index.js";

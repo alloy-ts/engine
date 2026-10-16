@@ -5,14 +5,13 @@ pub mod engine;
 pub mod global;
 pub mod loader;
 pub mod parser;
-pub mod runtime;
 
 pub use context::{Context, Ctx, EvalOptions};
+pub use engine::{JsEngine as Engine, MemoryUsage, WeakEngine};
 pub use loader::{
   BuiltinLoader, BuiltinResolver, JsBuiltinLoader, JsBuiltinResolver, JsFileResolver,
   JsModuleLoader, JsNativeLoader, JsScriptLoader, Loader, ModuleLoader, NativeLoader, Resolver,
 };
-pub use runtime::{MemoryUsage, Runtime, WeakRuntime};
 
 #[napi]
 pub fn add(left: i32, right: i32) -> i32 {
