@@ -201,6 +201,18 @@ impl JsEngine {
             Error::from_reason(format!("job exception: {msg}"))
         })
     }
+
+    /// Execute the first pending job (exposed in JS as `execPendingJob`).
+    #[napi]
+    pub fn exec_pending_job(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
+    }
+
+    /// Alias for `execute_pending_job` specifically in snake_case (`exec_pending_job`).
+    #[napi(js_name = "exec_pending_job")]
+    pub fn exec_pending_job_snake(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
+    }
 }
 
 /// NAPI class wrapping a weak handle to a QuickJS engine
