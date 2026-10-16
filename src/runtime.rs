@@ -1,6 +1,7 @@
 //! NAPI bindings for JS `Runtime`.
 
 use napi_derive::napi;
+use crate::loader::{Loader, Resolver};
 
 /// QuickJS / JS runtime, entry point of execution.
 #[napi]
@@ -47,6 +48,10 @@ impl Runtime {
   pub fn set_gc_threshold(&mut self, threshold: u32) {
     self.gc_threshold = threshold as usize;
   }
+
+  /// Set the module resolver and loader.
+  #[napi]
+  pub fn set_loader(&mut self, _resolver: Option<&Resolver>, _loader: Option<&Loader>) {}
 
   /// Set debug flags for dumping memory.
   #[napi]

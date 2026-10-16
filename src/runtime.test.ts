@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { Runtime } from "./main.ts";
+import { Loader, Resolver, Runtime } from "./main.ts";
 
 describe("napi: Runtime", () => {
   test("constructs Runtime", () => {
@@ -18,6 +18,13 @@ describe("napi: Runtime", () => {
     const rt = new Runtime();
     expect(() => rt.setInfo("test runtime")).not.toThrow();
     expect(() => rt.setDumpFlags(0)).not.toThrow();
+  });
+
+  test("setLoader configures resolver and loader", () => {
+    const rt = new Runtime();
+    const resolver = new Resolver();
+    const loader = new Loader();
+    expect(() => rt.setLoader(resolver, loader)).not.toThrow();
   });
 
   test("runGc executes garbage collection without error", () => {

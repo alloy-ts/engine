@@ -2,6 +2,7 @@ use napi_derive::napi;
 
 pub mod context;
 pub mod engine;
+pub mod loader;
 pub mod global;
 pub mod parser;
 pub mod runtime;
