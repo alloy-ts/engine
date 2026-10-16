@@ -13,7 +13,7 @@
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { add, Context, Engine, Loader, Parser, Runtime } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -146,5 +146,119 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+
+  test("Engine creates QuickJS contexts and executes code", () => {
+    const engine = new Engine();
+    const ctx = engine.create_context();
+    expect(ctx.eval("2 + 3")).toBe(5);
+  });
+
+  test("Engine manages QuickJS memory limits and usage stats", () => {
+    const engine = new Engine();
+    engine.set_memory_limit(1024 * 1024 * 32);
+    engine.set_max_stack_size(256 * 1024);
+    engine.run_gc();
+
+    const stats = engine.memory_usage() as { malloc_count: number };
+    expect(stats).toBeDefined();
+    expect(typeof stats.malloc_count).toBe("number");
+  });
+});
+
+describe("napi: Context", () => {
+  test("eval computes expressions", () => {
+    const ctx = Context.new();
+    expect(ctx.eval("1 + 1")).toBe(2);
+    expect(ctx.eval("'hello' + ' ' + 'world'")).toBe("hello world");
+  });
+
+  test("eval_module evaluates ES module exports", () => {
+    const ctx = Context.new();
+    const result = ctx.eval_module("export const a = 10; export const b = 20;") as {
+      a: number;
+      b: number;
+    };
+    expect(result.a).toBe(10);
+    expect(result.b).toBe(20);
+  });
+
+  test("json_parse parses JSON string into JS value", () => {
+    const ctx = Context.new();
+    const parsed = ctx.json_parse('{"x": 42, "y": [1, 2, 3]}') as {
+      x: number;
+      y: number[];
+    };
+    expect(parsed.x).toBe(42);
+    expect(parsed.y).toEqual([1, 2, 3]);
+  });
+
+  test("global_keys returns array of global property names", () => {
+    const ctx = Context.new();
+    const keys = ctx.global_keys();
+    expect(Array.isArray(keys)).toBe(true);
+    expect(keys).toContain("Math");
+    expect(keys).toContain("Array");
+  });
+
+  test("run_gc and execute_pending_job run without error", () => {
+    const ctx = Context.new();
+    ctx.run_gc();
+    expect(ctx.execute_pending_job()).toBe(false);
+  });
+
+  test("eval_with_filename evaluates script with source name", () => {
+    const ctx = Context.new();
+    const val = ctx.eval_with_filename("2 * 21", "test.js");
+    expect(val).toBe(42);
+  });
+
+  test("compile validates script syntax", () => {
+    const ctx = Context.new();
+    expect(() => ctx.compile("const x = 1;", "test.js", true)).not.toThrow();
+  });
+});
+
+describe("napi: Runtime & Loader", () => {
+  test("Runtime creates shared contexts", () => {
+    const rt = new Runtime();
+    const ctx1 = rt.create_context();
+    const ctx2 = rt.create_context();
+
+    expect(ctx1.eval("1 + 1")).toBe(2);
+    expect(ctx2.eval("2 + 2")).toBe(4);
+  });
+
+  test("Runtime configures limits and memory_usage", () => {
+    const rt = new Runtime();
+    rt.set_memory_limit(1024 * 1024 * 16);
+    rt.set_max_stack_size(256 * 1024);
+    rt.set_gc_threshold(1024 * 64);
+    rt.run_gc();
+
+    const mem = rt.memory_usage() as { malloc_count: number };
+    expect(mem).toBeDefined();
+    expect(typeof mem.malloc_count).toBe("number");
+  });
+
+  test("WeakRuntime promotes to Runtime", () => {
+    const rt = new Runtime();
+    const weak = rt.weak();
+    const promoted = weak.try_ref();
+    expect(promoted).not.toBeNull();
+  });
+
+  test("Loader imports in-memory builtin modules", () => {
+    const rt = new Runtime();
+    const loader = new Loader();
+    loader.add_builtin("custom_mod", "export const greeting = 'hello from loader';");
+    rt.set_loader(loader);
+
+    const ctx = rt.create_context();
+    const mod = ctx.eval_module("import { greeting } from 'custom_mod'; export { greeting };") as {
+      greeting: string;
+    };
+
+    expect(mod.greeting).toBe("hello from loader");
   });
 });

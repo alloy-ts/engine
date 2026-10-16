@@ -26,6 +26,13 @@ impl JsRuntime {
         Ok(JsRuntime { inner })
     }
 
+    /// Configure module loading and resolution using a [`JsLoader`].
+    #[napi(js_name = "set_loader")]
+    pub fn set_loader(&self, loader: &crate::loader::JsLoader) -> napi::Result<()> {
+        crate::loader::apply_loader_to_runtime(&self.inner, loader);
+        Ok(())
+    }
+
     /// Create a `Context` that shares *this* runtime's engine.
     ///
     /// Prefer this over a standalone `Context` (i.e. `new Context()`) when you

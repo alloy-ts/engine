@@ -94,16 +94,50 @@ impl JsContext {
         })
     }
 
+    /// Evaluate `source` with a specified filename/path for stack trace reporting.
+    #[napi(js_name = "eval_with_filename")]
+    pub fn eval_with_filename(&self, source: String, filename: String) -> napi::Result<JsonValue> {
+        self.inner.with(|ctx| {
+            let mut opts = EvalOptions::default();
+            opts.filename = Some(filename);
+            let value: Value = ctx.eval_with_options(source, opts).map_err(to_napi_err)?;
+            value_to_json(&ctx, value)
+        })
+    }
+
+    /// Evaluate a script with compile-only flag or validate options.
+    #[napi]
+    pub fn compile(&self, source: String, filename: String, strict: Option<bool>) -> napi::Result<()> {
+        self.inner.with(|ctx| {
+            let mut opts = EvalOptions::default();
+            opts.filename = Some(filename);
+            opts.strict = strict.unwrap_or(true);
+            let _: Value = ctx.eval_with_options(source, opts).map_err(to_napi_err)?;
+            Ok(())
+        })
+    }
+
     /// Evaluate `source` as an ES module (`import` / `export` allowed) and return
     /// its namespace object as a JS value.
     #[napi(js_name = "eval_module")]
     pub fn eval_module(&self, source: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
-            let mut opts = EvalOptions::default();
-            // A module, not a global script.
-            opts.global = false;
-            let value: Value = ctx.eval_with_options(source, opts).map_err(to_napi_err)?;
-            value_to_json(&ctx, value)
+            let (module, promise) =
+                rquickjs::Module::declare(ctx.clone(), "eval_module", source)
+                    .map_err(to_napi_err)?
+                    .eval()
+                    .map_err(to_napi_err)?;
+            let _ = promise.finish::<()>();
+            let ns = module.namespace().map_err(to_napi_err)?;
+            let obj = rquickjs::Object::new(ctx.clone()).map_err(to_napi_err)?;
+            for key in ns.keys::<rquickjs::String>() {
+                if let Ok(k) = key {
+                    if let Ok(v) = ns.get::<_, Value>(k.clone()) {
+                        let _ = obj.set(k, v);
+                    }
+                }
+            }
+            value_to_json(&ctx, Value::from(obj))
         })
     }
 
@@ -116,11 +150,13 @@ impl JsContext {
         })
     }
 
-    /// Enumerable own keys of the global object (`Object.keys(this)`).
+    /// Own property names of the global object (`Object.getOwnPropertyNames(globalThis)`).
     #[napi(js_name = "global_keys")]
     pub fn global_keys(&self) -> napi::Result<Vec<String>> {
         self.inner.with(|ctx| {
-            let keys: Vec<String> = ctx.eval("Object.keys(this)").map_err(to_napi_err)?;
+            let keys: Vec<String> = ctx
+                .eval("Object.getOwnPropertyNames(globalThis)")
+                .map_err(to_napi_err)?;
             Ok(keys)
         })
     }

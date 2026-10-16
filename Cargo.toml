@@ -9,14 +9,12 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "3", features = ["serde-json", "napi3", "napi6"] }
 napi-derive = "3"
-oxc = "0.152.0"
 oxc_allocator = "0.152.0"
 oxc_ast = { version = "0.152.0", features = ["serialize"] }
 oxc_estree = { version = "0.152.0", features = ["serialize"] }
 oxc_parser = "0.152.0"
 oxc_span = "0.152.0"
-rocket = "0.5.1"
-rquickjs = { version = "0.14.0", features = ["parallel"] }
+rquickjs = { version = "0.14.0", features = ["parallel", "loader"] }
 serde_json = "1.0.154"
 
 [build-dependencies]
