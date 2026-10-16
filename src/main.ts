@@ -5,12 +5,12 @@ export function main(): string {
 export {
   BuiltinModuleLoader,
   BuiltinModuleResolver,
+  Compiler,
   Context,
   Engine,
   FileModuleResolver,
   Global,
   Parser,
-  Runtime,
   ScriptModuleLoader,
   add,
 } from "../dist/index.js";
