@@ -7,10 +7,9 @@
 The engine exposes native classes for script execution, compilation, context management, and module resolution:
 
 - **`Compiler`**: Source code transformer backed by `oxc_compiler`.
-- **`Runtime`**: QuickJS execution runtime wrapper (`rquickjs::Runtime`).
+- **`Engine`**: QuickJS execution engine/runtime wrapper (`rquickjs::Runtime`).
 - **`Context`**: Individual JavaScript execution context (`rquickjs::Context`).
 - **`Loader`**: Module loader and specifier resolver.
-- **`Engine`**: Node-API (`napi::Engine`) context handle wrapper.
 
 ---
 
@@ -42,28 +41,28 @@ const code = compiler.execute("const x: number = 42;", { filename: "app.ts" });
 
 ---
 
-### `Runtime`
+### `Engine`
 
 ```ts
-class Runtime {
+class Engine {
   constructor();
-  setMemoryLimit(limitBytes: number): void;
-  setMaxStackSize(limitBytes: number): void;
-  setGcThreshold(thresholdBytes: number): void;
-  runGc(): void;
-  isJobPending(): boolean;
-  executePendingJob(): boolean;
+  set_memory_limit(limitBytes: number): void;
+  set_max_stack_size(limitBytes: number): void;
+  set_gc_threshold(thresholdBytes: number): void;
+  run_gc(): void;
+  is_job_pending(): boolean;
+  execute_pending_job(): boolean;
 }
 ```
 
 #### Example
 
 ```ts
-import { Runtime, Context } from "@alloy-ts/engine";
+import { Engine, Context } from "@alloy-ts/engine";
 
-const runtime = new Runtime();
-runtime.setMemoryLimit(1024 * 1024 * 64); // 64MB limit
-const context = Context.full(runtime);
+const engine = new Engine();
+engine.set_memory_limit(1024 * 1024 * 64); // 64MB limit
+const context = Context.full(engine);
 ```
 
 ---
@@ -72,8 +71,8 @@ const context = Context.full(runtime);
 
 ```ts
 class Context {
-  static base(runtime: Runtime): Context;
-  static full(runtime: Runtime): Context;
+  static base(engine: Engine): Context;
+  static full(engine: Engine): Context;
   eval(source: string): string;
 }
 ```
@@ -81,10 +80,10 @@ class Context {
 #### Example
 
 ```ts
-import { Runtime, Context } from "@alloy-ts/engine";
+import { Engine, Context } from "@alloy-ts/engine";
 
-const rt = new Runtime();
-const ctx = Context.full(rt);
+const engine = new Engine();
+const ctx = Context.full(engine);
 const result = ctx.eval("1 + 1"); // "2"
 ```
 
@@ -110,24 +109,4 @@ import { Loader } from "@alloy-ts/engine";
 
 const loader = new Loader({ baseDir: "/project/root" });
 const resolved = loader.resolve("/project/root/src/index.js", "./utils");
-```
-
----
-
-### `Engine`
-
-```ts
-class Engine {
-  constructor();
-  is_disposed(): boolean;
-  create_array(len: number): unknown;
-  create_string(value: string): unknown;
-  create_int32(int: number): unknown;
-  create_double(value: number): unknown;
-  has_global(name: string): boolean;
-  get_napi_version(): number;
-  make_object(): object;
-  set_instance_data(data: string): void;
-  get_instance_data(): string | null;
-}
 ```

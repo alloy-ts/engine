@@ -1,7 +1,7 @@
 use napi_derive::napi;
 use rquickjs::Context as QjsContext;
 
-use crate::runtime::Runtime;
+use crate::engine::Engine;
 
 /// NAPI wrapper around `rquickjs::Context`.
 #[napi]
@@ -13,16 +13,16 @@ pub struct Context {
 impl Context {
   /// Create a base context with only the required functions registered.
   #[napi(factory)]
-  pub fn base(runtime: &Runtime) -> napi::Result<Self> {
-    let ctx = QjsContext::base(&runtime.inner)
+  pub fn base(engine: &Engine) -> napi::Result<Self> {
+    let ctx = QjsContext::base(&engine.inner)
       .map_err(|e| napi::Error::from_reason(format!("Failed to create base context: {e}")))?;
     Ok(Self { inner: ctx })
   }
 
   /// Create a context with all standard available intrinsics registered.
   #[napi(factory)]
-  pub fn full(runtime: &Runtime) -> napi::Result<Self> {
-    let ctx = QjsContext::full(&runtime.inner)
+  pub fn full(engine: &Engine) -> napi::Result<Self> {
+    let ctx = QjsContext::full(&engine.inner)
       .map_err(|e| napi::Error::from_reason(format!("Failed to create full context: {e}")))?;
     Ok(Self { inner: ctx })
   }
