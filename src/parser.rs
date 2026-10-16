@@ -50,7 +50,7 @@ pub struct ParseOptions {
   pub enable_ident_hashes: Option<bool>,
 }
 
-/// Build oxc 0.152.0's `ParseOptions` with its defaults.
+/// Build oxc's `ParseOptions` with its defaults.
 ///
 /// `oxc_parser::ParseOptions` does not derive `Default`, so we spell them out.
 /// (We cannot `impl Default` for it here — orphan rule — hence a free fn.)
@@ -60,7 +60,6 @@ fn default_oxc_parse_options() -> OxcParseOptions {
     allow_return_outside_function: false,
     preserve_parens: true,
     allow_v8_intrinsics: false,
-    enable_ident_hashes: true,
   }
 }
 
@@ -78,9 +77,6 @@ fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
     }
     if let Some(v) = o.allow_v8_intrinsics {
       opts.allow_v8_intrinsics = v;
-    }
-    if let Some(v) = o.enable_ident_hashes {
-      opts.enable_ident_hashes = v;
     }
   }
   opts
@@ -167,7 +163,7 @@ impl Parser {
     Ok(json!({
       "program": program,
       "errors": errors,
-      "fatalError": ret.fatal_error,
+      "fatalError": ret.panicked,
       "isFlowLanguage": ret.is_flow_language,
     }))
   }
