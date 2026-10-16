@@ -13,7 +13,7 @@
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { add, Context, Engine, Loader, Parser, Runtime, WeakRuntime } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -88,6 +88,81 @@ describe("napi: Parser", () => {
   test("throws on a fatal expression parse error", () => {
     const parser = new Parser("1 +");
     expect(() => parser.parse_expression(undefined)).toThrow();
+  });
+});
+
+describe("napi: Context", () => {
+  test("evaluates a simple script", () => {
+    const ctx = new Context();
+    expect(ctx.eval("1 + 2")).toBe(3);
+  });
+
+  test("evaluates an ES module and returns namespace", () => {
+    const ctx = new Context();
+    const res = ctx.eval_module("export const foo = 42;");
+    expect(res).toEqual({ foo: 42 });
+  });
+
+  test("json_parse parses JSON in engine", () => {
+    const ctx = new Context();
+    expect(ctx.json_parse('{"a":1,"b":"test"}')).toEqual({ a: 1, b: "test" });
+  });
+
+  test("global_keys returns array of keys on globalThis", () => {
+    const ctx = new Context();
+    const keys = ctx.global_keys();
+    expect(Array.isArray(keys)).toBe(true);
+    expect(keys).toContain("performance");
+  });
+
+  test("run_gc and execute_pending_job work without error", () => {
+    const ctx = new Context();
+    expect(() => ctx.run_gc()).not.toThrow();
+    expect(typeof ctx.execute_pending_job()).toBe("boolean");
+    expect(ctx.has_exception()).toBe(false);
+  });
+});
+
+describe("napi: Runtime & WeakRuntime", () => {
+  test("creates context from runtime", () => {
+    const rt = new Runtime();
+    const ctx = rt.create_context();
+    expect(ctx.eval("10 * 5")).toBe(50);
+  });
+
+  test("weak runtime try_ref promotes back to Runtime", () => {
+    const rt = new Runtime();
+    const weak: WeakRuntime = rt.weak();
+    const ref = weak.try_ref();
+    expect(ref).not.toBeNull();
+  });
+
+  test("configures memory limits and retrieves memory usage", () => {
+    const rt = new Runtime();
+    expect(() => rt.set_memory_limit(1024 * 1024)).not.toThrow();
+    expect(() => rt.set_max_stack_size(512 * 1024)).not.toThrow();
+    expect(() => rt.set_gc_threshold(256 * 1024)).not.toThrow();
+    expect(() => rt.set_info("test-runtime")).not.toThrow();
+    expect(() => rt.run_gc()).not.toThrow();
+    expect(rt.is_job_pending()).toBe(false);
+
+    const mem = rt.memory_usage() as { malloc_size: number };
+    expect(mem).toBeDefined();
+    expect(typeof mem.malloc_size).toBe("number");
+  });
+});
+
+describe("napi: Loader", () => {
+  test("registers modules and resolves them in runtime contexts", () => {
+    const loader = new Loader();
+    loader.add("math", "export const add = (a, b) => a + b;");
+    expect(loader.has("math")).toBe(true);
+    expect(loader.keys()).toEqual(["math"]);
+
+    const rt = new Runtime(loader);
+    const ctx = rt.create_context();
+    const res = ctx.eval_module('import { add } from "math"; export const result = add(3, 4);');
+    expect(res).toEqual({ result: 7 });
   });
 });
 
