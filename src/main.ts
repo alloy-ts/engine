@@ -2,4 +2,4 @@ export function main(): string {
   return "Hello, world!";
 }
 
-export { Context, Engine, Global, Parser, add } from "../dist/index.js";
+export { Context, Engine, Global, Parser, Runtime, add } from "../dist/index.js";
