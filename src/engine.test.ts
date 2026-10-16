@@ -4,16 +4,28 @@
  * Public exports are re-exported from `./main.ts` (the vite-plus pack entry),
  * so that is the single import point tests should use — never the `.node`.
  *
- *   - `add`     — `src/lib.rs`
- *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `add`                  — `src/lib.rs`
+ *   - `Parser`               — `src/parser.rs`
+ *   - `Engine`               — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `Context`              — `src/context.rs` (JS class wrapping rquickjs::Context)
+ *   - `Runtime`              — `src/runtime.rs` (JS class wrapping rquickjs::Runtime)
+ *   - `NativeFileResolver`, …— `src/loader.rs`  (JS classes wrapping rquickjs loaders/resolvers)
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
  * `js_name` override is set, so these tests call `create_array`, `has_global`,
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import {
+  add,
+  Context,
+  Engine,
+  NativeBuiltinResolver,
+  NativeFileResolver,
+  NativeScriptLoader,
+  Parser,
+  Runtime,
+} from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -146,5 +158,57 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+});
+
+describe("napi: Context", () => {
+  test("constructs a new Context", () => {
+    const ctx = new Context();
+    expect(ctx).toBeDefined();
+  });
+
+  test("eval evaluates JavaScript expression", () => {
+    const ctx = new Context();
+    expect(ctx.eval_int("1 + 1")).toBe(2);
+    expect(ctx.eval_bool("1 === 1")).toBe(true);
+    expect(ctx.eval("1 + 2")).toBe("3");
+  });
+
+  test("base factory creates a base context", () => {
+    const ctx = Context.base();
+    expect(ctx).toBeDefined();
+  });
+
+  test("full factory creates a full context", () => {
+    const ctx = Context.full();
+    expect(ctx).toBeDefined();
+  });
+});
+
+describe("napi: Runtime", () => {
+  test("constructs a new Runtime", () => {
+    const rt = new Runtime();
+    expect(rt).toBeDefined();
+  });
+
+  test("configures memory limits, stack size, and runs GC", () => {
+    const rt = new Runtime();
+    rt.set_info("test-runtime");
+    rt.set_memory_limit(1024 * 1024);
+    rt.set_max_stack_size(256 * 1024);
+    rt.set_gc_threshold(64 * 1024);
+    rt.run_gc();
+    expect(rt.is_job_pending()).toBe(false);
+  });
+
+  test("configures loader and builtin loader", () => {
+    const rt = new Runtime();
+    const fileResolver = new NativeFileResolver();
+    fileResolver.add_path(".");
+    const scriptLoader = new NativeScriptLoader();
+    rt.set_loader(fileResolver, scriptLoader);
+
+    const builtinResolver = new NativeBuiltinResolver(["my_module"]);
+    rt.set_builtin_loader(builtinResolver);
   });
 });
