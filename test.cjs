@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { add, Engine, Parser, Compiler, Context, Runtime } = require('./dist/index.js');
+const { add, Engine, Parser, Compiler, Context, Runtime, Resolver } = require('./dist/index.js');
 
 test('CJS require: add', () => {
   assert.strictEqual(add(2, 3), 5);
@@ -54,4 +54,9 @@ test('CJS require: Runtime settings', () => {
   rt.set_memory_limit(1024 * 1024);
   rt.run_gc();
   assert.strictEqual(rt.is_job_pending(), false);
+});
+
+test('CJS require: Resolver resolve', () => {
+  const resolver = new Resolver();
+  assert.strictEqual(resolver.resolve('/app/src/index.js', './utils.js'), '/app/src/utils.js');
 });
