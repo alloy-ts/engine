@@ -1,10 +1,10 @@
 /**
- * Tests for Context and Runtime NAPI bindings.
+ * Tests for Context, Runtime, and Loader NAPI bindings.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { Context, Runtime } from "./main.ts";
+import { Context, Loader, Runtime } from "./main.ts";
 
-describe("napi: Runtime & Context", () => {
+describe("napi: Runtime, Context & Loader", () => {
   test("constructs Runtime and sets limits", () => {
     const runtime = new Runtime();
     expect(runtime).toBeDefined();
@@ -12,6 +12,17 @@ describe("napi: Runtime & Context", () => {
     runtime.setMemoryLimit(1024 * 1024 * 16);
     runtime.setMaxStackSize(1024 * 1024);
     runtime.runGc();
+  });
+
+  test("constructs Loader and initializes Runtime with Loader", () => {
+    const loader = new Loader();
+    loader.addModule("my_mod", "export const foo = 42;");
+
+    const runtime = new Runtime(loader);
+    expect(runtime).toBeDefined();
+
+    const context = Context.full(runtime);
+    expect(context).toBeDefined();
   });
 
   test("constructs Context with default Runtime and evaluates JS", () => {

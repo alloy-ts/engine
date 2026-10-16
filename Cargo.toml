@@ -16,7 +16,7 @@ oxc_estree = { version = "=0.139.0", features = ["serialize"] }
 oxc_parser = "=0.139.0"
 oxc_span = "=0.139.0"
 rocket = "0.5.1"
-rquickjs = "0.14.0"
+rquickjs = { version = "0.14.0", features = ["loader"] }
 serde_json = "1.0.154"
 
 [build-dependencies]
