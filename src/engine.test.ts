@@ -149,13 +149,15 @@ describe("napi: Engine", () => {
     expect(b.isDisposed()).toBe(false);
   });
 
-  test("QuickJS runtime methods on Engine", () => {
+  test("QuickJS runtime methods on Engine including execPendingJob", () => {
     const engine = new Engine();
     engine.setMemoryLimit(1024 * 1024);
     engine.setMaxStackSize(256 * 1024);
     engine.setGcThreshold(64 * 1024);
     engine.runGc();
     expect(engine.isJobPending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.executePendingJob()).toBe(false);
   });
 
   test("Loader setup on Engine", () => {

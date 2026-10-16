@@ -92,6 +92,12 @@ impl JsEngine {
         self.runtime.execute_pending_job().map_err(|e| Error::from_reason(e.to_string()))
     }
 
+    /// Alias for execute_pending_job.
+    #[napi]
+    pub fn exec_pending_job(&self) -> Result<bool> {
+        self.execute_pending_job()
+    }
+
     /// Set the module loader configuration.
     #[napi]
     pub fn set_loader(&self, loader: &Loader) {
