@@ -6,7 +6,7 @@
 
 The engine exposes native classes for script execution, compilation, context management, and module resolution:
 
-- **`Compiler`**: Source code transformer backed by `oxc_compiler`.
+- **`Compiler`**: Source code transformer backed by `oxc_parser` and `oxc_estree`.
 - **`Engine`**: QuickJS execution engine/runtime wrapper (`rquickjs::Runtime`).
 - **`Context`**: Individual JavaScript execution context (`rquickjs::Context`).
 - **`Loader`**: Module loader and specifier resolver.
@@ -20,13 +20,7 @@ The engine exposes native classes for script execution, compilation, context man
 ```ts
 class Compiler {
   constructor();
-  execute(sourceText: string, options?: CompilerOptions): string;
-}
-
-interface CompilerOptions {
-  filename?: string;
-  lang?: "js" | "jsx" | "ts" | "tsx" | "dts";
-  sourceType?: "script" | "module" | "commonjs" | "unambiguous";
+  execute(sourceText: string, sourceType?: string, sourcePath?: string): string;
 }
 ```
 
@@ -36,7 +30,7 @@ interface CompilerOptions {
 import { Compiler } from "@alloy-ts/engine";
 
 const compiler = new Compiler();
-const code = compiler.execute("const x: number = 42;", { filename: "app.ts" });
+const estreeJson = compiler.execute("const x: number = 42;", "ts", "app.ts");
 ```
 
 ---
@@ -46,12 +40,12 @@ const code = compiler.execute("const x: number = 42;", { filename: "app.ts" });
 ```ts
 class Engine {
   constructor();
-  set_memory_limit(limitBytes: number): void;
-  set_max_stack_size(limitBytes: number): void;
-  set_gc_threshold(thresholdBytes: number): void;
-  run_gc(): void;
-  is_job_pending(): boolean;
-  execute_pending_job(): boolean;
+  setMemoryLimit(limitBytes: number): void;
+  setMaxStackSize(limitBytes: number): void;
+  setGcThreshold(thresholdBytes: number): void;
+  runGc(): void;
+  isJobPending(): boolean;
+  execPendingJob(): boolean;
 }
 ```
 
@@ -61,7 +55,7 @@ class Engine {
 import { Engine, Context } from "@alloy-ts/engine";
 
 const engine = new Engine();
-engine.set_memory_limit(1024 * 1024 * 64); // 64MB limit
+engine.setMemoryLimit(1024 * 1024 * 64); // 64MB limit
 const context = Context.full(engine);
 ```
 
