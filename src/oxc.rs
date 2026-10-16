@@ -111,8 +111,7 @@ impl OxcParser {
       mut program,
       mut module_record,
       diagnostics,
-      fatal_error,
-      is_flow_language,
+      panicked: fatal_error,
       ..
     } = RawParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(self.parse_options)
@@ -137,7 +136,7 @@ impl OxcParser {
       comments,
       errors,
       fatal_error,
-      is_flow_language,
+      is_flow_language: false,
     })
   }
 }

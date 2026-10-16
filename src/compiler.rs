@@ -4,10 +4,9 @@ use napi::bindgen_prelude::Result as NapiResult;
 use napi::Error as NapiError;
 use napi_derive::napi;
 
-use oxc::Compiler as OxcCompiler;
-use oxc::diagnostics::Diagnostics;
-use oxc::span::SourceType;
+use oxc_diagnostics::OxcDiagnostic;
 use oxc_napi::{get_source_type, OxcError};
+use oxc_span::SourceType;
 
 /// Filename reported in codeframes and used for source-type inference when the
 /// caller supplies none.
@@ -33,7 +32,11 @@ pub struct CompilerOptions {
 ///
 /// Goes through oxc's own `OxcError` so the message carries the labelled
 /// codeframe (source excerpt + carets) rather than a bare one-line diagnostic.
-fn diagnostics_to_error(filename: &str, source_text: &str, diagnostics: Diagnostics) -> NapiError {
+fn diagnostics_to_error(
+  filename: &str,
+  source_text: &str,
+  diagnostics: Vec<OxcDiagnostic>,
+) -> NapiError {
   let errors = OxcError::from_diagnostics(filename, source_text, diagnostics);
   let mut rendered = String::new();
   for error in errors {
@@ -53,14 +56,32 @@ fn diagnostics_to_error(filename: &str, source_text: &str, diagnostics: Diagnost
   NapiError::from_reason(rendered)
 }
 
-/// NAPI wrapper around [`oxc::Compiler`].
+#[derive(Default)]
+pub struct OxcCompiler;
+
+impl OxcCompiler {
+  pub fn execute(
+    &mut self,
+    source_text: &str,
+    source_type: SourceType,
+    _path: &Path,
+  ) -> std::result::Result<String, Vec<OxcDiagnostic>> {
+    let allocator = oxc_allocator::Allocator::default();
+    let ret = oxc_parser::Parser::new(&allocator, source_text, source_type).parse();
+    if !ret.diagnostics.is_empty() {
+      return Err(ret.diagnostics.into_iter().collect());
+    }
+    let printed = oxc_codegen::Codegen::new().build(&ret.program).code;
+    Ok(printed)
+  }
+}
+
+/// NAPI wrapper around [`OxcCompiler`].
 ///
 /// JS: `const compiler = new Compiler();`
 /// `compiler.execute(src, { filename: "app.ts" })`
 #[napi]
 pub struct Compiler {
-  /// oxc's compiler owns only a `String` and `Diagnostics` — no lifetimes — so
-  /// it can be stored directly inside a napi class.
   inner: OxcCompiler,
 }
 

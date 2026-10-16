@@ -6,11 +6,7 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
- *
- * napi-rs exposes methods under their Rust (snake_case) name unless a
- * `js_name` override is set, so these tests call `create_array`, `has_global`,
- * … rather than camelCase equivalents.
+ *   - `Engine`  — `src/engine.rs`
  */
 import { describe, expect, test } from "vite-plus/test";
 import { add, Engine, Parser } from "./main.ts";
@@ -91,7 +87,7 @@ describe("napi: Parser", () => {
   });
 });
 
-describe("napi: Engine", () => {
+describe("napi: Engine (Env Context)", () => {
   test("constructs without arguments (context injected by NAPI)", () => {
     const engine = new Engine();
     expect(engine).toBeDefined();
@@ -146,5 +142,32 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+});
+
+describe("qjs: Engine (QuickJS Runtime)", () => {
+  test("is_job_pending and execute_pending_job / exec_pending_job / execPendingJob", () => {
+    const engine = new Engine();
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+    expect(engine.exec_pending_job()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+  });
+
+  test("runs garbage collection without error", () => {
+    const engine = new Engine();
+    expect(() => engine.run_gc()).not.toThrow();
+  });
+
+  test("allows setting memory limits and stack sizes", () => {
+    const engine = new Engine();
+    expect(() => engine.set_memory_limit(1024 * 1024)).not.toThrow();
+    expect(() => engine.set_max_stack_size(256 * 1024)).not.toThrow();
+    expect(() => engine.set_gc_threshold(512 * 1024)).not.toThrow();
+  });
+
+  test("configures file loader paths", () => {
+    const engine = new Engine();
+    expect(() => engine.set_file_loader(["./modules", "./src"])).not.toThrow();
   });
 });

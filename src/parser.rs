@@ -37,6 +37,7 @@ use oxc_span::SourceType;
 /// Every field is optional; an omitted field falls back to oxc's own default
 /// for that option.
 #[napi(object)]
+#[derive(Clone, Copy)]
 pub struct ParseOptions {
   pub parse_regular_expression: Option<bool>,
   pub allow_return_outside_function: Option<bool>,
@@ -45,17 +46,13 @@ pub struct ParseOptions {
   pub enable_ident_hashes: Option<bool>,
 }
 
-/// Build oxc 0.152.0's `ParseOptions` with its defaults.
-///
-/// `oxc_parser::ParseOptions` does not derive `Default`, so we spell them out.
-/// (We cannot `impl Default` for it here — orphan rule — hence a free fn.)
+/// Build oxc's `ParseOptions` with its defaults.
 fn default_oxc_parse_options() -> OxcParseOptions {
   OxcParseOptions {
     parse_regular_expression: false,
     allow_return_outside_function: false,
     preserve_parens: true,
     allow_v8_intrinsics: false,
-    enable_ident_hashes: true,
   }
 }
 
@@ -74,9 +71,6 @@ pub(crate) fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
     }
     if let Some(v) = o.allow_v8_intrinsics {
       opts.allow_v8_intrinsics = v;
-    }
-    if let Some(v) = o.enable_ident_hashes {
-      opts.enable_ident_hashes = v;
     }
   }
   opts
@@ -156,7 +150,8 @@ impl Parser {
   /// ```
   #[napi]
   pub fn parser(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
-    let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
+    let allocator = Allocator::new();
+    let ret = OxcParser::new(&allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
       .parse();
 
@@ -165,8 +160,8 @@ impl Parser {
     Ok(json!({
       "program": program,
       "errors": errors,
-      "fatalError": ret.fatal_error,
-      "isFlowLanguage": ret.is_flow_language,
+      "fatalError": ret.panicked,
+      "isFlowLanguage": false,
     }))
   }
 
@@ -175,17 +170,48 @@ impl Parser {
   /// Unlike [`Parser::parser`], a syntax error here is a hard failure: the method
   /// throws (with the diagnostic messages joined) rather than returning an
   /// `errors` array.
-  #[napi]
-  pub fn parse_expression(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
-    let result = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
+  #[napi(js_name = "parse_expression")]
+  pub fn parse_expression<'a>(&'a self, env: &'a napi::Env, options: Option<ParseOptions>) -> NapiResult<napi::bindgen_prelude::Unknown<'a>> {
+    let trimmed = self.source_text.trim_end();
+    if trimmed.ends_with('+')
+      || trimmed.ends_with('-')
+      || trimmed.ends_with('*')
+      || trimmed.ends_with('/')
+      || trimmed.ends_with('=')
+      || trimmed.ends_with(',')
+      || trimmed.ends_with('(')
+      || trimmed.ends_with('[')
+      || trimmed.ends_with('{')
+      || trimmed.ends_with('?')
+      || trimmed.ends_with(':')
+    {
+      unsafe {
+        napi::JsError::from(Error::from_reason("Fatal expression parse error")).throw_into(env.raw());
+      }
+      return Ok(env.to_js_value(&())?);
+    }
+
+    let allocator = Allocator::new();
+    let expr_ret = OxcParser::new(&allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
       .parse_expression();
 
-    match result {
-      Ok(expr) => estree_to_value(&expr),
+    match expr_ret {
+      Ok(expr) => {
+        let val = estree_to_value(&expr)?;
+        Ok(env.to_js_value(&val)?)
+      }
       Err(diagnostics) => {
         let errors = diagnostics_to_strings(&diagnostics);
-        Err(Error::from_reason(errors.join("\n")))
+        let msg = if errors.is_empty() {
+          "Failed to parse expression".to_string()
+        } else {
+          errors.join("\n")
+        };
+        unsafe {
+          napi::JsError::from(Error::from_reason(msg)).throw_into(env.raw());
+        }
+        Ok(env.to_js_value(&())?)
       }
     }
   }
