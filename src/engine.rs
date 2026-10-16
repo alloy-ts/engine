@@ -175,6 +175,12 @@ impl EngineClass {
         }
     }
 
+    /// Alias for execute_pending_job (`engine.execPendingJob()`).
+    #[napi]
+    pub fn exec_pending_job(&self) -> Result<bool> {
+        self.execute_pending_job()
+    }
+
     /// Guard: refuse to use a context that belongs to an unloaded addon.
     fn ensure_alive(&self) -> Result<()> {
         if self.disposed.load(Ordering::SeqCst) {

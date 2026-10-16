@@ -156,5 +156,6 @@ describe("napi: Engine", () => {
     engine.runGc();
     expect(engine.isJobPending()).toBe(false);
     expect(engine.executePendingJob()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
   });
 });
