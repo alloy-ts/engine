@@ -2,4 +2,18 @@ export function main(): string {
   return "Hello, world!";
 }
 
-export { Engine, Global, Parser, add } from "../dist/index.js";
+export {
+  BuiltinLoader,
+  BuiltinResolver,
+  Context,
+  Engine,
+  FileResolver,
+  Global,
+  ModuleLoader,
+  NativeLoader,
+  Parser,
+  Runtime,
+  ScriptLoader,
+  WeakRuntime,
+  add,
+} from "../dist/index.js";
