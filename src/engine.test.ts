@@ -8,13 +8,15 @@
  *   - `Parser`   — `src/parser.rs`
  *   - `Engine`   — `src/engine.rs`  (JS class wrapping the N-API context)
  *   - `Compiler` — `src/compiler.rs`
+ *   - `Context`  — `src/context.rs`
+ *   - `Runtime`  — `src/runtime.rs`
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
  * `js_name` override is set, so these tests call `create_array`, `has_global`,
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Compiler, Engine, Parser } from "./main.ts";
+import { add, Compiler, Context, Engine, Parser, Runtime } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -102,6 +104,25 @@ describe("napi: Compiler", () => {
   test("throws on invalid syntax during execution", () => {
     let compiler = new Compiler();
     expect(() => compiler.execute("const = ;", "ts", "index.ts")).toThrow();
+  });
+});
+
+describe("napi: Context", () => {
+  test("evaluates script and returns stringified JSON result", () => {
+    const ctx = new Context();
+    expect(ctx.eval("1 + 1")).toBe("2");
+  });
+});
+
+describe("napi: Runtime", () => {
+  test("constructs QuickJS runtime and configures settings", () => {
+    const rt = new Runtime();
+    expect(rt).toBeDefined();
+    rt.set_memory_limit(1024 * 1024);
+    rt.set_max_stack_size(256 * 1024);
+    rt.set_gc_threshold(512 * 1024);
+    expect(rt.is_job_pending()).toBe(false);
+    rt.run_gc();
   });
 });
 

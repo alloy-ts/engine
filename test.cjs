@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { add, Engine, Parser, Compiler, Context } = require('./dist/index.js');
+const { add, Engine, Parser, Compiler, Context, Runtime } = require('./dist/index.js');
 
 test('CJS require: add', () => {
   assert.strictEqual(add(2, 3), 5);
@@ -47,4 +47,11 @@ test('CJS require: Context eval', () => {
   const ctx = new Context();
   const res = ctx.eval('1 + 2');
   assert.strictEqual(res, '3');
+});
+
+test('CJS require: Runtime settings', () => {
+  const rt = new Runtime();
+  rt.set_memory_limit(1024 * 1024);
+  rt.run_gc();
+  assert.strictEqual(rt.is_job_pending(), false);
 });
