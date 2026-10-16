@@ -6,21 +6,21 @@ Rust side is compiled to `alloy-engine.<platform>.node` via
 [vite-plus](https://viteplus.dev).
 
 The addon exposes bindings for: `add`, `Parser` (oxc-backed), `Engine` (a JS class
-wrapping the QuickJS Runtime), and `Context` (QuickJS execution context).
+wrapping both N-API context helpers and QuickJS Runtime), and `Context` (QuickJS execution context).
 
 ## Layout
 
-| Path             | Role                                                          |
-| ---------------- | ------------------------------------------------------------- |
-| `src/lib.rs`     | Crate root: module declarations and the `add` binding         |
-| `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out) |
-| `src/engine.rs`  | `Engine` — JS class wrapping QuickJS `Runtime`                |
-| `src/context.rs` | `Context` — JS class wrapping QuickJS `Context`               |
-| `src/main.ts`    | vite-plus pack entry; re-exports the native bindings          |
-| `src/*.test.ts`  | Unit tests (run by `vp test`)                                 |
-| `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/` |
-| `vite.config.ts` | `pack` / `test` / `lint` / `fmt` configuration                |
-| `Cargo.toml`     | Rust crate `alloy-engine-native` (`cdylib`)                   |
+| Path             | Role                                                           |
+| ---------------- | -------------------------------------------------------------- |
+| `src/lib.rs`     | Crate root: module declarations and the `add` binding          |
+| `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)  |
+| `src/engine.rs`  | `Engine` — JS class wrapping N-API context & QuickJS `Runtime` |
+| `src/context.rs` | `Context` — JS class wrapping QuickJS `Context`                |
+| `src/main.ts`    | vite-plus pack entry; re-exports the native bindings           |
+| `src/*.test.ts`  | Unit tests (run by `vp test`)                                  |
+| `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`  |
+| `vite.config.ts` | `pack` / `test` / `lint` / `fmt` configuration                 |
+| `Cargo.toml`     | Rust crate `alloy-engine-native` (`cdylib`)                    |
 
 ## NAPI surface
 
@@ -61,22 +61,40 @@ falls back to oxc's default: `parse_regular_expression`,
 
 ### `Engine`
 
-A JS class that owns the QuickJS `Runtime` handle.
+A JS class that owns the QuickJS `Runtime` handle and provides N-API environment
+helper methods as well.
 
 ```ts
 import { Engine } from "@alloy-ts/engine";
 
 const engine = new Engine();
+
+// N-API context / environment helpers
+engine.create_string("hello"); // "hello"
+engine.create_int32(42); // 42
+engine.create_array(3); // [ <3 empty items> ]
+engine.has_global("Math"); // true
+engine.get_napi_version(); // host N-API version
+
+engine.set_instance_data("vm-state");
+engine.get_instance_data(); // "vm-state"
+engine.is_disposed(); // false while the addon is loaded
+
+// QuickJS Runtime methods
 engine.set_memory_limit(1024 * 1024);
 engine.set_max_stack_size(256 * 1024);
 engine.set_gc_threshold(512 * 1024);
 engine.run_gc();
 engine.is_job_pending();
 engine.execute_pending_job();
+engine.execPendingJob();
 ```
 
-Available methods: `set_memory_limit`, `set_max_stack_size`, `set_gc_threshold`,
-`run_gc`, `is_job_pending`, `execute_pending_job`.
+Available methods: `is_disposed`, `create_array`, `create_string`,
+`create_int32`, `create_double`, `has_global`, `get_napi_version`,
+`make_object`, `set_instance_data`, `get_instance_data`, `set_memory_limit`,
+`set_max_stack_size`, `set_gc_threshold`, `run_gc`, `is_job_pending`,
+`execute_pending_job`, `execPendingJob`.
 
 ### `Context`
 
