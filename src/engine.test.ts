@@ -16,6 +16,7 @@ import {
   add,
   BuiltinLoader,
   BuiltinResolver,
+  Compiler,
   Context,
   Engine,
   FileResolver,
@@ -181,5 +182,20 @@ describe("napi: QuickJS Engine API & Context & Loader", () => {
     expect(new BuiltinLoader()).toBeDefined();
     expect(new FileResolver()).toBeDefined();
     expect(new ScriptLoader()).toBeDefined();
+  });
+});
+
+describe("napi: Compiler", () => {
+  test("Compiler executes AST compilation/serialization", () => {
+    const compiler = new Compiler();
+    const result = compiler.execute("const x = 42;", "ts", "index.ts");
+    expect(result).toBeDefined();
+    expect(typeof result).toBe("string");
+    expect(result).toContain("Program");
+  });
+
+  test("Compiler throws on syntax errors", () => {
+    const compiler = new Compiler();
+    expect(() => compiler.execute("const = ;", "ts", "index.ts")).toThrow();
   });
 });

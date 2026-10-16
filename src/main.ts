@@ -6,6 +6,7 @@ export {
   Engine,
   Global,
   Parser,
+  Compiler,
   add,
   Context,
   BuiltinResolver,
