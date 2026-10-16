@@ -8,9 +8,9 @@
  *   - `Parser`  — `src/parser.rs`
  *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
  *
- * napi-rs exposes methods under their Rust (snake_case) name unless a
- * `js_name` override is set, so these tests call `create_array`, `has_global`,
- * … rather than camelCase equivalents.
+ * napi-rs automatically converts Rust method names (snake_case) to JS
+ * method names (camelCase), so these tests call `createArray`, `hasGlobal`,
+ * etc., following standard JS conventions.
  */
 import { describe, expect, test } from "vite-plus/test";
 import { add, Engine, Parser } from "./main.ts";
@@ -70,7 +70,7 @@ describe("napi: Parser", () => {
   test("applies parse options (allow_return_outside_function)", () => {
     const parser = new Parser("return 1;");
     const defaultResult = parser.parser(undefined) as { errors: string[] };
-    const relaxed = parser.parser({ allow_return_outside_function: true }) as {
+    const relaxed = parser.parser({ allowReturnOutsideFunction: true }) as {
       errors: string[];
       fatalError: boolean;
     };
@@ -81,13 +81,13 @@ describe("napi: Parser", () => {
 
   test("parses a single expression", () => {
     const parser = new Parser("1 + 2 * 3");
-    const expr = parser.parse_expression(undefined) as { type: string };
+    const expr = parser.parseExpression(undefined) as { type: string };
     expect(expr.type).toBe("BinaryExpression");
   });
 
   test("throws on a fatal expression parse error", () => {
     const parser = new Parser("1 +");
-    expect(() => parser.parse_expression(undefined)).toThrow();
+    expect(() => parser.parseExpression(undefined)).toThrow();
   });
 });
 
@@ -97,54 +97,54 @@ describe("napi: Engine", () => {
     expect(engine).toBeDefined();
   });
 
-  test("create_array allocates a JS array of the requested length", () => {
+  test("createArray allocates a JS array of the requested length", () => {
     const engine = new Engine();
-    const arr = engine.create_array(3) as unknown[];
+    const arr = engine.createArray(3) as unknown[];
     expect(Array.isArray(arr)).toBe(true);
     expect(arr.length).toBe(3);
   });
 
-  test("create_string / create_int32 / create_double build JS values", () => {
+  test("createString / createInt32 / createDouble build JS values", () => {
     const engine = new Engine();
-    expect(engine.create_string("hello")).toBe("hello");
-    expect(engine.create_int32(42)).toBe(42);
-    expect(engine.create_double(1.5)).toBe(1.5);
+    expect(engine.createString("hello")).toBe("hello");
+    expect(engine.createInt32(42)).toBe(42);
+    expect(engine.createDouble(1.5)).toBe(1.5);
   });
 
-  test("has_global reads the global object through the context", () => {
+  test("hasGlobal reads the global object through the context", () => {
     const engine = new Engine();
-    expect(engine.has_global("Math")).toBe(true);
-    expect(engine.has_global("definitelyNotAGlobal")).toBe(false);
+    expect(engine.hasGlobal("Math")).toBe(true);
+    expect(engine.hasGlobal("definitelyNotAGlobal")).toBe(false);
   });
 
-  test("get_napi_version reports the host N-API version", () => {
+  test("getNapiVersion reports the host N-API version", () => {
     const engine = new Engine();
-    expect(engine.get_napi_version()).toBeGreaterThan(0);
+    expect(engine.getNapiVersion()).toBeGreaterThan(0);
   });
 
-  test("make_object builds a JS object via the context", () => {
+  test("makeObject builds a JS object via the context", () => {
     const engine = new Engine();
-    const obj = engine.make_object() as { ok: boolean; engine: string };
+    const obj = engine.makeObject() as { ok: boolean; engine: string };
     expect(obj.ok).toBe(true);
     expect(obj.engine).toBe("napi");
   });
 
-  test("set_instance_data persists VM-specific state on the Agent", () => {
+  test("setInstanceData persists VM-specific state on the Agent", () => {
     const engine = new Engine();
-    engine.set_instance_data("vm-state");
-    expect(engine.get_instance_data()).toBe("vm-state");
+    engine.setInstanceData("vm-state");
+    expect(engine.getInstanceData()).toBe("vm-state");
   });
 
-  test("is_disposed is false while the addon is loaded", () => {
+  test("isDisposed is false while the addon is loaded", () => {
     const engine = new Engine();
-    expect(engine.is_disposed()).toBe(false);
+    expect(engine.isDisposed()).toBe(false);
   });
 
   test("each instance captures its own context handle", () => {
     const a = new Engine();
     const b = new Engine();
     // Two engines must not alias the same context; both are independently live.
-    expect(a.is_disposed()).toBe(false);
-    expect(b.is_disposed()).toBe(false);
+    expect(a.isDisposed()).toBe(false);
+    expect(b.isDisposed()).toBe(false);
   });
 });

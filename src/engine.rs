@@ -1,50 +1,38 @@
 //! `Engine`: a JS-visible NAPI class that owns the N-API context handle.
-//!
-//! The N-API context is `napi::Engine` (aliased below as `NapiEngine`). We
-//! cannot put `#[napi]` on `napi::Engine` itself — it is a foreign type — so
-//! our `Engine` *wraps* it and exposes a safe subset as JavaScript methods.
-//!
-//! ## The `napi::Engine` contract
-//!
-//! 1. **Reuse the same context for nested calls.** Every method does all of its
-//!    N-API work through `self.0` — the very handle that entered the call.
-//! 2. **Never cache it for general reuse, and never share it between addon
-//!    instances or Worker threads.** Each `Engine` captures its *own* handle at
-//!    construction time, and the fields are private so it cannot leak out.
-//! 3. **It is invalid once the addon instance is unloaded.** We register an
-//!    engine cleanup hook (see [`Engine::new`]) that flips the disposed
-//!    flag, so every public method refuses to use a dangling handle. VM-specific
-//!    state lives in `set_instance_data`, which is notified on the same event.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use napi::bindgen_prelude::{Error, Result, Status};
-use napi::{Engine as NapiEngine, JsGlobal, Object, Unknown};
+use napi::bindgen_prelude::*;
+use napi::{JsGlobal, Unknown};
+use napi_derive::napi;
 
-/// JS class wrapping the N-API context (`napi::Engine`).
+/// Re-export `napi::Env` as `Engine`.
+pub use napi::Env as Engine;
+
+/// JS class wrapping the N-API context (`napi::Env`).
 ///
 /// JS: `const engine = new Engine();` — the context is injected by NAPI, so the
 /// constructor takes no JavaScript arguments.
-#[napi]
-pub struct Engine(NapiEngine, Arc<AtomicBool>);
+#[napi(js_name = "Engine")]
+pub struct EngineClass(napi::Env, Arc<AtomicBool>);
 
 #[napi]
-impl Engine {
-    /// Capture the `napi::Engine` that the runtime injects and register a
+impl EngineClass {
+    /// Capture the `napi::Env` that the runtime injects and register a
     /// cleanup hook so we learn when it stops being valid.
     #[napi(constructor)]
-    pub fn new(engine: NapiEngine) -> Result<Self> {
+    pub fn new(env: napi::Env) -> Result<Self> {
         let disposed = Arc::new(AtomicBool::new(false));
 
         // Share the flag with the cleanup hook: when the environment (and so the
         // addon instance) is torn down, mark this engine disposed.
         let hook_data = Arc::clone(&disposed);
-        engine.add_engine_cleanup_hook(hook_data, |flag: Arc<AtomicBool>| {
+        env.add_env_cleanup_hook(hook_data, |flag: Arc<AtomicBool>| {
             flag.store(true, Ordering::SeqCst);
         })?;
 
-        Ok(Self(engine, disposed))
+        Ok(Self(env, disposed))
     }
 
     /// Whether the owning addon (and thus this context) has been unloaded.
@@ -54,33 +42,33 @@ impl Engine {
     }
 
     #[napi]
-    pub fn create_array(&self, len: u32) -> Result<Unknown> {
+    pub fn create_array(&self, len: u32) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
-        Ok(self.0.create_array(len)?.into_unknown())
+        Ok(self.0.create_array(len)?.into_unknown(&self.0)?)
     }
 
     /// `Engine::create_string` — build a JS string.
     #[napi]
-    pub fn create_string(&self, value: String) -> Result<Unknown> {
+    pub fn create_string(&self, value: String) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
-        Ok(self.0.create_string(&value)?.into_unknown())
+        Ok(self.0.create_string(&value)?.into_unknown(&self.0)?)
     }
 
     /// `Engine::create_int32` — build a JS number from an `i32`.
     #[napi]
-    pub fn create_int32(&self, int: i32) -> Result<Unknown> {
+    pub fn create_int32(&self, int: i32) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
-        Ok(self.0.create_int32(int)?.into_unknown())
+        Ok(self.0.create_int32(int)?.into_unknown(&self.0)?)
     }
 
     /// `Engine::create_double` — build a JS number from an `f64`.
     #[napi]
-    pub fn create_double(&self, value: f64) -> Result<Unknown> {
+    pub fn create_double(&self, value: f64) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
-        Ok(self.0.create_double(value)?.into_unknown())
+        Ok(self.0.create_double(value)?.into_unknown(&self.0)?)
     }
 
-    /// Resolve the JS global object (mirrors `napi::Engine::get_global`).
+    /// Resolve the JS global object.
     pub fn get_global(&self) -> Result<JsGlobal<'static>> {
         self.0.get_global()
     }
@@ -101,7 +89,7 @@ impl Engine {
 
     /// `Object::new` through the captured context.
     #[napi]
-    pub fn make_object(&self) -> Result<Object> {
+    pub fn make_object(&self) -> Result<Object<'_>> {
         self.ensure_alive()?;
         let mut obj = Object::new(&self.0)?;
         obj.set_named_property("ok", true)?;
@@ -123,7 +111,7 @@ impl Engine {
     #[napi]
     pub fn get_instance_data(&self) -> Result<Option<String>> {
         self.ensure_alive()?;
-        Ok(self.0.get_instance_data::<String>()?.map(|s| s.clone()))
+        Ok(self.0.get_instance_data::<String>()?.cloned())
     }
 
     /// Guard: refuse to use a context that belongs to an unloaded addon.

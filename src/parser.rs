@@ -21,8 +21,8 @@
 //! `serde_json::Value`), we re-parse that string into a `serde_json::Value` so
 //! the generated `.d.ts` can hand JS a real object rather than a raw string.
 
-use napi::bindgen_prelude::Result as NapiResult;
-use napi::Error;
+use napi::bindgen_prelude::*;
+use napi::{Error, Status};
 use napi_derive::napi;
 use serde_json::{json, Value};
 
@@ -85,7 +85,7 @@ pub(crate) fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
 /// Serialize an ESTree-serializable AST node into a `serde_json::Value`.
 ///
 /// Shared with [`crate::oxc`].
-pub(crate) fn estree_to_value<T: ESTree>(node: &T) -> NapiResult<Value> {
+pub(crate) fn estree_to_value<T: ESTree>(node: &T) -> Result<Value> {
   let mut serializer = CompactSerializer::new(false, false);
   node.serialize(&mut serializer);
   let json = serializer.into_string();
@@ -155,7 +155,7 @@ impl Parser {
   /// { program: unknown, errors: string[], fatalError: boolean, isFlowLanguage: boolean }
   /// ```
   #[napi]
-  pub fn parser(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
+  pub fn parser(&self, options: Option<ParseOptions>) -> Result<Value> {
     let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
       .parse();
@@ -176,16 +176,21 @@ impl Parser {
   /// throws (with the diagnostic messages joined) rather than returning an
   /// `errors` array.
   #[napi]
-  pub fn parse_expression(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
-    let result = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
+  pub fn parse_expression(&self, options: Option<ParseOptions>) -> Result<Value> {
+    let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
       .parse_expression();
 
-    match result {
+    match ret {
       Ok(expr) => estree_to_value(&expr),
       Err(diagnostics) => {
         let errors = diagnostics_to_strings(&diagnostics);
-        Err(Error::from_reason(errors.join("\n")))
+        let msg = if errors.is_empty() {
+          "Failed to parse expression".to_string()
+        } else {
+          errors.join("\n")
+        };
+        Err(Error::new(Status::GenericFailure, msg))
       }
     }
   }
