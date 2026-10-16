@@ -37,14 +37,12 @@ fn diagnostics_to_error(filename: &str, source_text: &str, diagnostics: Diagnost
   let errors = OxcError::from_diagnostics(filename, source_text, diagnostics);
   let mut rendered = String::new();
   for error in errors {
-    // Destructure to avoid moving out of `error` piecemeal.
     let OxcError {
       message, codeframe, ..
     } = error;
     if !rendered.is_empty() {
       rendered.push_str("\n\n");
     }
-    // Prefer the codeframe; fall back to the plain message.
     rendered.push_str(codeframe.as_deref().unwrap_or(message.as_str()));
   }
   if rendered.is_empty() {
@@ -59,8 +57,6 @@ fn diagnostics_to_error(filename: &str, source_text: &str, diagnostics: Diagnost
 /// `compiler.execute(src, { filename: "app.ts" })`
 #[napi]
 pub struct Compiler {
-  /// oxc's compiler owns only a `String` and `Diagnostics` — no lifetimes — so
-  /// it can be stored directly inside a napi class.
   inner: OxcCompiler,
 }
 
