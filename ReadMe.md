@@ -26,24 +26,25 @@ Detailed API documentation is available in the [`docs/`](./docs) directory:
 - [`docs/engine.md`](./docs/engine.md) — Embedded QuickJS Runtime & Host N-API Engine API
 - [`docs/context.md`](./docs/context.md) — Isolated QuickJS Context & Realm API
 - [`docs/loader.md`](./docs/loader.md) — ES Module Loader API
+- [`docs/compiler.md`](./docs/compiler.md) — OXC Compiler AST Parser API
 
 ## Layout
 
-| Path              | Role                                                              |
-| ----------------- | ----------------------------------------------------------------- |
-| `src/lib.rs`      | Crate root: module declarations and the `add` binding             |
-| `src/compiler.rs` | `Compiler` — NAPI wrapper around `oxc_parser` / `oxc_estree`      |
-| `src/parser.rs`   | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)     |
-| `src/engine.rs`   | `Engine` / `WeakEngine` — embedded QuickJS **and** host N-API env |
-| `src/context.rs`  | `Context` — a single embedded QuickJS realm                       |
-| `src/loader.rs`   | `Loader` — host-provided QuickJS module loader/resolver           |
-| `src/global.rs`   | `Global` — host N-API environment introspection helpers           |
-| `src/main.ts`     | vite-plus pack entry; re-exports the native bindings              |
-| `src/*.test.ts`   | Unit tests (run by `vp test`)                                     |
-| `docs/*.md`       | Documentation guides for `Engine`, `Context`, and `Loader`        |
-| `build.ts`        | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`     |
-| `vite.config.ts`  | `pack` / `test` / `lint` / `fmt` configuration                    |
-| `Cargo.toml`      | Rust crate `alloy-engine-native` (`cdylib`)                       |
+| Path              | Role                                                               |
+| ----------------- | ------------------------------------------------------------------ |
+| `src/lib.rs`      | Crate root: module declarations and the `add` binding              |
+| `src/compiler.rs` | `Compiler` — NAPI wrapper around `oxc_parser` / `oxc_estree`       |
+| `src/parser.rs`   | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)      |
+| `src/engine.rs`   | `Engine` / `WeakEngine` — embedded QuickJS **and** host N-API env  |
+| `src/context.rs`  | `Context` — a single embedded QuickJS realm                        |
+| `src/loader.rs`   | `Loader` — host-provided QuickJS module loader/resolver            |
+| `src/global.rs`   | `Global` — host N-API environment introspection helpers            |
+| `src/main.ts`     | vite-plus pack entry; re-exports the native bindings               |
+| `src/*.test.ts`   | Unit tests (run by `vp test`)                                      |
+| `docs/*.md`       | Documentation guides for `Engine`, `Context`, `Loader`, `Compiler` |
+| `build.ts`        | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`      |
+| `vite.config.ts`  | `pack` / `test` / `lint` / `fmt` configuration                     |
+| `Cargo.toml`      | Rust crate `alloy-engine-native` (`cdylib`)                        |
 
 ## NAPI surface
 
@@ -70,6 +71,8 @@ import { Compiler } from "@alloy-ts/engine";
 const compiler = new Compiler();
 const astJson = compiler.execute("const x = 1;", "js", "index.js");
 ```
+
+See [`docs/compiler.md`](./docs/compiler.md) for full documentation.
 
 ### `Parser`
 
