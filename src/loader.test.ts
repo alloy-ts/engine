@@ -63,10 +63,7 @@ describe("napi: Engine + Loader (module resolution)", () => {
 
   test("resolves relative imports across a module graph", () => {
     const loader = new Loader();
-    loader.add(
-      "pkg/index",
-      'import { value } from "./util"; export const doubled = value * 2;',
-    );
+    loader.add("pkg/index", 'import { value } from "./util"; export const doubled = value * 2;');
     loader.add("pkg/util", "export const value = 21;");
 
     const rt = new Engine(loader);
