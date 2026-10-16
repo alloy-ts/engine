@@ -24,8 +24,7 @@ Today the addon exposes bindings for: `add`, `Parser` (oxc-backed), `Engine` (Qu
 
 ## NAPI surface
 
-napi-rs exposes methods under their Rust (`snake_case`) name unless a `js_name`
-override is set.
+napi-rs exposes methods under camelCase by default in JavaScript.
 
 ### `add(left: i32, right: i32) -> i32`
 
@@ -41,7 +40,7 @@ add(2, 3); // 5
 
 Wraps `oxc_parser`. Construct it with source text and an optional file path or
 bare extension used to infer the language / module kind; then call
-`parser(options?)` for a full `Program` or `parse_expression(options?)` for a
+`parser(options?)` for a full `Program` or `parseExpression(options?)` for a
 single expression. Both return ESTree-compatible JSON.
 
 ```ts
@@ -59,18 +58,18 @@ Wraps the QuickJS runtime (`rquickjs::Runtime`).
 import { Engine, Resolver, Loader } from "@alloy-ts/engine";
 
 const engine = new Engine();
-engine.set_info("my-engine");
-engine.set_memory_limit(1024 * 1024);
-engine.set_max_stack_size(256 * 1024);
-engine.set_gc_threshold(64 * 1024);
-engine.run_gc();
+engine.setInfo("my-engine");
+engine.setMemoryLimit(1024 * 1024);
+engine.setMaxStackSize(256 * 1024);
+engine.setGcThreshold(64 * 1024);
+engine.runGc();
 
 const resolver = new Resolver();
-resolver.with_file_resolver();
+resolver.withFileResolver();
 const loader = new Loader();
-loader.with_script_loader();
+loader.withScriptLoader();
 
-engine.set_loader(resolver, loader);
+engine.setLoader(resolver, loader);
 ```
 
 ### `Context`
@@ -82,8 +81,8 @@ import { Context } from "@alloy-ts/engine";
 
 const ctx = new Context();
 const result = ctx.eval("1 + 1"); // "2"
-const intResult = ctx.eval_int("2 + 3"); // 5
-const boolResult = ctx.eval_bool("1 === 1"); // true
+const intResult = ctx.evalInt("2 + 3"); // 5
+const boolResult = ctx.evalBool("1 === 1"); // true
 ```
 
 ### `Resolver` and `Loader`
@@ -94,11 +93,11 @@ Module resolver and loader builders for QuickJS.
 import { Resolver, Loader } from "@alloy-ts/engine";
 
 const resolver = new Resolver();
-resolver.add_path("./modules");
+resolver.addPath("./modules");
 
 const loader = new Loader();
-loader.with_script_loader();
-loader.with_builtin_loader();
+loader.withScriptLoader();
+loader.withBuiltinLoader();
 ```
 
 ## Development

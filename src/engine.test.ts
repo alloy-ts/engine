@@ -6,11 +6,7 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
- *
- * napi-rs exposes methods under their Rust (snake_case) name unless a
- * `js_name` override is set, so these tests call `create_array`, `has_global`,
- * … rather than camelCase equivalents.
+ *   - `Engine`  — `src/engine.rs`  (QuickJS Engine / Runtime NAPI wrapper)
  */
 import { describe, expect, test } from "vite-plus/test";
 import { add, Engine, Parser } from "./main.ts";
@@ -91,60 +87,33 @@ describe("napi: Parser", () => {
   });
 });
 
-describe("napi: Engine", () => {
-  test("constructs without arguments (context injected by NAPI)", () => {
+describe("napi: QuickJS Engine API", () => {
+  test("constructs QuickJS Engine instance", () => {
     const engine = new Engine();
     expect(engine).toBeDefined();
   });
 
-  test("create_array allocates a JS array of the requested length", () => {
+  test("sets runtime info", () => {
     const engine = new Engine();
-    const arr = engine.create_array(3) as unknown[];
-    expect(Array.isArray(arr)).toBe(true);
-    expect(arr.length).toBe(3);
+    expect(() => engine.setInfo("test-engine")).not.toThrow();
   });
 
-  test("create_string / create_int32 / create_double build JS values", () => {
+  test("configures memory limit, stack size, and GC threshold", () => {
     const engine = new Engine();
-    expect(engine.create_string("hello")).toBe("hello");
-    expect(engine.create_int32(42)).toBe(42);
-    expect(engine.create_double(1.5)).toBe(1.5);
+    expect(() => engine.setMemoryLimit(1024 * 1024)).not.toThrow();
+    expect(() => engine.setMaxStackSize(256 * 1024)).not.toThrow();
+    expect(() => engine.setGcThreshold(64 * 1024)).not.toThrow();
   });
 
-  test("has_global reads the global object through the context", () => {
+  test("runs garbage collection", () => {
     const engine = new Engine();
-    expect(engine.has_global("Math")).toBe(true);
-    expect(engine.has_global("definitelyNotAGlobal")).toBe(false);
+    expect(() => engine.runGc()).not.toThrow();
   });
 
-  test("get_napi_version reports the host N-API version", () => {
+  test("checks and executes pending jobs", () => {
     const engine = new Engine();
-    expect(engine.get_napi_version()).toBeGreaterThan(0);
-  });
-
-  test("make_object builds a JS object via the context", () => {
-    const engine = new Engine();
-    const obj = engine.make_object() as { ok: boolean; engine: string };
-    expect(obj.ok).toBe(true);
-    expect(obj.engine).toBe("napi");
-  });
-
-  test("set_instance_data persists VM-specific state on the Agent", () => {
-    const engine = new Engine();
-    engine.set_instance_data("vm-state");
-    expect(engine.get_instance_data()).toBe("vm-state");
-  });
-
-  test("is_disposed is false while the addon is loaded", () => {
-    const engine = new Engine();
-    expect(engine.is_disposed()).toBe(false);
-  });
-
-  test("each instance captures its own context handle", () => {
-    const a = new Engine();
-    const b = new Engine();
-    // Two engines must not alias the same context; both are independently live.
-    expect(a.is_disposed()).toBe(false);
-    expect(b.is_disposed()).toBe(false);
+    expect(engine.isJobPending()).toBe(false);
+    const executed = engine.executePendingJob();
+    expect(executed).toBe(false);
   });
 });
