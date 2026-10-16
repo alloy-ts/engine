@@ -33,12 +33,12 @@ impl JsEngine {
     }
 
     /// Whether the owning addon (and thus this context) has been unloaded.
-    #[napi(js_name = "is_disposed")]
+    #[napi]
     pub fn is_disposed(&self) -> bool {
         self.1.load(Ordering::SeqCst)
     }
 
-    #[napi(js_name = "create_array")]
+    #[napi]
     pub fn create_array(&self, len: u32) -> Result<Array<'_>> {
         self.ensure_alive()?;
         let mut raw_val = std::ptr::null_mut();
@@ -50,28 +50,28 @@ impl JsEngine {
     }
 
     /// `Engine::create_string` — build a JS string.
-    #[napi(js_name = "create_string")]
+    #[napi]
     pub fn create_string(&self, value: String) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
         self.0.create_string(&value)?.into_unknown(&self.0)
     }
 
     /// `Engine::create_int32` — build a JS number from an `i32`.
-    #[napi(js_name = "create_int32")]
+    #[napi]
     pub fn create_int32(&self, int: i32) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
         self.0.create_int32(int)?.into_unknown(&self.0)
     }
 
     /// `Engine::create_double` — build a JS number from an `f64`.
-    #[napi(js_name = "create_double")]
+    #[napi]
     pub fn create_double(&self, value: f64) -> Result<Unknown<'_>> {
         self.ensure_alive()?;
         self.0.create_double(value)?.into_unknown(&self.0)
     }
 
     /// Does the global object have this property?
-    #[napi(js_name = "has_global")]
+    #[napi]
     pub fn has_global(&self, name: String) -> Result<bool> {
         self.ensure_alive()?;
         let global = self.0.get_global()?;
@@ -79,14 +79,14 @@ impl JsEngine {
     }
 
     /// `Engine::get_napi_version` — the N-API version of the host runtime.
-    #[napi(js_name = "get_napi_version")]
+    #[napi]
     pub fn get_napi_version(&self) -> Result<u32> {
         self.ensure_alive()?;
         self.0.get_napi_version()
     }
 
     /// `Object::new` through the captured context.
-    #[napi(js_name = "make_object")]
+    #[napi]
     pub fn make_object(&self) -> Result<Object<'_>> {
         self.ensure_alive()?;
         let mut obj = Object::new(&self.0)?;
@@ -99,14 +99,14 @@ impl JsEngine {
     ///
     /// The finalize callback runs when the Agent (addon instance) is torn down,
     /// i.e. the same unload event the cleanup hook observes.
-    #[napi(js_name = "set_instance_data")]
+    #[napi]
     pub fn set_instance_data(&self, value: String) -> Result<()> {
         self.ensure_alive()?;
         self.0.set_instance_data(value, (), |_ctx| {})
     }
 
     /// `Engine::get_instance_data` — read back the persisted VM-specific state.
-    #[napi(js_name = "get_instance_data")]
+    #[napi]
     pub fn get_instance_data(&self) -> Result<Option<String>> {
         self.ensure_alive()?;
         Ok(self.0.get_instance_data::<String>()?.map(|s: &mut String| s.clone()))
