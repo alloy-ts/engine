@@ -11,4 +11,5 @@ export {
   WeakEngine,
   Loader,
   Compiler,
+  Atom,
 } from "../dist/index.js";
