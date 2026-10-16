@@ -1,4 +1,4 @@
-//! `JsEngine`: a JS-visible NAPI class that owns the N-API context handle (`napi::Engine`).
+//! `JsEngine`: a JS-visible NAPI class that owns the N-API context handle (`napi::Engine`) and QuickJS runtime.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use napi::Env;
 use napi_derive::napi;
 use rquickjs::Runtime as QuickRuntime;
 
-/// JS class wrapping N-API context (`napi::Env`) and QuickJS `Runtime`.
+/// JS class wrapping N-API context (`napi::Env`) and QuickJS runtime.
 #[napi(js_name = "Engine")]
 pub struct JsEngine {
     pub(crate) env: Env,
@@ -136,6 +136,48 @@ impl JsEngine {
             rt.set_memory_limit(limit as usize);
         }
         Ok(())
+    }
+
+    /// Set max stack size for QuickJS runtime
+    #[napi]
+    pub fn set_max_stack_size(&self, limit: u32) -> Result<()> {
+        self.ensure_alive()?;
+        if let Some(rt) = &self.quick_runtime {
+            rt.set_max_stack_size(limit as usize);
+        }
+        Ok(())
+    }
+
+    /// Set GC threshold for QuickJS runtime
+    #[napi]
+    pub fn set_gc_threshold(&self, threshold: u32) -> Result<()> {
+        self.ensure_alive()?;
+        if let Some(rt) = &self.quick_runtime {
+            rt.set_gc_threshold(threshold as usize);
+        }
+        Ok(())
+    }
+
+    /// Test for pending jobs in QuickJS queue
+    #[napi]
+    pub fn is_job_pending(&self) -> bool {
+        if let Some(rt) = &self.quick_runtime {
+            rt.is_job_pending()
+        } else {
+            false
+        }
+    }
+
+    /// Execute pending job in QuickJS queue
+    #[napi]
+    pub fn exec_pending_job(&self) -> Result<bool> {
+        self.ensure_alive()?;
+        if let Some(rt) = &self.quick_runtime {
+            rt.execute_pending_job()
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+        } else {
+            Ok(false)
+        }
     }
 
     /// Guard: refuse to use a context that belongs to an unloaded addon.
