@@ -13,10 +13,10 @@ use rquickjs::Runtime as QuickRuntime;
 
 /// JS class wrapping the N-API context (`napi::Engine`) and QuickJS runtime.
 ///
-/// JS: `const engine = new Engine();` — the context is injected by NAPI, or QuickJS runtime initialized.
+/// JS: `const engine = new Engine();` — NAPI injects `NapiEngine` when called from Node-API.
 #[napi]
 pub struct Engine {
-  napi_engine: Option<NapiEngine>,
+  napi_engine: NapiEngine,
   disposed: Arc<AtomicBool>,
   qjs_runtime: Option<QuickRuntime>,
 }
@@ -26,17 +26,15 @@ impl Engine {
   /// Capture the `napi::Engine` that the runtime injects and register a
   /// cleanup hook so we learn when it stops being valid.
   #[napi(constructor)]
-  pub fn new(engine: Option<NapiEngine>) -> Result<Self> {
+  pub fn new(engine: NapiEngine) -> Result<Self> {
     let disposed = Arc::new(AtomicBool::new(false));
 
     let qjs_runtime = QuickRuntime::new().ok();
 
-    if let Some(ref napi_eng) = engine {
-      let hook_data = Arc::clone(&disposed);
-      napi_eng.add_engine_cleanup_hook(hook_data, |flag: Arc<AtomicBool>| {
-        flag.store(true, Ordering::SeqCst);
-      })?;
-    }
+    let hook_data = Arc::clone(&disposed);
+    engine.add_engine_cleanup_hook(hook_data, |flag: Arc<AtomicBool>| {
+      flag.store(true, Ordering::SeqCst);
+    })?;
 
     Ok(Self {
       napi_engine: engine,
@@ -195,11 +193,6 @@ impl Engine {
         "Engine: N-API context has been disposed (addon unloaded)",
       ));
     }
-    self.napi_engine.as_ref().ok_or_else(|| {
-      Error::new(
-        Status::GenericFailure,
-        "Engine: N-API context is not available",
-      )
-    })
+    Ok(&self.napi_engine)
   }
 }
