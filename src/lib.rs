@@ -7,6 +7,7 @@ pub mod parser;
 pub mod oxc;
 pub mod compiler;
 pub mod context;
+pub mod runtime;
 mod poll;
 mod result;
 
