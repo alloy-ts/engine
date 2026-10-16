@@ -8,13 +8,13 @@ use oxc_span::SourceType;
 
 /// NAPI wrapper around the oxc compiler.
 #[napi]
-pub struct Compiler;
+pub struct Compiler {}
 
 #[napi]
 impl Compiler {
   #[napi(constructor)]
   pub fn new() -> Self {
-    Compiler
+    Compiler {}
   }
 
   /// Execute compilation/transformation on `source_text`.
