@@ -147,6 +147,12 @@ describe("napi: Engine", () => {
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
   });
+
+  test("execPendingJob and is_job_pending on Engine", () => {
+    const engine = new Engine();
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+  });
 });
 
 describe("napi: Context", () => {

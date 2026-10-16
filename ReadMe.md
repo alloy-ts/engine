@@ -5,8 +5,7 @@ Rust side is compiled to `alloy-engine.<platform>.node` via
 [`@napi-rs/cli`](https://napi.rs), and the TypeScript side is bundled by
 [vite-plus](https://viteplus.dev).
 
-Today the addon exposes three bindings: `add`, `Parser` (oxc-backed) and
-`Engine` (a JS class wrapping the N-API context).
+Today the addon exposes bindings: `add`, `Parser` (oxc-backed), `Engine` (wrapping N-API context & QuickJS Runtime), `Context`, `Runtime`, and `Loader`.
 
 ## Layout
 
@@ -14,7 +13,10 @@ Today the addon exposes three bindings: `add`, `Parser` (oxc-backed) and
 | ---------------- | --------------------------------------------------------------- |
 | `src/lib.rs`     | Crate root: module declarations and the `add` binding           |
 | `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)   |
-| `src/engine.rs`  | `Engine` — JS class wrapping the N-API context (`napi::Engine`) |
+| `src/engine.rs`  | `Engine` — JS class wrapping the N-API context and QuickJS Runtime |
+| `src/context.rs` | `Context` — JS class wrapping embedded QuickJS execution context |
+| `src/runtime.rs` | `Runtime` / `WeakRuntime` — QuickJS runtime engine handles |
+| `src/loader.rs`  | `Loader` — QuickJS module resolver and loader registry |
 | `src/main.ts`    | vite-plus pack entry; re-exports the native bindings            |
 | `src/*.test.ts`  | Unit tests (run by `vp test`)                                   |
 | `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`   |
@@ -60,8 +62,8 @@ falls back to oxc's default: `parse_regular_expression`,
 
 ### `Engine`
 
-A JS class that owns the N-API context handle. JS constructs it with no
-arguments — NAPI injects the context:
+A JS class that owns the N-API context handle and an embedded QuickJS `Runtime`.
+JS constructs it with an optional `Loader` parameter:
 
 ```ts
 import { Engine } from "@alloy-ts/engine";
@@ -77,11 +79,46 @@ engine.set_instance_data("vm-state");
 engine.get_instance_data(); // "vm-state"
 
 engine.is_disposed(); // false while the addon is loaded
+
+// QuickJS runtime capabilities:
+const ctx = engine.create_context();
+engine.execPendingJob();
+engine.run_gc();
 ```
 
 Available methods: `is_disposed`, `create_array`, `create_string`,
 `create_int32`, `create_double`, `has_global`, `get_napi_version`,
-`make_object`, `set_instance_data`, `get_instance_data`.
+`make_object`, `set_instance_data`, `get_instance_data`, `create_context`,
+`execPendingJob`, `execute_pending_job`, `run_gc`, `set_memory_limit`,
+`set_max_stack_size`, `set_gc_threshold`, `set_info`, `memory_usage`.
+
+### `Context`
+
+An execution realm in QuickJS with its own global object:
+
+```ts
+import { Context } from "@alloy-ts/engine";
+
+const ctx = new Context();
+ctx.eval("1 + 1"); // 2
+ctx.eval_module("export const x = 42;"); // { x: 42 }
+ctx.json_parse('{"a": 1}'); // { a: 1 }
+```
+
+### `Loader`
+
+Module registry and resolver for QuickJS runtime contexts:
+
+```ts
+import { Loader, Runtime } from "@alloy-ts/engine";
+
+const loader = new Loader();
+loader.add("math", "export const add = (a, b) => a + b;");
+
+const rt = new Runtime(loader);
+const ctx = rt.create_context();
+ctx.eval_module('import { add } from "math"; export const sum = add(2, 3);');
+```
 
 #### The N-API context contract
 

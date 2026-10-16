@@ -162,6 +162,12 @@ impl JsEngine {
         })
     }
 
+    /// Alias for execute_pending_job.
+    #[napi(js_name = "execPendingJob")]
+    pub fn exec_pending_job(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
+    }
+
     /// Whether the owning addon (and thus this context) has been unloaded.
     #[napi(js_name = "is_disposed")]
     pub fn is_disposed(&self) -> bool {
