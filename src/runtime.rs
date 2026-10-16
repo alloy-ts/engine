@@ -4,7 +4,10 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use rquickjs::loader::{BuiltinLoader, BuiltinResolver, FileResolver, ScriptLoader};
 use rquickjs::Runtime as QjsRuntime;
+
+use crate::loader::{Loader, Resolver};
 
 #[napi]
 pub struct Runtime {
@@ -18,6 +21,22 @@ impl Runtime {
   pub fn new() -> Result<Self> {
     let inner = QjsRuntime::new().map_err(|e| Error::from_reason(e.to_string()))?;
     Ok(Self { inner })
+  }
+
+  /// Configure module resolver and loader on this runtime.
+  #[napi]
+  pub fn set_loader(&self, resolver: &Resolver, loader: &Loader) {
+    let mut res_tuple = (BuiltinResolver::default(), FileResolver::default());
+    if let Some(ref r) = resolver.file {
+      res_tuple.1 = r.clone();
+    }
+
+    let mut load_tuple = (BuiltinLoader::default(), ScriptLoader::default());
+    if let Some(ref l) = loader.script {
+      load_tuple.1 = l.clone();
+    }
+
+    self.inner.set_loader(res_tuple, load_tuple);
   }
 
   /// Set the info string of the runtime.
