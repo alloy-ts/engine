@@ -134,6 +134,12 @@ describe("napi: Engine", () => {
     expect(engine.getInstanceData()).toBe("vm-state");
   });
 
+  test("isJobPending and executePendingJob handle pending jobs", () => {
+    const engine = new Engine();
+    expect(engine.isJobPending()).toBe(false);
+    expect(engine.executePendingJob()).toBe(false);
+  });
+
   test("isDisposed is false while the addon is loaded", () => {
     const engine = new Engine();
     expect(engine.isDisposed()).toBe(false);

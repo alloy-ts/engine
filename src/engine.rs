@@ -68,6 +68,21 @@ impl JsEngine {
     self.qjs_runtime.set_max_stack_size(limit as usize);
   }
 
+  /// Check if there are pending QuickJS jobs.
+  #[napi]
+  pub fn is_job_pending(&self) -> bool {
+    self.qjs_runtime.is_job_pending()
+  }
+
+  /// Execute the first pending QuickJS job.
+  #[napi]
+  pub fn execute_pending_job(&self) -> Result<bool> {
+    self
+      .qjs_runtime
+      .execute_pending_job()
+      .map_err(|e| Error::from_reason(format!("{:?}", e)))
+  }
+
   /// Whether the owning addon (and thus this context) has been unloaded.
   #[napi]
   pub fn is_disposed(&self) -> bool {
