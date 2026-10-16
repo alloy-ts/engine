@@ -3,6 +3,7 @@ export function main(): string {
 }
 
 export {
+  Compiler,
   Engine,
   Engine as Runtime,
   Global,

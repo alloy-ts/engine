@@ -4,6 +4,7 @@ pub mod context;
 pub mod engine;
 pub mod global;
 pub mod loader;
+pub mod compiler;
 pub mod parser;
 
 #[napi]
