@@ -7,7 +7,6 @@ pub mod global;
 pub mod loader;
 pub mod parser;
 pub mod poll;
-pub mod runtime;
 
 #[napi]
 pub fn add(left: i32, right: i32) -> i32 {

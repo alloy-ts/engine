@@ -5,8 +5,7 @@ Rust side is compiled to `alloy-engine.<platform>.node` via
 [`@napi-rs/cli`](https://napi.rs), and the TypeScript side is bundled by
 [vite-plus](https://viteplus.dev).
 
-Today the addon exposes three bindings: `add`, `Parser` (oxc-backed) and
-`Engine` (a JS class wrapping the N-API context).
+Today the addon exposes bindings for: `add`, `Parser` (oxc-backed), `Engine` (wrapping N-API context and QuickJS runtime), `Context`, `Loader`, and `poll_fn`.
 
 ## Layout
 
@@ -14,7 +13,10 @@ Today the addon exposes three bindings: `add`, `Parser` (oxc-backed) and
 | ---------------- | --------------------------------------------------------------- |
 | `src/lib.rs`     | Crate root: module declarations and the `add` binding           |
 | `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)   |
-| `src/engine.rs`  | `Engine` — JS class wrapping the N-API context (`napi::Engine`) |
+| `src/engine.rs`  | `Engine` — JS class wrapping N-API context (`napi::Engine`) & QuickJS `Runtime` |
+| `src/context.rs` | `Context` — NAPI wrapper for QuickJS execution context         |
+| `src/loader.rs`  | `Loader` — NAPI wrapper for QuickJS module loader configuration  |
+| `src/poll.rs`    | `poll_fn` / `PollFn` — internal Rust futures utilities          |
 | `src/main.ts`    | vite-plus pack entry; re-exports the native bindings            |
 | `src/*.test.ts`  | Unit tests (run by `vp test`)                                   |
 | `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`   |
@@ -60,8 +62,7 @@ falls back to oxc's default: `parse_regular_expression`,
 
 ### `Engine`
 
-A JS class that owns the N-API context handle. JS constructs it with no
-arguments — NAPI injects the context:
+A JS class that owns the N-API context handle and QuickJS runtime bindings.
 
 ```ts
 import { Engine } from "@alloy-ts/engine";
@@ -77,26 +78,32 @@ engine.set_instance_data("vm-state");
 engine.get_instance_data(); // "vm-state"
 
 engine.is_disposed(); // false while the addon is loaded
+
+// QuickJS Runtime API
+engine.is_job_pending(); // false
+engine.execPendingJob(); // false
+engine.execute_pending_job(); // false
+engine.run_gc();
+engine.set_memory_limit(1024 * 1024);
+engine.set_max_stack_size(256 * 1024);
 ```
 
 Available methods: `is_disposed`, `create_array`, `create_string`,
 `create_int32`, `create_double`, `has_global`, `get_napi_version`,
-`make_object`, `set_instance_data`, `get_instance_data`.
+`make_object`, `set_instance_data`, `get_instance_data`, `run_gc`,
+`set_memory_limit`, `set_max_stack_size`, `is_job_pending`,
+`execute_pending_job`, `execPendingJob`.
 
-#### The N-API context contract
+### `Context`
 
-`napi::Engine` is the handle the N-API implementation uses to persist
-VM-specific state. `Engine` follows its rules:
+A JS class wrapping QuickJS Context.
 
-1. **The same context must be reused for nested calls.** Every method does its
-   N-API work through the handle captured at construction.
-2. **It must not be cached for general reuse, nor shared between addon instances
-   or Worker threads.** Each `Engine` captures its own context; the fields are
-   private so it cannot leak out.
-3. **It becomes invalid when the addon instance is unloaded.** `Engine::new`
-   registers an environment cleanup hook that flips a disposed flag, and every
-   public method refuses to use a dangling handle. `set_instance_data`'s
-   finalize callback observes the same unload event.
+```ts
+import { Context } from "@alloy-ts/engine";
+
+const ctx = new Context();
+const result = ctx.eval("1 + 1"); // "2"
+```
 
 ## Development
 
@@ -154,11 +161,3 @@ npm run lint
 ```bash
 npm run check
 ```
-
-## Known gaps
-
-- `src/main.ts` does not exist yet. It is the vite-plus pack entry
-  (`vite.config.ts`) and `main.test.ts` already imports `main()` from it, so it
-  must be created and must re-export `add`, `Parser` and `Engine`.
-- `src/lib.rs` declares `pub mod future; mod poll; mod result;` but those
-  modules have no files yet, which currently blocks `cargo build`.
