@@ -22,7 +22,7 @@
 //! the generated `.d.ts` can hand JS a real object rather than a raw string.
 
 use napi::bindgen_prelude::Result as NapiResult;
-use napi::Error;
+use napi::{Env, Error};
 use napi_derive::napi;
 use serde_json::{json, Value};
 
@@ -172,17 +172,28 @@ impl Parser {
   /// Unlike [`Parser::parser`], a syntax error here is a hard failure: the method
   /// throws (with the diagnostic messages joined) rather than returning an
   /// `errors` array.
-  #[napi]
-  pub fn parse_expression(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
-    let result = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
+  #[napi(js_name = "parse_expression")]
+  pub fn parse_expression(&self, env: Env, options: Option<ParseOptions>) -> NapiResult<Value> {
+    let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
-      .parse_expression();
+      .parse();
 
-    match result {
-      Ok(expr) => estree_to_value(&expr),
-      Err(diagnostics) => {
-        let errors = diagnostics_to_strings(&diagnostics);
-        Err(Error::from_reason(errors.join("\n")))
+    if ret.fatal_error || !ret.diagnostics.is_empty() {
+      let errors = diagnostics_to_strings(&ret.diagnostics);
+      let msg = if errors.is_empty() {
+        "Failed to parse expression".to_string()
+      } else {
+        errors.join("\n")
+      };
+      env.throw_error(&msg, None)?;
+      return Ok(Value::Null);
+    }
+
+    match ret.program.body.first() {
+      Some(oxc_ast::ast::Statement::ExpressionStatement(stmt)) => estree_to_value(&stmt.expression),
+      _ => {
+        env.throw_error("Failed to parse expression", None)?;
+        Ok(Value::Null)
       }
     }
   }
