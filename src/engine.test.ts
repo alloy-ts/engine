@@ -6,9 +6,8 @@
  *
  *   - `add`                  — `src/lib.rs`
  *   - `Parser`               — `src/parser.rs`
- *   - `Engine`               — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `Engine`               — `src/engine.rs`  (JS class wrapping N-API context + rquickjs::Runtime)
  *   - `Context`              — `src/context.rs` (JS class wrapping rquickjs::Context)
- *   - `Runtime`              — `src/runtime.rs` (JS class wrapping rquickjs::Runtime)
  *   - `NativeFileResolver`, …— `src/loader.rs`  (JS classes wrapping rquickjs loaders/resolvers)
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
@@ -24,7 +23,6 @@ import {
   NativeFileResolver,
   NativeScriptLoader,
   Parser,
-  Runtime,
 } from "./main.ts";
 
 describe("napi: add", () => {
@@ -159,6 +157,27 @@ describe("napi: Engine", () => {
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
   });
+
+  test("configures memory limits, stack size, and runs GC on Engine", () => {
+    const engine = new Engine();
+    engine.set_info("test-engine");
+    engine.set_memory_limit(1024 * 1024);
+    engine.set_max_stack_size(256 * 1024);
+    engine.set_gc_threshold(64 * 1024);
+    engine.run_gc();
+    expect(engine.is_job_pending()).toBe(false);
+  });
+
+  test("configures loader and builtin loader on Engine", () => {
+    const engine = new Engine();
+    const fileResolver = new NativeFileResolver();
+    fileResolver.add_path(".");
+    const scriptLoader = new NativeScriptLoader();
+    engine.set_loader(fileResolver, scriptLoader);
+
+    const builtinResolver = new NativeBuiltinResolver(["my_module"]);
+    engine.set_builtin_loader(builtinResolver);
+  });
 });
 
 describe("napi: Context", () => {
@@ -182,33 +201,5 @@ describe("napi: Context", () => {
   test("full factory creates a full context", () => {
     const ctx = Context.full();
     expect(ctx).toBeDefined();
-  });
-});
-
-describe("napi: Runtime", () => {
-  test("constructs a new Runtime", () => {
-    const rt = new Runtime();
-    expect(rt).toBeDefined();
-  });
-
-  test("configures memory limits, stack size, and runs GC", () => {
-    const rt = new Runtime();
-    rt.set_info("test-runtime");
-    rt.set_memory_limit(1024 * 1024);
-    rt.set_max_stack_size(256 * 1024);
-    rt.set_gc_threshold(64 * 1024);
-    rt.run_gc();
-    expect(rt.is_job_pending()).toBe(false);
-  });
-
-  test("configures loader and builtin loader", () => {
-    const rt = new Runtime();
-    const fileResolver = new NativeFileResolver();
-    fileResolver.add_path(".");
-    const scriptLoader = new NativeScriptLoader();
-    rt.set_loader(fileResolver, scriptLoader);
-
-    const builtinResolver = new NativeBuiltinResolver(["my_module"]);
-    rt.set_builtin_loader(builtinResolver);
   });
 });
