@@ -6,6 +6,7 @@ use rquickjs::{
 use serde_json::json;
 
 use crate::context::JsContext;
+use crate::loader::JsLoader;
 
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
 fn to_napi_err(e: rquickjs::Error) -> Error {
