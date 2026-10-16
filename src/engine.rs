@@ -76,6 +76,11 @@ impl JsEngine {
         Ok(())
     }
 
+    #[napi(js_name = "setLoader")]
+    pub fn set_loader_camel(&self, loader: &JsLoader) -> napi::Result<()> {
+        self.set_loader(loader)
+    }
+
     /// Create a `Context` that shares *this* engine.
     ///
     /// Prefer this over a standalone `Context` (i.e. `new Context()`) when you
@@ -86,6 +91,11 @@ impl JsEngine {
     pub fn create_context(&self) -> napi::Result<JsContext> {
         let inner = QjsContext::full(&self.inner).map_err(to_napi_err)?;
         Ok(JsContext::from_inner(inner))
+    }
+
+    #[napi(js_name = "createContext")]
+    pub fn create_context_camel(&self) -> napi::Result<JsContext> {
+        self.create_context()
     }
 
     /// Get a weak handle to this engine. Holding it does not keep the engine
@@ -111,12 +121,22 @@ impl JsEngine {
         Ok(())
     }
 
+    #[napi(js_name = "setMemoryLimit")]
+    pub fn set_memory_limit_camel(&self, limit: f64) -> napi::Result<()> {
+        self.set_memory_limit(limit)
+    }
+
     /// Set a limit (in bytes) on the max stack size the engine will use.
     /// The QuickJS default is `256 * 1024`.
     #[napi(js_name = "set_max_stack_size")]
     pub fn set_max_stack_size(&self, limit: f64) -> napi::Result<()> {
         self.inner.set_max_stack_size(limit as usize);
         Ok(())
+    }
+
+    #[napi(js_name = "setMaxStackSize")]
+    pub fn set_max_stack_size_camel(&self, limit: f64) -> napi::Result<()> {
+        self.set_max_stack_size(limit)
     }
 
     /// Set the memory threshold (in bytes) that triggers garbage collection.
@@ -126,10 +146,20 @@ impl JsEngine {
         Ok(())
     }
 
+    #[napi(js_name = "setGcThreshold")]
+    pub fn set_gc_threshold_camel(&self, threshold: f64) -> napi::Result<()> {
+        self.set_gc_threshold(threshold)
+    }
+
     /// Set the engine's informational string (visible in debugging tooling).
     #[napi(js_name = "set_info")]
     pub fn set_info(&self, info: String) -> napi::Result<()> {
         self.inner.set_info(info).map_err(to_napi_err)
+    }
+
+    #[napi(js_name = "setInfo")]
+    pub fn set_info_camel(&self, info: String) -> napi::Result<()> {
+        self.set_info(info)
     }
 
     /// Manually run garbage collection. Most QuickJS values are reference
@@ -139,6 +169,11 @@ impl JsEngine {
     pub fn run_gc(&self) -> napi::Result<()> {
         self.inner.run_gc();
         Ok(())
+    }
+
+    #[napi(js_name = "runGc")]
+    pub fn run_gc_camel(&self) -> napi::Result<()> {
+        self.run_gc()
     }
 
     /// Memory-usage statistics as a plain object (field names match QuickJS'
@@ -176,10 +211,20 @@ impl JsEngine {
         }))
     }
 
+    #[napi(js_name = "memoryUsage")]
+    pub fn memory_usage_camel(&self) -> napi::Result<serde_json::Value> {
+        self.memory_usage()
+    }
+
     /// Whether at least one job (e.g. resolved promise callback) is pending.
     #[napi(js_name = "is_job_pending")]
     pub fn is_job_pending(&self) -> napi::Result<bool> {
         Ok(self.inner.is_job_pending())
+    }
+
+    #[napi(js_name = "isJobPending")]
+    pub fn is_job_pending_camel(&self) -> napi::Result<bool> {
+        self.is_job_pending()
     }
 
     /// Execute the first pending job. Returns `true` if a job ran, `false` if the
@@ -200,6 +245,16 @@ impl JsEngine {
             });
             Error::from_reason(format!("job exception: {msg}"))
         })
+    }
+
+    #[napi(js_name = "executePendingJob")]
+    pub fn execute_pending_job_camel(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
+    }
+
+    #[napi(js_name = "execPendingJob")]
+    pub fn exec_pending_job(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
     }
 }
 
@@ -231,6 +286,11 @@ impl JsWeakEngine {
             alive: Arc::clone(&self.alive),
         }))
     }
+
+    #[napi(js_name = "tryRef")]
+    pub fn try_ref_camel(&self) -> napi::Result<Option<JsEngine>> {
+        self.try_ref()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +312,11 @@ impl JsEngine {
         self.alive.load(Ordering::SeqCst)
     }
 
+    #[napi(js_name = "isDisposed")]
+    pub fn is_disposed_camel(&self) -> bool {
+        self.is_disposed()
+    }
+
     /// `Engine::create_array` — build a JS array of the requested length.
     #[napi(js_name = "create_array")]
     pub fn create_array(&self, len: u32) -> napi::Result<Array<'_>> {
@@ -266,11 +331,21 @@ impl JsEngine {
         unsafe { Array::from_napi_value(self.env.raw(), raw_val) }
     }
 
+    #[napi(js_name = "createArray")]
+    pub fn create_array_camel(&self, len: u32) -> napi::Result<Array<'_>> {
+        self.create_array(len)
+    }
+
     /// `Engine::create_string` — build a JS string.
     #[napi(js_name = "create_string")]
     pub fn create_string(&self, value: String) -> napi::Result<napi::JsString<'_>> {
         self.ensure_alive()?;
         self.env.create_string(&value)
+    }
+
+    #[napi(js_name = "createString")]
+    pub fn create_string_camel(&self, value: String) -> napi::Result<napi::JsString<'_>> {
+        self.create_string(value)
     }
 
     /// `Engine::create_int32` — build a JS number from an `i32`.
@@ -280,11 +355,21 @@ impl JsEngine {
         self.env.create_int32(int)
     }
 
+    #[napi(js_name = "createInt32")]
+    pub fn create_int32_camel(&self, int: i32) -> napi::Result<napi::JsNumber<'_>> {
+        self.create_int32(int)
+    }
+
     /// `Engine::create_double` — build a JS number from an `f64`.
     #[napi(js_name = "create_double")]
     pub fn create_double(&self, value: f64) -> napi::Result<napi::JsNumber<'_>> {
         self.ensure_alive()?;
         self.env.create_double(value)
+    }
+
+    #[napi(js_name = "createDouble")]
+    pub fn create_double_camel(&self, value: f64) -> napi::Result<napi::JsNumber<'_>> {
+        self.create_double(value)
     }
 
     /// Does the host global object have this property?
@@ -295,11 +380,21 @@ impl JsEngine {
         global.has_named_property(&name)
     }
 
+    #[napi(js_name = "hasGlobal")]
+    pub fn has_global_camel(&self, name: String) -> napi::Result<bool> {
+        self.has_global(name)
+    }
+
     /// `Engine::get_napi_version` — the N-API version of the host runtime.
     #[napi(js_name = "get_napi_version")]
     pub fn get_napi_version(&self) -> napi::Result<u32> {
         self.ensure_alive()?;
         self.env.get_napi_version()
+    }
+
+    #[napi(js_name = "getNapiVersion")]
+    pub fn get_napi_version_camel(&self) -> napi::Result<u32> {
+        self.get_napi_version()
     }
 
     /// `Object::new` through the host context.
@@ -312,11 +407,21 @@ impl JsEngine {
         Ok(obj)
     }
 
+    #[napi(js_name = "makeObject")]
+    pub fn make_object_camel(&self) -> napi::Result<Object<'_>> {
+        self.make_object()
+    }
+
     /// `Engine::set_instance_data` — persist host-level state on the Agent.
     #[napi(js_name = "set_instance_data")]
     pub fn set_instance_data(&self, value: String) -> napi::Result<()> {
         self.ensure_alive()?;
         self.env.set_instance_data(value, (), |_ctx| {})
+    }
+
+    #[napi(js_name = "setInstanceData")]
+    pub fn set_instance_data_camel(&self, value: String) -> napi::Result<()> {
+        self.set_instance_data(value)
     }
 
     /// `Engine::get_instance_data` — read back the persisted host-level state.
@@ -327,6 +432,11 @@ impl JsEngine {
             .env
             .get_instance_data::<String>()?
             .map(|s: &mut String| s.clone()))
+    }
+
+    #[napi(js_name = "getInstanceData")]
+    pub fn get_instance_data_camel(&self) -> napi::Result<Option<String>> {
+        self.get_instance_data()
     }
 
     /// Guard: refuse to use an environment that belongs to an unloaded addon.
