@@ -4,6 +4,7 @@ use napi_derive::napi;
 pub mod future;
 pub mod engine;
 pub mod parser;
+pub mod runtime;
 mod poll;
 mod result;
 
