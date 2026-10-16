@@ -68,4 +68,16 @@ impl Runtime {
             .execute_pending_job()
             .map_err(|_e| Error::from_reason("Pending job threw exception"))
     }
+
+    /// Set a module loader and resolver on this runtime.
+    #[napi]
+    pub fn set_loader(
+        &self,
+        resolver: &mut crate::loader::BuiltinResolverWrapper,
+        loader: &mut crate::loader::BuiltinLoaderWrapper,
+    ) {
+        if let (Some(r), Some(l)) = (resolver.inner.take(), loader.inner.take()) {
+            self.inner.set_loader(r, l);
+        }
+    }
 }
