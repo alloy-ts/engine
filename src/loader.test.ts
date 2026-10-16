@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { BuiltinLoader, BuiltinResolver, FileResolver, Runtime, ScriptLoader } from "./main.ts";
+import { BuiltinLoader, BuiltinResolver, Engine, FileResolver, ScriptLoader } from "./main.ts";
 
 describe("napi: Loader", () => {
   test("constructs loader and resolver wrappers", () => {
@@ -14,11 +14,11 @@ describe("napi: Loader", () => {
     expect(fileResolver).toBeDefined();
   });
 
-  test("sets loader and resolver on Runtime", () => {
-    const rt = new Runtime();
+  test("sets loader and resolver on Engine", () => {
+    const engine = new Engine();
     const loader = new BuiltinLoader();
     const resolver = new BuiltinResolver();
 
-    rt.setLoader(resolver, loader);
+    engine.setLoader(resolver, loader);
   });
 });

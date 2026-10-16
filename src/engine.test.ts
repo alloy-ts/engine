@@ -6,13 +6,10 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
- *
- * napi-rs exposes methods under their JS (camelCase) name, so these tests call
- * `createArray`, `hasGlobal`, …
+ *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context & QuickJS runtime)
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { BuiltinLoader, BuiltinResolver, add, Engine, Parser } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -145,5 +142,20 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.isDisposed()).toBe(false);
     expect(b.isDisposed()).toBe(false);
+  });
+
+  test("QuickJS runtime methods on Engine", () => {
+    const engine = new Engine();
+    engine.setInfo("test-engine");
+    engine.setMemoryLimit(1024 * 1024);
+    engine.setMaxStackSize(256 * 1024);
+    engine.setGcThreshold(64 * 1024);
+    engine.runGc();
+
+    expect(engine.isJobPending()).toBe(false);
+
+    const loader = new BuiltinLoader();
+    const resolver = new BuiltinResolver();
+    engine.setLoader(resolver, loader);
   });
 });
