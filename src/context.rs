@@ -4,7 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rquickjs::Context as QuickContext;
 
-use crate::runtime::QuickRuntime;
+use crate::engine::Engine;
 
 /// JS wrapper for rquickjs `Context`.
 #[napi]
@@ -16,16 +16,16 @@ pub struct QuickContextWrapper {
 impl QuickContextWrapper {
   /// Create a base context with required functions registered.
   #[napi(factory)]
-  pub fn base(runtime: &QuickRuntime) -> Result<Self> {
-    let ctx = QuickContext::base(&runtime.inner)
+  pub fn base(engine: &Engine) -> Result<Self> {
+    let ctx = QuickContext::base(&engine.runtime)
       .map_err(|e| Error::from_reason(format!("Failed to create base Context: {e}")))?;
     Ok(Self { inner: ctx })
   }
 
   /// Create a full context with all standard intrinsics registered.
   #[napi(factory)]
-  pub fn full(runtime: &QuickRuntime) -> Result<Self> {
-    let ctx = QuickContext::full(&runtime.inner)
+  pub fn full(engine: &Engine) -> Result<Self> {
+    let ctx = QuickContext::full(&engine.runtime)
       .map_err(|e| Error::from_reason(format!("Failed to create full Context: {e}")))?;
     Ok(Self { inner: ctx })
   }
