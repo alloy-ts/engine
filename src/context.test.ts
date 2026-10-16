@@ -49,7 +49,7 @@ describe("napi: Context & Engine bindings", () => {
   test("evaluates promise and resolves value", () => {
     const ctx = new Context();
     const res = ctx.eval_promise("await Promise.resolve(42)");
-    expect(res).toBe(42);
+    expect(res).toEqual({ value: 42 });
   });
 
   test("throws on eval exception", () => {

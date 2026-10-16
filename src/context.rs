@@ -156,14 +156,7 @@ impl JsContext {
           if let Ok(p) = rquickjs::Promise::from_value(val.clone()) {
             let res_val: rquickjs::Result<rquickjs::Value> = p.finish();
             match res_val {
-              Ok(v) => {
-                if let Some(obj) = v.as_object() {
-                  if let Ok(inner_val) = obj.get::<_, rquickjs::Value>("value") {
-                    return js_value_to_serde(&ctx, inner_val);
-                  }
-                }
-                js_value_to_serde(&ctx, v)
-              }
+              Ok(v) => js_value_to_serde(&ctx, v),
               Err(e) => {
                 if ctx.has_exception() {
                   let catch_val = ctx.catch();

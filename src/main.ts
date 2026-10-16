@@ -3,6 +3,7 @@ export function main(): string {
 }
 
 export {
+  Compiler,
   Context,
   Context as JSContext,
   Engine,
