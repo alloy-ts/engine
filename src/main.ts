@@ -5,6 +5,7 @@ export function main(): string {
 export {
   BuiltinLoader,
   BuiltinResolver,
+  Compiler,
   Context,
   Engine,
   FileResolver,
