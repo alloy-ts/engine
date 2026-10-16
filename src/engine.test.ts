@@ -1,8 +1,8 @@
 /**
  * Tests for the embedded QuickJS `Engine` NAPI bindings (`src/engine.rs`).
  *
- * `Engine` wraps the QuickJS runtime (the engine itself); `create_context()`
- * mints a `Context` that shares that engine. A standalone `Context`
+ * `Engine` wraps the QuickJS runtime (the engine itself); `create_context()` /
+ * `createContext()` mints a `Context` that shares that engine. A standalone `Context`
  * (`new Context()`) spins up its own private engine.
  *
  * Per the Rust bindings the constructors are real, so instances are made with
@@ -16,19 +16,26 @@ describe("napi: Engine", () => {
     const engine = new Engine();
     expect(engine).toBeDefined();
     expect(engine.is_job_pending()).toBe(false);
+    expect(engine.isJobPending()).toBe(false);
     expect(engine.execute_pending_job()).toBe(false);
+    expect(engine.executePendingJob()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.exec_pending_job()).toBe(false);
   });
 
-  test("create_context returns a working Context on the shared engine", () => {
+  test("create_context / createContext returns a working Context on the shared engine", () => {
     const engine = new Engine();
     const ctx = engine.create_context();
     expect(ctx.eval("6 * 7")).toBe(42);
+
+    const ctxCamel = engine.createContext();
+    expect(ctxCamel.eval("3 * 3")).toBe(9);
   });
 
   test("multiple contexts are independent realms on one engine", () => {
     const engine = new Engine();
     const a = engine.create_context();
-    const b = engine.create_context();
+    const b = engine.createContext();
     expect(a.eval("1")).toBe(1);
     expect(b.eval("2")).toBe(2);
     // Each context is its own realm with its own global object, even though they
@@ -38,23 +45,31 @@ describe("napi: Engine", () => {
     expect(b.eval("typeof globalThis.shared")).toBe("undefined");
   });
 
-  test("weak() returns a WeakEngine whose try_ref upgrades back to an Engine", () => {
+  test("weak() returns a WeakEngine whose try_ref / tryRef upgrades back to an Engine", () => {
     const engine = new Engine();
     const weak = engine.weak();
     const upgraded = weak.try_ref();
     expect(upgraded).toBeInstanceOf(Engine);
+
+    const upgradedCamel = weak.tryRef();
+    expect(upgradedCamel).toBeInstanceOf(Engine);
   });
 
-  test("engine tuning methods do not throw", () => {
+  test("engine tuning methods do not throw (snake_case and camelCase)", () => {
     const engine = new Engine();
     engine.set_memory_limit(1 << 20);
+    engine.setMemoryLimit(1 << 20);
     engine.set_max_stack_size(256 * 1024);
+    engine.setMaxStackSize(256 * 1024);
     engine.set_gc_threshold(1024);
+    engine.setGcThreshold(1024);
     engine.set_info("test-engine");
+    engine.setInfo("test-engine");
     engine.run_gc();
+    engine.runGc();
   });
 
-  test("memory_usage returns a stats object with numeric fields", () => {
+  test("memory_usage / memoryUsage returns a stats object with numeric fields", () => {
     const engine = new Engine();
     const usage = engine.memory_usage() as {
       malloc_size: number;
@@ -63,34 +78,56 @@ describe("napi: Engine", () => {
     expect(typeof usage).toBe("object");
     expect(typeof usage.malloc_size).toBe("number");
     expect(typeof usage.malloc_limit).toBe("number");
+
+    const usageCamel = engine.memoryUsage() as {
+      malloc_size: number;
+      malloc_limit: number;
+    };
+    expect(typeof usageCamel).toBe("object");
+    expect(typeof usageCamel.malloc_size).toBe("number");
   });
 
-  test("execute_pending_job drains promise jobs", () => {
+  test("execPendingJob / execute_pending_job drains promise jobs", () => {
     const engine = new Engine();
     const ctx = engine.create_context();
     ctx.eval(`
       globalThis.log = [];
       Promise.resolve(42).then((v) => { globalThis.log.push(v); });
     `);
-    expect(engine.is_job_pending()).toBe(true);
+    expect(engine.isJobPending()).toBe(true);
 
     let ran = 0;
-    while (engine.execute_pending_job()) {
+    while (engine.execPendingJob()) {
       ran += 1;
     }
     expect(ran).toBeGreaterThan(0);
     expect(ctx.eval("globalThis.log")).toEqual([42]);
   });
 
-  test("execute_pending_job surfaces a throwing microtask as a thrown exception", () => {
+  test("executePendingJob drains promise jobs", () => {
     const engine = new Engine();
-    const ctx = engine.create_context();
-    // A thrown promise reaction becomes an unhandled rejection (the job itself
-    // succeeds); a `queueMicrotask` job that throws propagates to the caller.
-    ctx.eval(`queueMicrotask(() => { throw new Error("boom"); });`);
+    const ctx = engine.createContext();
+    ctx.eval(`
+      globalThis.log = [];
+      Promise.resolve(100).then((v) => { globalThis.log.push(v); });
+    `);
     expect(engine.is_job_pending()).toBe(true);
+
+    let ran = 0;
+    while (engine.executePendingJob()) {
+      ran += 1;
+    }
+    expect(ran).toBeGreaterThan(0);
+    expect(ctx.eval("globalThis.log")).toEqual([100]);
+  });
+
+  test("execPendingJob surfaces a throwing microtask as a thrown exception", () => {
+    const engine = new Engine();
+    const ctx = engine.createContext();
+    ctx.eval(`queueMicrotask(() => { throw new Error("boom"); });`);
+    expect(engine.isJobPending()).toBe(true);
     expect(() => {
-      while (engine.execute_pending_job()) {
+      while (engine.execPendingJob()) {
         /* drain */
       }
     }).toThrow();
@@ -100,71 +137,87 @@ describe("napi: Engine", () => {
     const loader = new Loader();
     loader.add("m", "export const v = 7;");
     const engine = new Engine(loader);
-    const ctx = engine.create_context();
+    const ctx = engine.createContext();
     ctx.eval_module('import { v } from "m"; globalThis.out = v;');
     expect(ctx.eval("globalThis.out")).toBe(7);
   });
 
-  test("set_loader attaches a loader after construction", () => {
+  test("set_loader / setLoader attaches a loader after construction", () => {
     const loader = new Loader();
     loader.add("k", "export const v = 'from-loader';");
     const engine = new Engine();
-    engine.set_loader(loader);
-    const ctx = engine.create_context();
+    engine.setLoader(loader);
+    const ctx = engine.createContext();
     ctx.eval_module('import { v } from "k"; globalThis.out = v;');
     expect(ctx.eval("globalThis.out")).toBe("from-loader");
   });
 });
 
 describe("napi: Engine host environment", () => {
-  test("create_array allocates a JS array of the requested length", () => {
+  test("create_array / createArray allocates a JS array of the requested length", () => {
     const engine = new Engine();
     const arr = engine.create_array(3) as unknown[];
     expect(Array.isArray(arr)).toBe(true);
     expect(arr.length).toBe(3);
+
+    const arrCamel = engine.createArray(5) as unknown[];
+    expect(Array.isArray(arrCamel)).toBe(true);
+    expect(arrCamel.length).toBe(5);
   });
 
   test("create_string / create_int32 / create_double build JS values", () => {
     const engine = new Engine();
     expect(engine.create_string("hello")).toBe("hello");
+    expect(engine.createString("hello")).toBe("hello");
     expect(engine.create_int32(42)).toBe(42);
+    expect(engine.createInt32(42)).toBe(42);
     expect(engine.create_double(1.5)).toBe(1.5);
+    expect(engine.createDouble(1.5)).toBe(1.5);
   });
 
-  test("has_global reads the host global object", () => {
+  test("has_global / hasGlobal reads the host global object", () => {
     const engine = new Engine();
     expect(engine.has_global("Math")).toBe(true);
-    expect(engine.has_global("definitelyNotAGlobal")).toBe(false);
+    expect(engine.hasGlobal("Math")).toBe(true);
+    expect(engine.hasGlobal("definitelyNotAGlobal")).toBe(false);
   });
 
-  test("get_napi_version reports the host N-API version", () => {
+  test("get_napi_version / getNapiVersion reports the host N-API version", () => {
     const engine = new Engine();
     expect(engine.get_napi_version()).toBeGreaterThan(0);
+    expect(engine.getNapiVersion()).toBeGreaterThan(0);
   });
 
-  test("make_object builds a JS object via the host context", () => {
+  test("make_object / makeObject builds a JS object via the host context", () => {
     const engine = new Engine();
     const obj = engine.make_object() as { ok: boolean; engine: string };
     expect(obj.ok).toBe(true);
     expect(obj.engine).toBe("napi");
+
+    const objCamel = engine.makeObject() as { ok: boolean; engine: string };
+    expect(objCamel.ok).toBe(true);
+    expect(objCamel.engine).toBe("napi");
   });
 
-  test("set_instance_data persists host-level state on the Agent", () => {
+  test("set_instance_data / setInstanceData persists host-level state on the Agent", () => {
     const engine = new Engine();
     engine.set_instance_data("vm-state");
     expect(engine.get_instance_data()).toBe("vm-state");
+
+    engine.setInstanceData("updated-vm-state");
+    expect(engine.getInstanceData()).toBe("updated-vm-state");
   });
 
-  test("is_disposed is false while the addon is loaded", () => {
+  test("is_disposed / isDisposed is false while the addon is loaded", () => {
     const engine = new Engine();
     expect(engine.is_disposed()).toBe(false);
+    expect(engine.isDisposed()).toBe(false);
   });
 
   test("each instance captures its own context handle", () => {
     const a = new Engine();
     const b = new Engine();
-    // Two engines must not alias the same context; both are independently live.
-    expect(a.is_disposed()).toBe(false);
-    expect(b.is_disposed()).toBe(false);
+    expect(a.isDisposed()).toBe(false);
+    expect(b.isDisposed()).toBe(false);
   });
 });
