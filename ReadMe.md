@@ -130,9 +130,9 @@ const weak = engine.weak();       // -> WeakEngine
 const strong = weak.try_ref();    // -> Engine | null (null once freed)
 ```
 
-Runtime methods: `set_loader`, `create_context`, `weak` (→ `WeakEngine`),
+Runtime methods: `set_loader`, `create_context` (`createContext`), `weak` (→ `WeakEngine`),
 `set_memory_limit`, `set_max_stack_size`, `set_gc_threshold`, `set_info`,
-`run_gc`, `memory_usage`, `is_job_pending`, `execute_pending_job`.
+`run_gc`, `memory_usage`, `is_job_pending` (`isJobPending`), `execute_pending_job` (`executePendingJob`, `execPendingJob`).
 
 A few real QuickJS semantics worth knowing:
 

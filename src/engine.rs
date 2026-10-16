@@ -1,3 +1,8 @@
+//! # High-level bindings to QuickJS
+//!
+//! The `rquickjs` crate provides safe high-level bindings to the [QuickJS](https://bellard.org/quickjs/) JavaScript engine.
+//! This crate is heavily inspired by the [rlua](https://crates.io/crates/rlua) crate.
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -86,6 +91,12 @@ impl JsEngine {
     pub fn create_context(&self) -> napi::Result<JsContext> {
         let inner = QjsContext::full(&self.inner).map_err(to_napi_err)?;
         Ok(JsContext::from_inner(inner))
+    }
+
+    /// Alias for `create_context`.
+    #[napi(js_name = "createContext")]
+    pub fn create_context_camel(&self) -> napi::Result<JsContext> {
+        self.create_context()
     }
 
     /// Get a weak handle to this engine. Holding it does not keep the engine
@@ -182,6 +193,12 @@ impl JsEngine {
         Ok(self.inner.is_job_pending())
     }
 
+    /// Alias for `is_job_pending`.
+    #[napi(js_name = "isJobPending")]
+    pub fn is_job_pending_camel(&self) -> napi::Result<bool> {
+        self.is_job_pending()
+    }
+
     /// Execute the first pending job. Returns `true` if a job ran, `false` if the
     /// queue was empty. Throws (as a JS exception carrying the job's error) if a
     /// job threw.
@@ -200,6 +217,18 @@ impl JsEngine {
             });
             Error::from_reason(format!("job exception: {msg}"))
         })
+    }
+
+    /// Alias for `execute_pending_job`.
+    #[napi(js_name = "executePendingJob")]
+    pub fn execute_pending_job_camel(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
+    }
+
+    /// Short alias for `execute_pending_job`.
+    #[napi(js_name = "execPendingJob")]
+    pub fn exec_pending_job(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
     }
 }
 

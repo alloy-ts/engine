@@ -16,13 +16,36 @@ describe("napi: Engine", () => {
     const engine = new Engine();
     expect(engine).toBeDefined();
     expect(engine.is_job_pending()).toBe(false);
+    expect(engine.isJobPending()).toBe(false);
     expect(engine.execute_pending_job()).toBe(false);
+    expect(engine.executePendingJob()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
   });
 
-  test("create_context returns a working Context on the shared engine", () => {
+  test("create_context and createContext return a working Context on the shared engine", () => {
     const engine = new Engine();
     const ctx = engine.create_context();
     expect(ctx.eval("6 * 7")).toBe(42);
+
+    const ctxCamel = engine.createContext();
+    expect(ctxCamel.eval("3 * 4")).toBe(12);
+  });
+
+  test("execPendingJob drains promise jobs after const engine = new Engine()", () => {
+    const engine = new Engine();
+    const ctx = engine.createContext();
+    ctx.eval(`
+      globalThis.res = [];
+      Promise.resolve("qjs").then((v) => { globalThis.res.push(v); });
+    `);
+    expect(engine.isJobPending()).toBe(true);
+
+    let count = 0;
+    while (engine.execPendingJob()) {
+      count++;
+    }
+    expect(count).toBeGreaterThan(0);
+    expect(ctx.eval("globalThis.res")).toEqual(["qjs"]);
   });
 
   test("multiple contexts are independent realms on one engine", () => {
