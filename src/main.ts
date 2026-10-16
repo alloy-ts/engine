@@ -9,6 +9,7 @@ export const Parser = native.Parser;
 export const Global = native.Global;
 export const Context = native.Context;
 export const Compiler = native.Compiler;
+export const Atom = native.Atom;
 
 export function main() {
   return "Hello, world!";
