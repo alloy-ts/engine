@@ -6,7 +6,7 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `Engine`  — `src/engine.rs`  (JS class wrapping N-API context & QuickJS engine)
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
  * `js_name` override is set, so these tests call `create_array`, `has_global`,
@@ -143,8 +143,17 @@ describe("napi: Engine", () => {
   test("each instance captures its own context handle", () => {
     const a = new Engine();
     const b = new Engine();
-    // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+
+  test("QuickJS Engine API: execPendingJob, is_job_pending, run_gc, limits", () => {
+    const engine = new Engine();
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+    engine.run_gc();
+    engine.set_memory_limit(1024 * 1024);
+    engine.set_max_stack_size(256 * 1024);
   });
 });

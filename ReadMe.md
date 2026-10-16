@@ -5,21 +5,25 @@ Rust side is compiled to `alloy-engine.<platform>.node` via
 [`@napi-rs/cli`](https://napi.rs), and the TypeScript side is bundled by
 [vite-plus](https://viteplus.dev).
 
-Today the addon exposes three bindings: `add`, `Parser` (oxc-backed) and
-`Engine` (a JS class wrapping the N-API context).
+Today the addon exposes bindings for `add`, `Parser` (oxc-backed), `Compiler`,
+`Engine` (wrapping N-API context and QuickJS runtime), `Context`, `Global`, and `Loader`.
 
 ## Layout
 
-| Path             | Role                                                            |
-| ---------------- | --------------------------------------------------------------- |
-| `src/lib.rs`     | Crate root: module declarations and the `add` binding           |
-| `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)   |
-| `src/engine.rs`  | `Engine` — JS class wrapping the N-API context (`napi::Engine`) |
-| `src/main.ts`    | vite-plus pack entry; re-exports the native bindings            |
-| `src/*.test.ts`  | Unit tests (run by `vp test`)                                   |
-| `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`   |
-| `vite.config.ts` | `pack` / `test` / `lint` / `fmt` configuration                  |
-| `Cargo.toml`     | Rust crate `alloy-engine-native` (`cdylib`)                     |
+| Path              | Role                                                                |
+| ----------------- | ------------------------------------------------------------------- |
+| `src/lib.rs`      | Crate root: module declarations and the `add` binding               |
+| `src/parser.rs`   | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)       |
+| `src/compiler.rs` | `Compiler` — NAPI wrapper around OXC compiler                       |
+| `src/engine.rs`   | `Engine` — JS class wrapping N-API context & QuickJS engine runtime |
+| `src/context.rs`  | `Context` — JS class wrapping QuickJS context                       |
+| `src/global.rs`   | `Global` — JS class wrapping global object                          |
+| `src/loader.rs`   | `Loader` — QuickJS module loader configuration                      |
+| `src/main.ts`     | vite-plus pack entry; re-exports the native bindings                |
+| `src/*.test.ts`   | Unit tests (run by `vp test`)                                       |
+| `build.ts`        | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`       |
+| `vite.config.ts`  | `pack` / `test` / `lint` / `fmt` configuration                      |
+| `Cargo.toml`      | Rust crate `alloy-engine-native` (`cdylib`)                         |
 
 ## NAPI surface
 
@@ -60,7 +64,7 @@ falls back to oxc's default: `parse_regular_expression`,
 
 ### `Engine`
 
-A JS class that owns the N-API context handle. JS constructs it with no
+A JS class that owns the N-API context handle and QuickJS runtime. JS constructs it with no
 arguments — NAPI injects the context:
 
 ```ts
@@ -76,17 +80,19 @@ engine.get_napi_version(); // host N-API version
 engine.set_instance_data("vm-state");
 engine.get_instance_data(); // "vm-state"
 
+engine.execPendingJob(); // QuickJS job execution
+engine.run_gc(); // QuickJS garbage collection
 engine.is_disposed(); // false while the addon is loaded
 ```
 
 Available methods: `is_disposed`, `create_array`, `create_string`,
 `create_int32`, `create_double`, `has_global`, `get_napi_version`,
-`make_object`, `set_instance_data`, `get_instance_data`.
+`make_object`, `set_instance_data`, `get_instance_data`, `execPendingJob`,
+`execute_pending_job`, `is_job_pending`, `run_gc`, `set_memory_limit`, `set_max_stack_size`.
 
 #### The N-API context contract
 
-`napi::Engine` is the handle the N-API implementation uses to persist
-VM-specific state. `Engine` follows its rules:
+`Engine` wraps `napi::Env` and follows its rules:
 
 1. **The same context must be reused for nested calls.** Every method does its
    N-API work through the handle captured at construction.
@@ -154,11 +160,3 @@ npm run lint
 ```bash
 npm run check
 ```
-
-## Known gaps
-
-- `src/main.ts` does not exist yet. It is the vite-plus pack entry
-  (`vite.config.ts`) and `main.test.ts` already imports `main()` from it, so it
-  must be created and must re-export `add`, `Parser` and `Engine`.
-- `src/lib.rs` declares `pub mod future; mod poll; mod result;` but those
-  modules have no files yet, which currently blocks `cargo build`.

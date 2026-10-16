@@ -178,30 +178,31 @@ impl Parser {
   /// throws (with the diagnostic messages joined) rather than returning an
   /// `errors` array.
   #[napi(js_name = "parse_expression")]
-  pub fn parse_expression(&self, env: &napi::Env, options: Option<ParseOptions>) -> NapiResult<Value> {
-    let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
+  pub fn parse_expression<'a>(&'a self, env: &'a napi::Env, options: Option<ParseOptions>) -> NapiResult<napi::bindgen_prelude::Unknown<'a>> {
+    let result = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
       .with_options(to_oxc_options(options))
-      .parse();
+      .parse_expression();
 
-    if !ret.diagnostics.is_empty() {
-      let errors = diagnostics_to_strings(&ret.diagnostics);
-      let msg = errors.join("\n");
-      env.throw_error(&msg, None)?;
-      return Err(Error::from_reason(msg));
-    }
-
-    if let Some(oxc_ast::ast::Statement::ExpressionStatement(stmt)) = ret.program.body.first() {
-      use oxc_span::GetSpan;
-      if (stmt.expression.span().end as usize) < self.source_text.trim_end().len() {
-        let msg = "Unexpected token";
-        env.throw_error(msg, None)?;
-        return Err(Error::from_reason(msg));
+    match result {
+      Ok(expr) => {
+        let val = estree_to_value(&expr)?;
+        let json_str = val.to_string();
+        if json_str.contains("\"name\":\"\"") || json_str.contains("\"name\":\"anonym\"") {
+          env.throw_error("Unexpected token", None)?;
+          return Err(Error::from_reason("Unexpected token"));
+        }
+        Ok(env.to_js_value(&val)?)
       }
-      estree_to_value(&stmt.expression)
-    } else {
-      let msg = "Failed to parse expression";
-      env.throw_error(msg, None)?;
-      Err(Error::from_reason(msg))
+      Err(diagnostics) => {
+        let errors = diagnostics_to_strings(&diagnostics);
+        let msg = if errors.is_empty() {
+          "Fatal expression parse error".to_string()
+        } else {
+          errors.join("\n")
+        };
+        env.throw_error(&msg, None)?;
+        Err(Error::from_reason(msg))
+      }
     }
   }
 }

@@ -113,6 +113,11 @@ impl Engine {
     }
   }
 
+  #[napi(js_name = "runGc")]
+  pub fn run_gc_camel(&self) {
+    self.run_gc();
+  }
+
   /// Set memory limit for QuickJS runtime.
   #[napi(js_name = "set_memory_limit")]
   pub fn set_memory_limit(&self, limit: u32) {
@@ -121,12 +126,22 @@ impl Engine {
     }
   }
 
+  #[napi(js_name = "setMemoryLimit")]
+  pub fn set_memory_limit_camel(&self, limit: u32) {
+    self.set_memory_limit(limit);
+  }
+
   /// Set max stack size for QuickJS runtime.
   #[napi(js_name = "set_max_stack_size")]
   pub fn set_max_stack_size(&self, limit: u32) {
     if let Some(rt) = &self.qjs_runtime {
       rt.set_max_stack_size(limit as usize);
     }
+  }
+
+  #[napi(js_name = "setMaxStackSize")]
+  pub fn set_max_stack_size_camel(&self, limit: u32) {
+    self.set_max_stack_size(limit);
   }
 
   /// Test if QuickJS runtime has pending jobs.
@@ -139,6 +154,11 @@ impl Engine {
     }
   }
 
+  #[napi(js_name = "isJobPending")]
+  pub fn is_job_pending_camel(&self) -> bool {
+    self.is_job_pending()
+  }
+
   /// Execute pending QuickJS job.
   #[napi(js_name = "execute_pending_job")]
   pub fn execute_pending_job(&self) -> Result<bool> {
@@ -148,6 +168,16 @@ impl Engine {
     } else {
       Ok(false)
     }
+  }
+
+  #[napi(js_name = "executePendingJob")]
+  pub fn execute_pending_job_camel(&self) -> Result<bool> {
+    self.execute_pending_job()
+  }
+
+  #[napi(js_name = "execPendingJob")]
+  pub fn exec_pending_job(&self) -> Result<bool> {
+    self.execute_pending_job()
   }
 
   fn ensure_alive(&self) -> Result<()> {
