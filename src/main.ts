@@ -3,6 +3,7 @@ export function main(): string {
 }
 
 export {
+  Atom,
   Compiler,
   Context,
   Context as JSContext,
