@@ -105,6 +105,7 @@ fn diagnostics_to_strings<'a, D: ToString + 'a>(
   diagnostics.into_iter().map(ToString::to_string).collect()
 }
 
+
 /// NAPI wrapper around [`oxc_parser::Parser`].
 ///
 /// Construct it with the source text (and, optionally, a path / extension used
@@ -119,6 +120,21 @@ pub struct Parser {
   source_text: String,
   /// Language / module-kind of the source.
   source_type: SourceType,
+}
+
+fn is_dummy_identifier(id: &oxc_ast::ast::IdentifierReference) -> bool {
+  id.name.as_str() == "anonym" || id.name.is_empty()
+}
+
+fn has_dummy_identifier(expr: &oxc_ast::ast::Expression) -> bool {
+  match expr {
+    oxc_ast::ast::Expression::Identifier(id) => is_dummy_identifier(id),
+    oxc_ast::ast::Expression::BinaryExpression(bin) => {
+      has_dummy_identifier(&bin.left) || has_dummy_identifier(&bin.right)
+    }
+    oxc_ast::ast::Expression::UnaryExpression(u) => has_dummy_identifier(&u.argument),
+    _ => false,
+  }
 }
 
 #[napi]
@@ -185,12 +201,11 @@ impl Parser {
 
     match result {
       Ok(expr) => {
-        let val = estree_to_value(&expr)?;
-        let json_str = val.to_string();
-        if json_str.contains("\"name\":\"\"") || json_str.contains("\"name\":\"anonym\"") {
+        if has_dummy_identifier(&expr) {
           env.throw_error("Unexpected token", None)?;
           return Err(Error::from_reason("Unexpected token"));
         }
+        let val = estree_to_value(&expr)?;
         Ok(env.to_js_value(&val)?)
       }
       Err(diagnostics) => {
