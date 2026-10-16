@@ -1,32 +1,59 @@
-# `JsEngine` API Reference
+# QuickJS `Engine` API Reference
 
-`JsEngine` represents a JavaScript engine instance wrapping an underlying N-API context handle.
+The `Engine` class wraps the underlying QuickJS runtime (`rquickjs::Runtime`). It serves as the primary entry point for managing JavaScript execution, memory usage limits, stack size, garbage collection, and module loaders.
 
-## Overview
+## Constructor
 
-```rust
-use crate::{sys, JsGlobal, Result};
-use super::Array;
-
-pub use crate::JsEngine;
+```ts
+const engine = new Engine();
 ```
+
+Creates a new QuickJS runtime instance.
 
 ## Methods
 
-### `create_array(&self, len: u32) -> Result<Array<'_>>`
+### `setInfo(info: string): void`
 
-Allocates a new JavaScript array of the specified length `len` attached to the engine's N-API environment.
-
-- **Parameters:**
-  - `len` (`u32`): The initial length/capacity of the array.
-- **Returns:**
-  - `Result<Array<'_>>`: The created `Array` object wrapped in a `Result`.
+Sets the informational description string for the runtime.
 
 ---
 
-### `get_global(&self) -> Result<JsGlobal<'static>>`
+### `setMemoryLimit(limit: number): void`
 
-Retrieves the global JavaScript object from the engine's N-API environment.
+Sets a limit (in bytes) on the maximum memory the runtime is permitted to allocate. Setting `limit` to `0` implies no limit.
 
-- **Returns:**
-  - `Result<JsGlobal<'static>>`: The global JavaScript object wrapped in a `Result`.
+---
+
+### `setMaxStackSize(limit: number): void`
+
+Sets the maximum stack size (in bytes) for JavaScript execution. Defaults to 256 KiB.
+
+---
+
+### `setGcThreshold(threshold: number): void`
+
+Sets the memory threshold (in bytes) that triggers automatic cyclic garbage collection.
+
+---
+
+### `runGc(): void`
+
+Manually triggers the QuickJS cyclic garbage collector.
+
+---
+
+### `isJobPending(): boolean`
+
+Returns `true` if there is at least one pending async job or promise reaction in the runtime queue.
+
+---
+
+### `executePendingJob(): boolean`
+
+Executes the next pending async job in the runtime queue. Returns `true` if a job was executed, or `false` if the queue was empty.
+
+---
+
+### `setLoader(resolver: Resolver, loader: Loader): void`
+
+Configures custom module resolution and loading strategies for ES modules evaluated by the runtime.
