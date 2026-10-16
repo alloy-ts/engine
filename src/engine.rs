@@ -175,37 +175,37 @@ impl Engine {
   // --- QuickJS Runtime methods ---
 
   /// Set a limit on the maximum amount of memory the runtime will use (in bytes).
-  #[napi]
+  #[napi(js_name = "set_memory_limit")]
   pub fn set_memory_limit(&self, limit: u32) {
     self.runtime.set_memory_limit(limit as usize);
   }
 
   /// Set a limit on the maximum stack size the runtime will use (in bytes).
-  #[napi]
+  #[napi(js_name = "set_max_stack_size")]
   pub fn set_max_stack_size(&self, limit: u32) {
     self.runtime.set_max_stack_size(limit as usize);
   }
 
   /// Set a memory threshold for garbage collection.
-  #[napi]
+  #[napi(js_name = "set_gc_threshold")]
   pub fn set_gc_threshold(&self, threshold: u32) {
     self.runtime.set_gc_threshold(threshold as usize);
   }
 
   /// Manually run garbage collection cycle.
-  #[napi]
+  #[napi(js_name = "run_gc")]
   pub fn run_gc(&self) {
     self.runtime.run_gc();
   }
 
   /// Test whether at least one job is pending.
-  #[napi]
+  #[napi(js_name = "is_job_pending")]
   pub fn is_job_pending(&self) -> bool {
     self.runtime.is_job_pending()
   }
 
   /// Execute the first pending job in the queue.
-  #[napi]
+  #[napi(js_name = "execute_pending_job")]
   pub fn execute_pending_job(&self) -> Result<bool> {
     self
       .runtime

@@ -6,14 +6,14 @@
  *
  *   - `add`     — `src/lib.rs`
  *   - `Parser`  — `src/parser.rs`
- *   - `Engine`  — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `Engine`  — `src/engine.rs`  (JS class wrapping N-API & QuickJS Runtime)
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
  * `js_name` override is set, so these tests call `create_array`, `has_global`,
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { add, Engine, Parser, QuickContextWrapper } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -143,8 +143,24 @@ describe("napi: Engine", () => {
   test("each instance captures its own context handle", () => {
     const a = new Engine();
     const b = new Engine();
-    // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+
+  test("QuickJS runtime methods on Engine (execPendingJob, runGc, memoryLimits)", () => {
+    const engine = new Engine();
+
+    engine.set_memory_limit(1024 * 1024);
+    engine.set_max_stack_size(256 * 1024);
+    engine.set_gc_threshold(64 * 1024);
+
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+
+    engine.run_gc();
+
+    // Verify context creation with engine
+    const ctx = QuickContextWrapper.full(engine);
+    expect(ctx.eval("'hello'")).toBe("hello");
   });
 });

@@ -12,6 +12,8 @@ export const add = native.add;
 export const Parser = native.Parser;
 export const Engine = native.Engine;
 export const Global = native.Global;
+export const QuickContextWrapper = native.QuickContextWrapper;
+export const QuickLoader = native.QuickLoader;
 
 export function main() {
   return "Hello, world!";
