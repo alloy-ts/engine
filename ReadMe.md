@@ -5,24 +5,25 @@ Rust side is compiled to `alloy-engine.<platform>.node` via
 [`@napi-rs/cli`](https://napi.rs), and the TypeScript side is bundled by
 [vite-plus](https://viteplus.dev).
 
-Today the addon exposes bindings including `add`, `Parser` (oxc-backed), `Compiler` (oxc ESTree transformer), `Engine` / `JsEngine` (N-API context & QuickJS runtime), and `Context` (QuickJS execution context).
+Today the addon exposes bindings including `add`, `Parser` (oxc-backed), `Compiler` (oxc ESTree compact serializer), `Engine` / `JsEngine` (N-API context & QuickJS runtime), and `Context` (QuickJS execution context).
 
 ## Layout
 
-| Path              | Role                                                                          |
-| ----------------- | ----------------------------------------------------------------------------- |
-| `src/lib.rs`      | Crate root: module declarations and the `add` binding                         |
-| `src/parser.rs`   | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)                 |
-| `src/compiler.rs` | `Compiler` — NAPI wrapper around oxc ESTree compact serializer                |
-| `src/engine.rs`   | `Engine` — JS class wrapping N-API context (`napi::Engine`) & QuickJS runtime |
-| `src/context.rs`  | `Context` — JS class wrapping `rquickjs::Context`                             |
-| `src/loader.rs`   | `Loader` — QuickJS module loader configuration                                |
-| `src/main.ts`     | vite-plus pack entry; re-exports the native bindings                          |
-| `src/*.test.ts`   | Unit tests (run by `vp test`)                                                 |
-| `docs/engine.md`  | API reference for `JsEngine` / `Engine`                                       |
-| `build.ts`        | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`                 |
-| `vite.config.ts`  | `pack` / `test` / `lint` / `fmt` configuration                                |
-| `Cargo.toml`      | Rust crate `alloy-engine-native` (`cdylib`)                                   |
+| Path               | Role                                                                          |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `src/lib.rs`       | Crate root: module declarations and the `add` binding                         |
+| `src/parser.rs`    | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)                 |
+| `src/compiler.rs`  | `Compiler` — NAPI wrapper around oxc ESTree compact serializer                |
+| `src/engine.rs`    | `Engine` — JS class wrapping N-API context (`napi::Engine`) & QuickJS runtime |
+| `src/context.rs`   | `Context` — JS class wrapping `rquickjs::Context`                             |
+| `src/loader.rs`    | `Loader` — QuickJS module loader configuration                                |
+| `src/main.ts`      | vite-plus pack entry; re-exports the native bindings                          |
+| `src/*.test.ts`    | Unit tests (run by `vp test`)                                                 |
+| `docs/engine.md`   | API reference for `JsEngine` / `Engine`                                       |
+| `docs/compiler.md` | API reference for `Compiler`                                                  |
+| `build.ts`         | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`                 |
+| `vite.config.ts`   | `pack` / `test` / `lint` / `fmt` configuration                                |
+| `Cargo.toml`       | Rust crate `alloy-engine-native` (`cdylib`)                                   |
 
 ## NAPI surface
 
@@ -51,6 +52,17 @@ import { Parser } from "@alloy-ts/engine";
 
 const parser = new Parser("const x = 1;", "src/app.tsx");
 const { program, errors, fatalError, isFlowLanguage } = parser.parser();
+```
+
+### `Compiler`
+
+Wraps oxc parser and ESTree compact serializer. Call `compiler.execute(sourceText, sourceType?, sourcePath?)` to compile source code to ESTree compact JSON. See [`docs/compiler.md`](docs/compiler.md) for full reference.
+
+```ts
+import { Compiler } from "@alloy-ts/engine";
+
+const compiler = new Compiler();
+const estreeJson = compiler.execute("const x = 1;", undefined, "app.js");
 ```
 
 ### `Engine` / `JsEngine` & `Context`
