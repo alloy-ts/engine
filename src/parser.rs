@@ -50,17 +50,13 @@ pub struct ParseOptions {
   pub enable_ident_hashes: Option<bool>,
 }
 
-/// Build oxc 0.152.0's `ParseOptions` with its defaults.
-///
-/// `oxc_parser::ParseOptions` does not derive `Default`, so we spell them out.
-/// (We cannot `impl Default` for it here — orphan rule — hence a free fn.)
+/// Build oxc's `ParseOptions` with its defaults.
 fn default_oxc_parse_options() -> OxcParseOptions {
   OxcParseOptions {
     parse_regular_expression: false,
     allow_return_outside_function: false,
     preserve_parens: true,
     allow_v8_intrinsics: false,
-    enable_ident_hashes: true,
   }
 }
 
@@ -79,9 +75,6 @@ fn to_oxc_options(options: Option<ParseOptions>) -> OxcParseOptions {
     if let Some(v) = o.allow_v8_intrinsics {
       opts.allow_v8_intrinsics = v;
     }
-    if let Some(v) = o.enable_ident_hashes {
-      opts.enable_ident_hashes = v;
-    }
   }
   opts
 }
@@ -95,10 +88,6 @@ fn estree_to_value<T: ESTree>(node: &T) -> NapiResult<Value> {
 }
 
 /// Convert oxc parse diagnostics into human-readable strings.
-///
-/// Generic over the diagnostic type (which we don't name here to avoid
-/// depending on where `oxc` re-exports `Diagnostic` from); it only needs to be
-/// `ToString` (i.e. `Display`).
 fn diagnostics_to_strings<'a, D: ToString + 'a>(
   diagnostics: impl IntoIterator<Item = &'a D>,
 ) -> Vec<String> {
@@ -106,35 +95,17 @@ fn diagnostics_to_strings<'a, D: ToString + 'a>(
 }
 
 /// NAPI wrapper around [`oxc_parser::Parser`].
-///
-/// Construct it with the source text (and, optionally, a path / extension used
-/// to infer the language), then call [`Parser::parser`] to parse a full program
-/// or [`Parser::parse_expression`] to parse a single expression.
 #[napi]
 pub struct Parser {
-  /// Memory arena for AST nodes. Owned so the borrow in `parser` / `parse_expression`
-  /// is self-contained and never escapes.
   allocator: Allocator,
-  /// Source text. Owned; we hand `&self.source_text` to `oxc_parser::Parser::new`.
   source_text: String,
-  /// Language / module-kind of the source.
   source_type: SourceType,
 }
 
 #[napi]
 impl Parser {
-  /// Create a parser for `source_text`.
-  ///
-  /// `source_type` is an optional file path or bare extension used to infer the
-  /// language and module system (e.g. `"src/app.tsx"`, `"module.mjs"`, `"ts"`,
-  /// `"tsx"`). When omitted, JavaScript-as-ESM (`SourceType::default()`) is
-  /// assumed.
   #[napi(constructor)]
   pub fn new(source_text: String, source_type: Option<String>) -> Self {
-    // `source_type` is optional; infer it from a path or bare extension, and
-    // fall back to JavaScript-as-ESM (`SourceType::default()`) when omitted or
-    // unrecognized. A napi constructor returns `Self` directly (not `Result`),
-    // so this inference is deliberately infallible.
     let source_type = source_type
       .as_deref()
       .and_then(|s| SourceType::from_path(s).or_else(|_| SourceType::from_extension(s)).ok())
@@ -146,16 +117,6 @@ impl Parser {
     }
   }
 
-  /// Parse the source into a `Program` (ESTree JSON).
-  ///
-  /// Recoverable syntax errors are collected in `errors`; on a fatal error oxc
-  /// returns an empty `program` with `errors` populated and `fatalError: true`.
-  /// `options` (if given) is forwarded to `oxc_parser::Parser::with_options`.
-  ///
-  /// Returns:
-  /// ```ts
-  /// { program: unknown, errors: string[], fatalError: boolean, isFlowLanguage: boolean }
-  /// ```
   #[napi]
   pub fn parser(&self, options: Option<ParseOptions>) -> NapiResult<Value> {
     let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
@@ -167,16 +128,11 @@ impl Parser {
     Ok(json!({
       "program": program,
       "errors": errors,
-      "fatalError": ret.fatal_error,
+      "fatalError": ret.panicked,
       "isFlowLanguage": ret.is_flow_language,
     }))
   }
 
-  /// Parse a single `Expression` (ESTree JSON).
-  ///
-  /// Unlike [`Parser::parser`], a syntax error here is a hard failure: the method
-  /// throws (with the diagnostic messages joined) rather than returning an
-  /// `errors` array.
   #[napi(js_name = "parse_expression")]
   pub fn parse_expression(&self, env: &napi::Env, options: Option<ParseOptions>) -> NapiResult<Value> {
     let ret = OxcParser::new(&self.allocator, &self.source_text, self.source_type)
