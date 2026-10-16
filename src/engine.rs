@@ -234,6 +234,23 @@ impl Engine {
     }
   }
 
+  /// Execute first pending job in QuickJS engine
+  #[napi(js_name = "execute_pending_job")]
+  pub fn execute_pending_job(&self) -> Result<bool> {
+    if let Some(ref rt) = self.qjs_runtime {
+      rt.execute_pending_job()
+        .map_err(|e| Error::from_reason(e.to_string()))
+    } else {
+      Ok(false)
+    }
+  }
+
+  /// Alias for execute_pending_job in JS: engine.execPendingJob()
+  #[napi(js_name = "execPendingJob")]
+  pub fn exec_pending_job(&self) -> Result<bool> {
+    self.execute_pending_job()
+  }
+
   /// Get raw sys napi_env pointer
   pub fn raw(&self) -> sys::napi_env {
     self.env.raw()

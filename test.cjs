@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { add, Engine, Parser, Compiler, Context, Runtime, Resolver } = require('./dist/index.js');
+const { add, Engine, Parser, Compiler, Context, Resolver } = require('./dist/index.js');
 
 test('CJS require: add', () => {
   assert.strictEqual(add(2, 3), 5);
@@ -19,6 +19,14 @@ test('CJS require: Engine error handling', () => {
   });
   assert.throws(() => engine.throw_range_error('range error', 'ERR_RANGE'), RangeError);
   assert.throws(() => engine.throw_type_error('type error', 'ERR_TYPE'), TypeError);
+});
+
+test('CJS require: Engine QuickJS settings & execPendingJob', () => {
+  const engine = new Engine();
+  engine.set_memory_limit(1024 * 1024);
+  engine.run_gc();
+  assert.strictEqual(engine.is_job_pending(), false);
+  assert.strictEqual(engine.execPendingJob(), false);
 });
 
 test('CJS require: Parser', () => {
@@ -47,13 +55,6 @@ test('CJS require: Context eval', () => {
   const ctx = new Context();
   const res = ctx.eval('1 + 2');
   assert.strictEqual(res, '3');
-});
-
-test('CJS require: Runtime settings', () => {
-  const rt = new Runtime();
-  rt.set_memory_limit(1024 * 1024);
-  rt.run_gc();
-  assert.strictEqual(rt.is_job_pending(), false);
 });
 
 test('CJS require: Resolver resolve', () => {

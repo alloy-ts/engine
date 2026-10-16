@@ -6,17 +6,16 @@
  *
  *   - `add`      — `src/lib.rs`
  *   - `Parser`   — `src/parser.rs`
- *   - `Engine`   — `src/engine.rs`  (JS class wrapping the N-API context)
+ *   - `Engine`   — `src/engine.rs`  (JS class wrapping the N-API context & QuickJS engine)
  *   - `Compiler` — `src/compiler.rs`
  *   - `Context`  — `src/context.rs`
- *   - `Runtime`  — `src/runtime.rs`
  *
  * napi-rs exposes methods under their Rust (snake_case) name unless a
  * `js_name` override is set, so these tests call `create_array`, `has_global`,
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Compiler, Context, Engine, Parser, Runtime } from "./main.ts";
+import { add, Compiler, Context, Engine, Parser } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -114,18 +113,6 @@ describe("napi: Context", () => {
   });
 });
 
-describe("napi: Runtime", () => {
-  test("constructs QuickJS runtime and configures settings", () => {
-    const rt = new Runtime();
-    expect(rt).toBeDefined();
-    rt.set_memory_limit(1024 * 1024);
-    rt.set_max_stack_size(256 * 1024);
-    rt.set_gc_threshold(512 * 1024);
-    expect(rt.is_job_pending()).toBe(false);
-    rt.run_gc();
-  });
-});
-
 describe("napi: Engine", () => {
   test("constructs without arguments (context injected by NAPI)", () => {
     const engine = new Engine();
@@ -196,5 +183,16 @@ describe("napi: Engine", () => {
   test("throw_type_error throws TypeError", () => {
     const engine = new Engine();
     expect(() => engine.throw_type_error("invalid type", "ERR_TYPE")).toThrow(TypeError);
+  });
+
+  test("configures QuickJS engine settings and executes pending jobs", () => {
+    const engine = new Engine();
+    engine.set_memory_limit(1024 * 1024);
+    engine.set_max_stack_size(256 * 1024);
+    engine.set_gc_threshold(512 * 1024);
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+    engine.run_gc();
   });
 });
