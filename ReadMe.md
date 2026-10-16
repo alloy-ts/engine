@@ -18,29 +18,29 @@ Both facets are methods on the same `Engine`. There is one constructor,
 `new Engine(loader?)`, which simultaneously captures the host `Env` and creates
 the embedded QuickJS runtime (optionally seeded with a `Loader`).
 
-The other bindings are `add` (a plain function), `Parser` (oxc-backed), and the
+The other bindings are `add` (a plain function), `Parser`, `Compiler` (oxc-backed), and the
 companion classes `Context`, `WeakEngine`, `Loader`, and `Global`.
 
 ## Layout
 
-| Path             | Role                                                                 |
-| ---------------- | -------------------------------------------------------------------- |
-| `src/lib.rs`     | Crate root: module declarations and the `add` binding                 |
-| `src/parser.rs`  | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)         |
-| `src/engine.rs`  | `Engine` / `WeakEngine` — embedded QuickJS **and** host N-API env     |
-| `src/context.rs` | `Context` — a single embedded QuickJS realm                            |
-| `src/loader.rs`  | `Loader` — host-provided QuickJS module loader/resolver               |
-| `src/global.rs`  | `Global` — host N-API environment introspection helpers               |
-| `src/main.ts`    | vite-plus pack entry; re-exports the native bindings                  |
-| `src/*.test.ts`  | Unit tests (run by `vp test`)                                        |
-| `build.ts`       | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`         |
-| `vite.config.ts` | `pack` / `test` / `lint` / `fmt` configuration                       |
-| `Cargo.toml`     | Rust crate `alloy-engine-native` (`cdylib`)                          |
+| Path              | Role                                                              |
+| ----------------- | ----------------------------------------------------------------- |
+| `src/lib.rs`      | Crate root: module declarations and the `add` binding             |
+| `src/parser.rs`   | `Parser` — NAPI wrapper around `oxc_parser` (ESTree JSON out)     |
+| `src/compiler.rs` | `Compiler` — NAPI wrapper around oxc compiler                     |
+| `src/engine.rs`   | `Engine` / `WeakEngine` — embedded QuickJS **and** host N-API env |
+| `src/context.rs`  | `Context` — a single embedded QuickJS realm                       |
+| `src/loader.rs`   | `Loader` — host-provided QuickJS module loader/resolver           |
+| `src/global.rs`   | `Global` — host N-API environment introspection helpers           |
+| `src/main.ts`     | vite-plus pack entry; re-exports the native bindings              |
+| `src/*.test.ts`   | Unit tests (run by `vp test`)                                     |
+| `build.ts`        | Drives `@napi-rs/cli` to build the `.node` addon into `dist/`     |
+| `vite.config.ts`  | `pack` / `test` / `lint` / `fmt` configuration                    |
+| `Cargo.toml`      | Rust crate `alloy-engine-native` (`cdylib`)                       |
 
 ## NAPI surface
 
-napi-rs exposes methods under their Rust (`snake_case`) name unless a `js_name`
-override is set, so the JS API mirrors the Rust names below.
+`Engine` methods support both standard JS camelCase naming (`execPendingJob`, `createContext`, `isJobPending`, `memoryUsage`, etc.) and `snake_case` naming (`execute_pending_job`, `create_context`, `is_job_pending`, `memory_usage`, etc.).
 
 ### `add(left: number, right: number) -> number`
 
@@ -83,7 +83,7 @@ construction. JS constructs it with an optional `Loader`:
 ```ts
 import { Engine } from "@alloy-ts/engine";
 
-const engine = new Engine();      // or: new Engine(loader)
+const engine = new Engine(); // or: new Engine(loader)
 ```
 
 #### Facet A — embedded QuickJS runtime
@@ -108,76 +108,80 @@ const loader = new Loader();
 loader.add("math", "export const add = (a, b) => a + b;");
 
 const engine = new Engine(loader);
-const ctx = engine.create_context();
+const ctx = engine.createContext(); // or engine.create_context()
 ctx.eval_module('import { add } from "math"; globalThis.sum = add(2, 3);');
 ctx.eval("globalThis.sum"); // 5
 
 // Tuning & introspection:
-engine.set_memory_limit(1 << 20);
-engine.set_max_stack_size(256 * 1024);
-engine.set_gc_threshold(10);
-engine.set_info("demo");
-engine.memory_usage();           // runtime memory stats
-engine.run_gc();                 // force a garbage-collection sweep
+engine.setMemoryLimit(1 << 20);
+engine.setMaxStackSize(256 * 1024);
+engine.setGcThreshold(10);
+engine.setInfo("demo");
+engine.memoryUsage(); // runtime memory stats
+engine.runGc(); // force a garbage-collection sweep
 
 // Promise / microtask jobs queue on the engine; drain them explicitly:
-if (engine.is_job_pending()) {
-  while (engine.execute_pending_job()) { /* run queued jobs */ }
+if (engine.isJobPending()) {
+  while (engine.execPendingJob()) {
+    /* run queued jobs */
+  }
 }
 
 // A weak handle that does NOT keep the engine alive:
-const weak = engine.weak();       // -> WeakEngine
-const strong = weak.try_ref();    // -> Engine | null (null once freed)
+const weak = engine.weak(); // -> WeakEngine
+const strong = weak.tryRef(); // -> Engine | null (or weak.try_ref())
 ```
 
-Runtime methods: `set_loader`, `create_context`, `weak` (→ `WeakEngine`),
-`set_memory_limit`, `set_max_stack_size`, `set_gc_threshold`, `set_info`,
-`run_gc`, `memory_usage`, `is_job_pending`, `execute_pending_job`.
+Runtime methods: `setLoader` / `set_loader`, `createContext` / `create_context`, `weak` (→ `WeakEngine`),
+`setMemoryLimit` / `set_memory_limit`, `setMaxStackSize` / `set_max_stack_size`, `setGcThreshold` / `set_gc_threshold`,
+`setInfo` / `set_info`, `runGc` / `run_gc`, `memoryUsage` / `memory_usage`, `isJobPending` / `is_job_pending`,
+`execPendingJob` / `executePendingJob` / `execute_pending_job`.
 
 A few real QuickJS semantics worth knowing:
 
 - Contexts created from one engine are **separate realms** — they share the
   engine, but each has its own `globalThis`. A global set on one context is not
   visible on another.
-- A thrown **promise reaction** becomes an *unhandled rejection* (the job itself
-  succeeds, so `execute_pending_job` does **not** throw). A **`queueMicrotask`**
-  job that throws **does** propagate out of `execute_pending_job`.
+- A thrown **promise reaction** becomes an _unhandled rejection_ (the job itself
+  succeeds, so `execPendingJob` / `execute_pending_job` does **not** throw). A **`queueMicrotask`**
+  job that throws **does** propagate out of `execPendingJob`.
 
 #### Facet B — host N-API environment
 
 These methods operate on the host (`napi::Env`) captured at construction, so JS
-can build and inspect values in the *host* realm (Node's V8) and persist
+can build and inspect values in the _host_ realm (Node's V8) and persist
 host-level state on the Agent.
 
 ```ts
 import { Engine } from "@alloy-ts/engine";
 
 const engine = new Engine();
-engine.create_string("hello"); // "hello"
-engine.create_int32(42);       // 42
-engine.create_double(1.5);     // 1.5
-engine.create_array(3);        // [ <3 empty items> ]
-engine.has_global("Math");     // true (host global)
-engine.get_napi_version();     // host N-API version, e.g. 9
+engine.createString("hello"); // "hello"
+engine.createInt32(42); // 42
+engine.createDouble(1.5); // 1.5
+engine.createArray(3); // [ <3 empty items> ]
+engine.hasGlobal("Math"); // true (host global)
+engine.getNapiVersion(); // host N-API version, e.g. 9
 
-const obj = engine.make_object(); // { ok: true, engine: "napi" }
+const obj = engine.makeObject(); // { ok: true, engine: "napi" }
 
-engine.set_instance_data("vm-state");
-engine.get_instance_data();    // "vm-state"
+engine.setInstanceData("vm-state");
+engine.getInstanceData(); // "vm-state"
 
-engine.is_disposed();         // false while the addon is loaded
+engine.isDisposed(); // false while the addon is loaded
 ```
 
-Host methods: `is_disposed`, `create_array`, `create_string`, `create_int32`,
-`create_double`, `has_global`, `get_napi_version`, `make_object`,
-`set_instance_data`, `get_instance_data`.
+Host methods: `isDisposed` / `is_disposed`, `createArray` / `create_array`, `createString` / `create_string`,
+`createInt32` / `create_int32`, `createDouble` / `create_double`, `hasGlobal` / `has_global`,
+`getNapiVersion` / `get_napi_version`, `makeObject` / `make_object`, `setInstanceData` / `set_instance_data`,
+`getInstanceData` / `get_instance_data`.
 
 #### Using both facets together
 
-The two facets run in *separate* realms: the host `napi::Env` is Node's V8,
-while `create_context()` spins up a QuickJS realm — so values are not shared by
+The two facets run in _separate_ realms: the host `napi::Env` is Node's V8,
+while `createContext()` spins up a QuickJS realm — so values are not shared by
 reference. The bridge between them is **JSON marshalling**: `Context.eval` /
-`eval_module` serialize their QuickJS result into a plain *host* value you can
+`eval_module` serialize their QuickJS result into a plain _host_ value you can
 use directly in Node.
 
 ```ts
@@ -186,17 +190,19 @@ import { Engine } from "@alloy-ts/engine";
 const engine = new Engine();
 
 // Facet A — compute inside QuickJS; the result comes back as a host value.
-const ctx = engine.create_context();
+const ctx = engine.createContext();
 const out = ctx.eval("Array.from({ length: 3 }, (_, i) => i * 2)"); // [0, 2, 4]
-while (engine.execute_pending_job()) { /* drain any queued jobs */ }
+while (engine.execPendingJob()) {
+  /* drain any queued jobs */
+}
 
 // Facet B — reflect into the host environment and persist host-level state.
-engine.set_instance_data(JSON.stringify(out)); // "[0,2,4]"
-engine.has_global("Map");                      // true (host global)
+engine.setInstanceData(JSON.stringify(out)); // "[0,2,4]"
+engine.hasGlobal("Map"); // true (host global)
 
 // You can also build host values explicitly; they live in Node's V8, not QuickJS.
-const hostArr = engine.create_array(3);  // [ <3 empty items> ]
-const hostObj = engine.make_object();    // { ok: true, engine: "napi" }
+const hostArr = engine.createArray(3); // [ <3 empty items> ]
+const hostObj = engine.makeObject(); // { ok: true, engine: "napi" }
 ```
 
 #### The N-API context contract
@@ -217,16 +223,16 @@ state. `Engine` follows its rules:
 ### `Context`
 
 An embedded QuickJS realm. Either created standalone (`new Context()` — it
-spins up its own private engine) or via `engine.create_context()`. Evaluate
+spins up its own private engine) or via `engine.create_context()` / `engine.createContext()`. Evaluate
 code with `eval` / `eval_module` and enumerate globals with `global_keys`.
 
 ```ts
 import { Context } from "@alloy-ts/engine";
 
 const ctx = new Context();
-ctx.eval("1 + 1");                  // 2
+ctx.eval("1 + 1"); // 2
 ctx.eval_module("export const x = 5;"); // { x: 5 }
-ctx.global_keys();                 // string[]
+ctx.global_keys(); // string[]
 ```
 
 `Context` methods: `eval`, `eval_module`, `global_keys`, `run_gc`,
@@ -235,7 +241,7 @@ ctx.global_keys();                 // string[]
 ### `Loader`
 
 A host-provided QuickJS module loader/resolver: register module source text and
-hand the `Loader` to `new Engine(loader)` (or `engine.set_loader(loader)`).
+hand the `Loader` to `new Engine(loader)` (or `engine.setLoader(loader)`).
 Modules become importable from any context created by that engine.
 
 ```ts
@@ -243,17 +249,17 @@ import { Loader, Engine } from "@alloy-ts/engine";
 
 const loader = new Loader();
 loader.add("math", "export const add = (a, b) => a + b;");
-loader.has("math");  // true
-loader.keys();       // ["math"]
+loader.has("math"); // true
+loader.keys(); // ["math"]
 
 const engine = new Engine(loader);
-const ctx = engine.create_context();
+const ctx = engine.createContext();
 ctx.eval_module('import { add } from "math"; globalThis.sum = add(2, 3);');
 ```
 
 `Loader` methods: `add`, `remove`, `has`, `keys`, `clear`.
 
-> Note: rquickjs calls `Loader::load` *synchronously* mid-evaluation and needs a
+> Note: rquickjs calls `Loader::load` _synchronously_ mid-evaluation and needs a
 > compiled module back inline, so the loader is host-driven (JS pre-registers
 > sources) rather than a per-import JS callback.
 
@@ -265,8 +271,8 @@ Host N-API environment introspection helpers for the host global object.
 import { Global } from "@alloy-ts/engine";
 
 const g = new Global();
-g.has("Math");              // true
-g.stringify({ a: 1 });      // '{"a":1}'
+g.has("Math"); // true
+g.stringify({ a: 1 }); // '{"a":1}'
 const id = g.setTimeout(() => {}, 10);
 g.clearTimeout(id);
 ```
@@ -334,7 +340,7 @@ npm run check
 ## Known gaps
 
 - `eval_module` returns the module **namespace** serialized to JSON, so exported
-  *functions* collapse to `null` (they are not JSON-representable). Exported
+  _functions_ collapse to `null` (they are not JSON-representable). Exported
   data (`const`/`let` values, arrays, objects) is preserved. If you need to call
   an exported function, evaluate an expression in the context that invokes it.
 - The `Loader` is host-driven (pre-registered source map) rather than a
