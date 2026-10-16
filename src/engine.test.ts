@@ -174,6 +174,31 @@ describe("napi: Engine", () => {
     expect(ctx.eval("21 * 2")).toBe(42);
   });
 
+  test("execPendingJob and execute_pending_job work after new Engine()", () => {
+    const engine = new Engine();
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+  });
+
+  test("supports N-API Env methods (create_array, create_string, make_object, etc.)", () => {
+    const engine = new Engine();
+    expect(engine.is_disposed()).toBe(false);
+    expect(Array.isArray(engine.create_array(3))).toBe(true);
+    expect(engine.create_string("hello")).toBe("hello");
+    expect(engine.create_int32(42)).toBe(42);
+    expect(engine.create_double(3.14)).toBe(3.14);
+    expect(engine.has_global("Math")).toBe(true);
+    expect(engine.get_napi_version()).toBeGreaterThan(0);
+
+    const obj = engine.make_object() as { ok: boolean; engine: string };
+    expect(obj.ok).toBe(true);
+    expect(obj.engine).toBe("napi");
+
+    engine.set_instance_data("state");
+    expect(engine.get_instance_data()).toBe("state");
+  });
+
   test("supports Loader when instantiated", () => {
     const loader = new Loader();
     loader.add("util", "export const msg = 'hello';");

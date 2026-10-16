@@ -24,7 +24,7 @@ The addon exposes high-level NAPI bindings for QuickJS (`Engine`, `Context`, `Lo
 
 ### `Engine`
 
-Wraps a QuickJS `Runtime`. Can be constructed directly or with an optional module `Loader`.
+Wraps both the host N-API context (`napi::Env`) and an embedded QuickJS `Runtime`. Can be constructed directly or with an optional module `Loader`.
 
 ```ts
 import { Engine, Loader } from "@alloy-ts/engine";
@@ -37,11 +37,20 @@ const ctx = engine.create_context();
 const res = ctx.eval_module('import { add } from "math"; export const sum = add(2, 3);');
 // { sum: 5 }
 
+// QuickJS Runtime methods
 engine.set_memory_limit(1024 * 1024);
 engine.run_gc();
+engine.execPendingJob();
+
+// N-API Env methods
+engine.create_string("hello");
+engine.create_array(3);
+engine.has_global("Math");
 ```
 
-Available methods: `create_context()`, `set_loader(loader)`, `weak()`, `set_memory_limit(limit)`, `set_max_stack_size(limit)`, `set_gc_threshold(threshold)`, `set_info(info)`, `run_gc()`, `memory_usage()`, `is_job_pending()`, `execute_pending_job()`.
+Available QuickJS Runtime methods: `create_context()`, `set_loader(loader)`, `weak()`, `set_memory_limit(limit)`, `set_max_stack_size(limit)`, `set_gc_threshold(threshold)`, `set_info(info)`, `run_gc()`, `memory_usage()`, `is_job_pending()`, `execute_pending_job()`, `execPendingJob()`.
+
+Available N-API Env methods: `is_disposed()`, `create_array(len)`, `create_string(val)`, `create_int32(val)`, `create_double(val)`, `has_global(name)`, `get_napi_version()`, `make_object()`, `set_instance_data(data)`, `get_instance_data()`.
 
 ### `Context`
 
