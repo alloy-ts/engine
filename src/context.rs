@@ -2,7 +2,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rquickjs::{Context as QuickContext, Value as QuickValue};
 
-use crate::runtime::Runtime;
+use crate::engine::Engine;
 
 /// NAPI wrapper around `rquickjs::Context`.
 ///
@@ -16,21 +16,21 @@ pub struct Context {
 impl Context {
   /// Creates a context with all standard available intrinsics registered.
   #[napi(factory)]
-  pub fn full(runtime: &Runtime) -> Result<Self> {
-    let inner = QuickContext::full(&runtime.inner)
+  pub fn full(engine: &Engine) -> Result<Self> {
+    let inner = QuickContext::full(&engine.inner)
       .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to create full context: {e}")))?;
     Ok(Self { inner })
   }
 
   /// Creates a base context with only the required functions registered.
   #[napi(factory)]
-  pub fn base(runtime: &Runtime) -> Result<Self> {
-    let inner = QuickContext::base(&runtime.inner)
+  pub fn base(engine: &Engine) -> Result<Self> {
+    let inner = QuickContext::base(&engine.inner)
       .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to create base context: {e}")))?;
     Ok(Self { inner })
   }
 
-  /// Evaluate JavaScript code within this context and return the result as a JSON string or primitive.
+  /// Evaluate JavaScript code within this context and return the result.
   #[napi]
   pub fn eval(&self, code: String) -> Result<String> {
     self.inner.with(|ctx| {

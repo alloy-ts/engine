@@ -6,14 +6,10 @@
  *
  *   - `add`      — `src/lib.rs`
  *   - `Parser`   — `src/parser.rs`
- *   - `Engine` / `JsEngine` — `src/engine.rs` (JS class wrapping the N-API context)
- *
- * napi-rs exposes methods under their Rust (snake_case) name unless a
- * `js_name` override is set, so these tests call `create_array`, `has_global`,
- * … rather than camelCase equivalents.
+ *   - `Engine` / `JsEngine` — `src/engine.rs` (JS class wrapping the QuickJS runtime)
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, JsEngine, Parser } from "./main.ts";
+import { add, Context, Engine, JsEngine, Parser } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -103,54 +99,29 @@ describe("napi: Engine & JsEngine", () => {
     expect(JsEngine).toBe(Engine);
   });
 
-  test("create_array allocates a JS array of the requested length", () => {
+  test("allows configuring engine info, memory limit, stack size, and gc threshold", () => {
     const engine = new JsEngine();
-    const arr = engine.create_array(3) as unknown[];
-    expect(Array.isArray(arr)).toBe(true);
-    expect(arr.length).toBe(3);
+    expect(() => engine.set_info("test-engine")).not.toThrow();
+    expect(() => engine.set_memory_limit(1024 * 1024)).not.toThrow();
+    expect(() => engine.set_max_stack_size(256 * 1024)).not.toThrow();
+    expect(() => engine.set_gc_threshold(64 * 1024)).not.toThrow();
   });
 
-  test("create_string / create_int32 / create_double build JS values", () => {
+  test("run_gc executes garbage collection cycle without error", () => {
     const engine = new JsEngine();
-    expect(engine.create_string("hello")).toBe("hello");
-    expect(engine.create_int32(42)).toBe(42);
-    expect(engine.create_double(1.5)).toBe(1.5);
+    expect(() => engine.run_gc()).not.toThrow();
   });
 
-  test("has_global reads the global object through the context", () => {
+  test("is_job_pending and execute_pending_job / execPendingJob", () => {
     const engine = new JsEngine();
-    expect(engine.has_global("Math")).toBe(true);
-    expect(engine.has_global("definitelyNotAGlobal")).toBe(false);
+    expect(engine.is_job_pending()).toBe(false);
+    expect(engine.execute_pending_job()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
   });
 
-  test("get_napi_version reports the host N-API version", () => {
+  test("creates Context instances bound to the Engine", () => {
     const engine = new JsEngine();
-    expect(engine.get_napi_version()).toBeGreaterThan(0);
-  });
-
-  test("make_object builds a JS object via the context", () => {
-    const engine = new JsEngine();
-    const obj = engine.make_object() as { ok: boolean; engine: string };
-    expect(obj.ok).toBe(true);
-    expect(obj.engine).toBe("napi");
-  });
-
-  test("set_instance_data persists VM-specific state on the Agent", () => {
-    const engine = new JsEngine();
-    engine.set_instance_data("vm-state");
-    expect(engine.get_instance_data()).toBe("vm-state");
-  });
-
-  test("is_disposed is false while the addon is loaded", () => {
-    const engine = new JsEngine();
-    expect(engine.is_disposed()).toBe(false);
-  });
-
-  test("each instance captures its own context handle", () => {
-    const a = new JsEngine();
-    const b = new JsEngine();
-    // Two engines must not alias the same context; both are independently live.
-    expect(a.is_disposed()).toBe(false);
-    expect(b.is_disposed()).toBe(false);
+    expect(() => Context.full(engine)).not.toThrow();
+    expect(() => Context.base(engine)).not.toThrow();
   });
 });
