@@ -83,6 +83,11 @@ impl JsContext {
         JsContext { inner }
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn inner(&self) -> &QjsContext {
+        &self.inner
+    }
+
     /// Evaluate `source` as a global script and return the result as a JS value.
     ///
     /// Runs in QuickJS strict mode. Throws (as a JS exception) if the script

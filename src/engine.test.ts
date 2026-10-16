@@ -13,7 +13,7 @@
  * … rather than camelCase equivalents.
  */
 import { describe, expect, test } from "vite-plus/test";
-import { add, Engine, Parser } from "./main.ts";
+import { add, Context, Engine, Loader, Parser, Runtime } from "./main.ts";
 
 describe("napi: add", () => {
   test("adds two positive integers", () => {
@@ -146,5 +146,77 @@ describe("napi: Engine", () => {
     // Two engines must not alias the same context; both are independently live.
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
+  });
+});
+
+describe("napi: Context", () => {
+  test("eval evaluates JS expression", () => {
+    const ctx = new Context();
+    expect(ctx.eval("1 + 2")).toBe(3);
+    expect(ctx.eval("'hello' + ' world'")).toBe("hello world");
+  });
+
+  test("eval_module evaluates ES module", () => {
+    const ctx = new Context();
+    const ns = ctx.eval_module("export const val = 100;") as { val: number };
+    expect(ns.val).toBe(100);
+  });
+
+  test("json_parse parses JSON string inside engine", () => {
+    const ctx = new Context();
+    const obj = ctx.json_parse('{"a": 10, "b": "test"}') as { a: number; b: string };
+    expect(obj.a).toBe(10);
+    expect(obj.b).toBe("test");
+  });
+
+  test("global_keys returns keys of global object", () => {
+    const ctx = new Context();
+    ctx.eval("this.foo = 42;");
+    const keys = ctx.global_keys();
+    expect(Array.isArray(keys)).toBe(true);
+    expect(keys.includes("foo")).toBe(true);
+  });
+
+  test("catch handles thrown exceptions", () => {
+    const ctx = new Context();
+    expect(() => ctx.eval("throw new Error('boom')")).toThrow();
+    expect(ctx.has_exception()).toBe(true);
+    const caught = ctx.catch();
+    expect(caught).toBeDefined();
+    expect(ctx.has_exception()).toBe(false);
+  });
+});
+
+describe("napi: Runtime & Loader", () => {
+  test("Runtime memory limits and stats", () => {
+    const rt = new Runtime(undefined);
+    rt.set_memory_limit(1024 * 1024 * 10);
+    rt.set_max_stack_size(256 * 1024);
+    rt.set_gc_threshold(128 * 1024);
+    rt.set_info("test runtime");
+    rt.run_gc();
+
+    const mem = rt.memory_usage() as { malloc_limit: number };
+    expect(mem).toBeDefined();
+    expect(typeof mem.malloc_limit).toBe("number");
+  });
+
+  test("WeakRuntime try_ref", () => {
+    const rt = new Runtime(undefined);
+    const weak = rt.weak();
+    const ref = weak.try_ref();
+    expect(ref).toBeDefined();
+  });
+
+  test("Loader registers and resolves modules", () => {
+    const loader = new Loader();
+    loader.add("math", "export const multiply = (a, b) => a * b;");
+    expect(loader.has("math")).toBe(true);
+    expect(loader.keys()).toEqual(["math"]);
+
+    const rt = new Runtime(loader);
+    const ctx = rt.create_context();
+    const ns = ctx.eval_module('import { multiply } from "math"; export const res = multiply(6, 7);') as { res: number };
+    expect(ns.res).toBe(42);
   });
 });
