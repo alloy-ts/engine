@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { Context, JSContext, Runtime } from "./main.ts";
+import { Context, Engine, JSContext, Runtime } from "./main.ts";
 
 describe("napi: Runtime & Context bindings", () => {
   test("creates a Runtime and Configures limits", () => {
@@ -19,14 +19,21 @@ describe("napi: Runtime & Context bindings", () => {
 
   test("creates Context with full and base constructors", () => {
     const rt = new Runtime();
-    const ctxFull = Context.full(rt);
+    const ctxFull = Context.full(undefined, rt);
     expect(ctxFull).toBeDefined();
 
-    const ctxBase = Context.base(rt);
+    const ctxBase = Context.base(undefined, rt);
     expect(ctxBase).toBeDefined();
 
     const defaultCtx = new Context();
     expect(defaultCtx).toBeDefined();
+  });
+
+  test("creates Context with an Engine instance", () => {
+    const engine = new Engine();
+    const ctx = Context.full(engine);
+    expect(ctx).toBeDefined();
+    expect(ctx.eval("10 * 10")).toBe(100);
   });
 
   test("JSContext alias is identical to Context", () => {

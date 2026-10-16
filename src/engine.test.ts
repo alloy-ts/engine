@@ -147,4 +147,17 @@ describe("napi: Engine", () => {
     expect(a.is_disposed()).toBe(false);
     expect(b.is_disposed()).toBe(false);
   });
+
+  test("configures runtime limits and checks memory usage", () => {
+    const engine = new Engine();
+    engine.set_info("engine-runtime");
+    engine.set_memory_limit(1024 * 1024);
+    engine.set_max_stack_size(256 * 1024);
+    engine.set_gc_threshold(1000);
+    engine.run_gc();
+
+    const mem = engine.memory_usage();
+    expect(mem).toBeDefined();
+    expect(mem.malloc_size).toBeGreaterThanOrEqual(0);
+  });
 });

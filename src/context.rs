@@ -6,6 +6,7 @@ use napi_derive::napi;
 
 use rquickjs::context::EvalOptions as QuickJsEvalOptions;
 
+use crate::engine::JsEngine;
 use crate::runtime::JsRuntime;
 
 /// Convert a QuickJS `Value` into a `serde_json::Value`.
@@ -85,16 +86,18 @@ pub struct JsContext {
 
 #[napi]
 impl JsContext {
-  /// Create a full context associated with the given runtime (or a new runtime if omitted).
+  /// Create a full context associated with the given engine or runtime (or a new runtime if omitted).
   #[napi(constructor)]
-  pub fn new(runtime: Option<&JsRuntime>) -> Result<Self> {
-    Self::full(runtime)
+  pub fn new(engine: Option<&JsEngine>, runtime: Option<&JsRuntime>) -> Result<Self> {
+    Self::full(engine, runtime)
   }
 
   /// Create a base context with minimum registered intrinsics.
   #[napi(factory, js_name = "base")]
-  pub fn base(runtime: Option<&JsRuntime>) -> Result<Self> {
-    let ctx = if let Some(rt) = runtime {
+  pub fn base(engine: Option<&JsEngine>, runtime: Option<&JsRuntime>) -> Result<Self> {
+    let ctx = if let Some(e) = engine {
+      rquickjs::Context::base(&e.qjs_runtime)
+    } else if let Some(rt) = runtime {
       rquickjs::Context::base(&rt.inner)
     } else {
       let rt = rquickjs::Runtime::new().map_err(|e| Error::from_reason(e.to_string()))?;
@@ -107,8 +110,10 @@ impl JsContext {
 
   /// Create a context with all standard intrinsics registered.
   #[napi(factory, js_name = "full")]
-  pub fn full(runtime: Option<&JsRuntime>) -> Result<Self> {
-    let ctx = if let Some(rt) = runtime {
+  pub fn full(engine: Option<&JsEngine>, runtime: Option<&JsRuntime>) -> Result<Self> {
+    let ctx = if let Some(e) = engine {
+      rquickjs::Context::full(&e.qjs_runtime)
+    } else if let Some(rt) = runtime {
       rquickjs::Context::full(&rt.inner)
     } else {
       let rt = rquickjs::Runtime::new().map_err(|e| Error::from_reason(e.to_string()))?;
