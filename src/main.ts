@@ -8,7 +8,6 @@ export {
   Parser,
   add,
   Context,
-  Runtime,
   BuiltinResolver,
   BuiltinLoader,
   FileResolver,

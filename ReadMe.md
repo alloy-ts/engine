@@ -81,7 +81,9 @@ engine.isDisposed(); // false while the addon is loaded
 
 Available methods: `isDisposed`, `createArray`, `createString`,
 `createInt32`, `createDouble`, `hasGlobal`, `getNapiVersion`,
-`makeObject`, `setInstanceData`, `getInstanceData`.
+`makeObject`, `setInstanceData`, `getInstanceData`, `setInfo`,
+`setMemoryLimit`, `setMaxStackSize`, `setGcThreshold`, `setDumpFlags`,
+`runGc`, `isJobPending`, `execPendingJob`, `executePendingJob`.
 
 #### The N-API context contract
 

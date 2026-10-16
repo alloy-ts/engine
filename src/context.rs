@@ -4,7 +4,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rquickjs::Context;
 
-use crate::runtime::JsRuntime;
+use crate::engine::JsEngine;
 
 #[napi(js_name = "Context")]
 pub struct JsContext {
@@ -14,14 +14,14 @@ pub struct JsContext {
 #[napi]
 impl JsContext {
     #[napi(factory)]
-    pub fn full(runtime: &JsRuntime) -> Result<Self> {
-        let inner = Context::full(&runtime.inner).map_err(|e| Error::from_reason(e.to_string()))?;
+    pub fn full(engine: &JsEngine) -> Result<Self> {
+        let inner = Context::full(&engine.runtime).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(Self { inner })
     }
 
     #[napi(factory)]
-    pub fn base(runtime: &JsRuntime) -> Result<Self> {
-        let inner = Context::base(&runtime.inner).map_err(|e| Error::from_reason(e.to_string()))?;
+    pub fn base(engine: &JsEngine) -> Result<Self> {
+        let inner = Context::base(&engine.runtime).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(Self { inner })
     }
 

@@ -20,7 +20,6 @@ import {
   Engine,
   FileResolver,
   Parser,
-  Runtime,
   ScriptLoader,
 } from "./main.ts";
 
@@ -158,20 +157,21 @@ describe("napi: Engine", () => {
   });
 });
 
-describe("napi: QuickJS Runtime, Context, Loader", () => {
-  test("Runtime constructs and manages configuration/GC", () => {
-    const rt = new Runtime();
-    rt.setInfo("test-runtime");
-    rt.setMemoryLimit(1024 * 1024);
-    rt.setMaxStackSize(256 * 1024);
-    rt.setGcThreshold(64 * 1024);
-    rt.runGc();
-    expect(rt.isJobPending()).toBe(false);
+describe("napi: QuickJS Engine API & Context & Loader", () => {
+  test("Engine manages QuickJS runtime configuration and execPendingJob", () => {
+    const engine = new Engine();
+    engine.setInfo("test-engine");
+    engine.setMemoryLimit(1024 * 1024);
+    engine.setMaxStackSize(256 * 1024);
+    engine.setGcThreshold(64 * 1024);
+    engine.runGc();
+    expect(engine.isJobPending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
   });
 
-  test("Context creates full/base context and evaluates expressions", () => {
-    const rt = new Runtime();
-    const ctx = Context.full(rt);
+  test("Context creates full/base context from Engine and evaluates expressions", () => {
+    const engine = new Engine();
+    const ctx = Context.full(engine);
     const result = ctx.eval("1 + 2");
     expect(result).toBe("3");
   });
