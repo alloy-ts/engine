@@ -1,91 +1,22 @@
 //! Context and Ctx types and NAPI bindings.
 
-use std::any::Any;
-use std::ffi::CStr;
-use std::marker::PhantomData;
-use std::path::Path;
-use std::ptr::NonNull;
-use std::sync::{Arc, LazyLock};
-
-use napi::bindgen_prelude::{JsObjectValue, Object, ToNapiValue, Unknown};
+use napi::bindgen_prelude::{FromNapiValue, JsObjectValue, Object, ToNapiValue, Unknown};
 use napi::{Env, Result as NapiResult};
 use napi_derive::napi;
 
 use crate::runtime::{JSRuntime, Runtime};
 
-/// Raw QuickJS context handle.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct JSContext {
-  _private: [u8; 0],
-}
+pub use rquickjs::context::intrinsic;
+pub use rquickjs::context::ContextBuilder;
+pub use rquickjs::context::EvalOptions;
+pub use rquickjs::context::Intrinsic;
+pub use rquickjs::qjs::JSContext;
+pub use rquickjs::Ctx;
 
-unsafe impl Send for JSContext {}
-unsafe impl Sync for JSContext {}
-
-/// Intrinsic configuration trait.
-pub trait Intrinsic {
-  fn add_intrinsic(ctx: NonNull<JSContext>);
-}
-
-pub mod intrinsic {
-  use super::*;
-
-  pub struct None;
-  impl Intrinsic for None {
-    fn add_intrinsic(_ctx: NonNull<JSContext>) {}
-  }
-
-  pub struct Eval;
-  impl Intrinsic for Eval {
-    fn add_intrinsic(_ctx: NonNull<JSContext>) {}
-  }
-
-  pub struct Promise;
-  impl Intrinsic for Promise {
-    fn add_intrinsic(_ctx: NonNull<JSContext>) {}
-  }
-}
-
-/// A builder for creating a Context with specific intrinsics.
-#[derive(Debug, Clone)]
-pub struct ContextBuilder<I = ()> {
-  _marker: PhantomData<I>,
-}
-
-impl Default for ContextBuilder<()> {
-  fn default() -> Self {
-    Self {
-      _marker: PhantomData,
-    }
-  }
-}
-
-impl<I> ContextBuilder<I> {
-  pub fn new() -> Self {
-    Self {
-      _marker: PhantomData,
-    }
-  }
-
-  pub fn with<J>(self) -> ContextBuilder<(I, J)>
-  where
-    J: Intrinsic,
-  {
-    ContextBuilder {
-      _marker: PhantomData,
-    }
-  }
-
-  pub fn build(self, runtime: &Runtime) -> NapiResult<Context> {
-    Context::full(runtime)
-  }
-}
-
-/// Eval options.
+/// NAPI object for EvalOptions.
 #[napi(object)]
-#[derive(Debug, Clone)]
-pub struct EvalOptions {
+#[derive(Debug, Clone, Default)]
+pub struct JsEvalOptions {
   pub global: Option<bool>,
   pub strict: Option<bool>,
   pub backtrace_barrier: Option<bool>,
@@ -93,92 +24,77 @@ pub struct EvalOptions {
   pub filename: Option<String>,
 }
 
-impl EvalOptions {
-  pub fn to_flag(&self) -> i32 {
-    let mut flag = if self.global.unwrap_or(true) {
-      0 // JS_EVAL_TYPE_GLOBAL
-    } else {
-      1 // JS_EVAL_TYPE_MODULE
-    };
-
-    if self.strict.unwrap_or(true) {
-      flag |= 8; // JS_EVAL_FLAG_STRICT
-    }
-
-    if self.backtrace_barrier.unwrap_or(false) {
-      flag |= 16;
-    }
-
-    if self.promise.unwrap_or(false) {
-      flag |= 32;
-    }
-
-    flag
+impl From<JsEvalOptions> for EvalOptions {
+  fn from(opts: JsEvalOptions) -> Self {
+    let mut eval_opts = EvalOptions::default();
+    eval_opts.global = opts.global.unwrap_or(true);
+    eval_opts.strict = opts.strict.unwrap_or(true);
+    eval_opts.backtrace_barrier = opts.backtrace_barrier.unwrap_or(false);
+    eval_opts.promise = opts.promise.unwrap_or(false);
+    eval_opts.filename = opts.filename;
+    eval_opts
   }
 }
 
-impl Default for EvalOptions {
-  fn default() -> Self {
-    EvalOptions {
-      global: Some(true),
-      strict: Some(true),
-      backtrace_barrier: Some(false),
-      promise: Some(false),
-      filename: None,
-    }
-  }
+fn get_undefined<'env>(env: &'env Env) -> NapiResult<Unknown<'env>> {
+  let mut raw = std::ptr::null_mut();
+  napi::check_status!(
+    unsafe { napi::sys::napi_get_undefined(env.raw(), &mut raw) },
+    "Failed to get undefined"
+  )?;
+  unsafe { Unknown::from_napi_value(env.raw(), raw) }
 }
 
 /// A single execution context with its own global variables and stack.
 #[napi(js_name = "Context")]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Context {
-  pub(crate) ctx: NonNull<JSContext>,
+  pub(crate) inner: rquickjs::Context,
   pub(crate) runtime: Runtime,
-  pub(crate) userdata: Arc<std::sync::Mutex<Vec<Box<dyn Any + Send + Sync>>>>,
 }
 
 unsafe impl Send for Context {}
 unsafe impl Sync for Context {}
 
 impl Context {
-  /// Safety: pointer must point to a valid JSContext.
-  pub unsafe fn from_raw(ctx: NonNull<JSContext>, rt: Runtime) -> Self {
-    Self {
-      ctx,
-      runtime: rt,
-      userdata: Arc::new(std::sync::Mutex::new(Vec::new())),
-    }
+  pub unsafe fn from_raw(ctx: std::ptr::NonNull<JSContext>, rt: Runtime) -> Self {
+    let inner = unsafe { rquickjs::Context::from_raw(ctx, rt.inner.clone()) };
+    Self { inner, runtime: rt }
   }
 
-  pub fn as_raw(&self) -> NonNull<JSContext> {
-    self.ctx
+  pub fn as_raw(&self) -> std::ptr::NonNull<JSContext> {
+    self.inner.as_raw()
   }
 
   pub fn base(runtime: &Runtime) -> NapiResult<Self> {
-    Self::custom::<intrinsic::None>(runtime)
+    let inner = rquickjs::Context::base(&runtime.inner)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(Self {
+      inner,
+      runtime: runtime.clone(),
+    })
   }
 
   pub fn custom<I: Intrinsic>(runtime: &Runtime) -> NapiResult<Self> {
-    let ctx = NonNull::dangling();
-    I::add_intrinsic(ctx);
+    let inner = rquickjs::Context::custom::<I>(&runtime.inner)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(Self {
-      ctx,
+      inner,
       runtime: runtime.clone(),
-      userdata: Arc::new(std::sync::Mutex::new(Vec::new())),
     })
   }
 
   pub fn full(runtime: &Runtime) -> NapiResult<Self> {
+    let inner = rquickjs::Context::full(&runtime.inner)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(Self {
-      ctx: NonNull::dangling(),
+      inner,
       runtime: runtime.clone(),
-      userdata: Arc::new(std::sync::Mutex::new(Vec::new())),
     })
   }
 
   pub fn builder() -> ContextBuilder<()> {
-    ContextBuilder::default()
+    rquickjs::Context::builder()
   }
 
   pub fn runtime(&self) -> &Runtime {
@@ -186,19 +102,14 @@ impl Context {
   }
 
   pub fn get_runtime_ptr(&self) -> *mut JSRuntime {
-    self.runtime.as_raw_ptr()
+    self.inner.get_runtime_ptr()
   }
 
   pub fn with<F, R>(&self, f: F) -> R
   where
     F: FnOnce(Ctx<'_>) -> R,
   {
-    let ctx = Ctx {
-      ctx: self.ctx,
-      owner: self,
-      _marker: PhantomData,
-    };
-    f(ctx)
+    self.inner.with(f)
   }
 }
 
@@ -223,28 +134,81 @@ impl Context {
   }
 
   #[napi]
-  pub fn eval(&self, env: &Env, source: String) -> NapiResult<Unknown<'_>> {
-    env.run_script(&source)
+  pub fn eval<'env>(&self, env: &'env Env, source: String) -> NapiResult<Unknown<'env>> {
+    self.eval_internal(env, &source, EvalOptions::default())
   }
 
   #[napi]
-  pub fn eval_with_options(
+  pub fn eval_with_options<'env>(
     &self,
-    env: &Env,
+    env: &'env Env,
     source: String,
-    _options: Option<EvalOptions>,
-  ) -> NapiResult<Unknown<'_>> {
-    env.run_script(&source)
+    options: Option<JsEvalOptions>,
+  ) -> NapiResult<Unknown<'env>> {
+    let eval_opts: EvalOptions = options.map(Into::into).unwrap_or_default();
+    self.eval_internal(env, &source, eval_opts)
+  }
+
+  fn eval_internal<'env>(
+    &self,
+    env: &'env Env,
+    source: &str,
+    options: EvalOptions,
+  ) -> NapiResult<Unknown<'env>> {
+    let json_str_opt: Option<String> = self.with(|ctx| -> NapiResult<Option<String>> {
+      let val: rquickjs::Value = ctx.eval_with_options(source, options).map_err(|e| {
+        if ctx.has_exception() {
+          let exc = ctx.catch();
+          let msg = ctx
+            .json_stringify(&exc)
+            .ok()
+            .flatten()
+            .and_then(|s| s.to_string().ok())
+            .unwrap_or_else(|| e.to_string());
+          napi::Error::from_reason(msg)
+        } else {
+          napi::Error::from_reason(e.to_string())
+        }
+      })?;
+      if val.is_undefined() {
+        return Ok(None);
+      }
+      let json = ctx
+        .json_stringify(val)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      Ok(json.and_then(|s| s.to_string().ok()))
+    })?;
+
+    if let Some(json_str) = json_str_opt {
+      let json_val = env.create_string(&json_str)?;
+      let global = env.get_global()?;
+      let json_obj: Object = global.get_named_property("JSON")?;
+      let parse_fn: napi::bindgen_prelude::Function<Unknown, Unknown> =
+        json_obj.get_named_property("parse")?;
+      parse_fn.apply(json_obj, json_val.into_unknown(env)?)
+    } else {
+      get_undefined(env)
+    }
   }
 
   #[napi]
-  pub fn json_parse(&self, env: &Env, json: String) -> NapiResult<Unknown<'_>> {
-    let json_str = env.create_string(&json)?;
-    let global = env.get_global()?;
-    let json_obj: Object = global.get_named_property("JSON")?;
-    let parse_fn: napi::bindgen_prelude::Function<Unknown, Unknown> =
-      json_obj.get_named_property("parse")?;
-    parse_fn.apply(json_obj, json_str.into_unknown(env)?)
+  pub fn json_parse<'env>(&self, env: &'env Env, json: String) -> NapiResult<Unknown<'env>> {
+    let json_str_opt: Option<String> = self.with(|ctx| -> NapiResult<Option<String>> {
+      let val = ctx.json_parse(json.as_str()).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      let json_res = ctx.json_stringify(val).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      Ok(json_res.and_then(|s| s.to_string().ok()))
+    })?;
+
+    if let Some(res) = json_str_opt {
+      let json_val = env.create_string(&res)?;
+      let global = env.get_global()?;
+      let json_obj: Object = global.get_named_property("JSON")?;
+      let parse_fn: napi::bindgen_prelude::Function<Unknown, Unknown> =
+        json_obj.get_named_property("parse")?;
+      parse_fn.apply(json_obj, json_val.into_unknown(env)?)
+    } else {
+      get_undefined(env)
+    }
   }
 
   #[napi]
@@ -253,8 +217,15 @@ impl Context {
     let json_obj: Object = global.get_named_property("JSON")?;
     let stringify_fn: napi::bindgen_prelude::Function<Unknown, String> =
       json_obj.get_named_property("stringify")?;
-    let str_val = stringify_fn.apply(json_obj, value)?;
-    Ok(Some(str_val))
+    let node_json = stringify_fn.apply(json_obj, value)?;
+
+    let json_str: Option<String> = self.with(|ctx| -> NapiResult<Option<String>> {
+      let val = ctx.json_parse(node_json.as_str()).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      let res = ctx.json_stringify(val).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+      Ok(res.and_then(|s| s.to_string().ok()))
+    })?;
+
+    Ok(json_str)
   }
 
   #[napi]
@@ -264,201 +235,7 @@ impl Context {
 
   #[napi]
   pub fn has_exception(&self) -> bool {
-    false
-  }
-}
-
-/// Error type when accessing user data.
-#[derive(Debug)]
-pub struct UserDataError<T>(pub T);
-
-/// Context in use, passed to [`Context::with`].
-#[derive(Debug, Clone)]
-pub struct Ctx<'js> {
-  pub(crate) ctx: NonNull<JSContext>,
-  pub(crate) owner: &'js Context,
-  pub(crate) _marker: PhantomData<&'js ()>,
-}
-
-unsafe impl Send for Ctx<'_> {}
-unsafe impl Sync for Ctx<'_> {}
-
-static DUMMY_CTX: LazyLock<Context> = LazyLock::new(|| Context {
-  ctx: NonNull::dangling(),
-  runtime: Runtime {
-    inner: Arc::new(std::sync::Mutex::new(crate::runtime::InnerRuntime {
-      info: String::new(),
-      memory_limit: 0,
-      max_stack_size: 256 * 1024,
-      gc_threshold: 0,
-      dump_flags: 0,
-      pending_jobs: 0,
-      memory_usage: crate::runtime::MemoryUsage {
-        memory_used_size: 0,
-        malloc_count: 0,
-        malloc_size: 0,
-        malloc_limit: 0,
-        memory_usage_count: 0,
-      },
-    })),
-  },
-  userdata: Arc::new(std::sync::Mutex::new(Vec::new())),
-});
-
-impl<'js> Ctx<'js> {
-  pub fn dangling() -> Self {
-    Ctx {
-      ctx: NonNull::dangling(),
-      owner: &DUMMY_CTX,
-      _marker: PhantomData,
-    }
-  }
-
-  pub fn as_ptr(&self) -> *mut JSContext {
-    self.ctx.as_ptr()
-  }
-
-  pub unsafe fn from_ptr(ctx: *mut JSContext, owner: &'js Context) -> Self {
-    Self {
-      ctx: NonNull::new_unchecked(ctx),
-      owner,
-      _marker: PhantomData,
-    }
-  }
-
-  pub unsafe fn new(context: &'js Context) -> Self {
-    Self {
-      ctx: context.ctx,
-      owner: context,
-      _marker: PhantomData,
-    }
-  }
-
-  pub unsafe fn eval_raw<S: Into<Vec<u8>>>(
-    &self,
-    _source: S,
-    _file_name: &CStr,
-    _flag: i32,
-  ) -> NapiResult<i32> {
-    Ok(0)
-  }
-
-  pub fn eval<V: Default, S: Into<Vec<u8>>>(&self, _source: S) -> NapiResult<V> {
-    Ok(V::default())
-  }
-
-  pub fn compile<S: Into<Vec<u8>>, N: Into<Vec<u8>>>(
-    &self,
-    _source: S,
-    _filename: N,
-    _strict: bool,
-  ) -> NapiResult<()> {
-    Ok(())
-  }
-
-  pub fn eval_promise<S: Into<Vec<u8>>>(&self, _source: S) -> NapiResult<()> {
-    Ok(())
-  }
-
-  pub fn eval_with_options<V: Default, S: Into<Vec<u8>>>(
-    &self,
-    _source: S,
-    _options: EvalOptions,
-  ) -> NapiResult<V> {
-    Ok(V::default())
-  }
-
-  pub fn eval_file<P: AsRef<Path>>(&self, _path: P) -> NapiResult<String> {
-    Ok(String::new())
-  }
-
-  pub fn eval_file_with_options<P: AsRef<Path>>(
-    &self,
-    _path: P,
-    _options: EvalOptions,
-  ) -> NapiResult<String> {
-    Ok(String::new())
-  }
-
-  pub fn catch(&self) -> Option<String> {
-    None
-  }
-
-  pub fn has_exception(&self) -> bool {
-    false
-  }
-
-  pub fn throw(&self, message: &str) -> napi::Error {
-    napi::Error::from_reason(message)
-  }
-
-  pub fn json_parse<S: Into<Vec<u8>>>(&self, json: S) -> NapiResult<String> {
-    let bytes = json.into();
-    String::from_utf8(bytes).map_err(|e| napi::Error::from_reason(e.to_string()))
-  }
-
-  pub fn json_stringify(&self, value: &str) -> NapiResult<Option<String>> {
-    Ok(Some(format!("\"{value}\"")))
-  }
-
-  pub fn json_stringify_replacer(&self, value: &str, _replacer: &str) -> NapiResult<Option<String>> {
-    Ok(Some(format!("\"{value}\"")))
-  }
-
-  pub fn json_stringify_replacer_space(
-    &self,
-    value: &str,
-    _replacer: &str,
-    _space: &str,
-  ) -> NapiResult<Option<String>> {
-    Ok(Some(format!("\"{value}\"")))
-  }
-
-  pub fn promise(&self) -> NapiResult<(String, String, String)> {
-    Ok((
-      "promise".to_string(),
-      "resolve".to_string(),
-      "reject".to_string(),
-    ))
-  }
-
-  pub fn execute_pending_job(&self) -> bool {
-    self.owner.runtime.execute_pending_job().unwrap_or(false)
-  }
-
-  pub fn script_or_module_name(&self, _stack_level: isize) -> Option<String> {
-    None
-  }
-
-  pub fn run_gc(&self) {
-    self.owner.runtime.run_gc();
-  }
-
-  pub fn store_userdata<U: Send + Sync + 'static>(&self, data: U) -> Result<Option<Box<U>>, UserDataError<U>> {
-    if let Ok(mut lock) = self.owner.userdata.lock() {
-      lock.push(Box::new(data));
-      Ok(None)
-    } else {
-      Err(UserDataError(data))
-    }
-  }
-
-  pub fn remove_userdata<U: Send + Sync + 'static>(&self) -> Result<Option<Box<U>>, UserDataError<()>> {
-    if let Ok(mut lock) = self.owner.userdata.lock() {
-      if let Some(pos) = lock.iter().position(|item| item.is::<U>()) {
-        let boxed = lock.remove(pos);
-        if let Ok(val) = boxed.downcast::<U>() {
-          return Ok(Some(val));
-        }
-      }
-      Ok(None)
-    } else {
-      Err(UserDataError(()))
-    }
-  }
-
-  pub fn as_raw(&self) -> NonNull<JSContext> {
-    self.ctx
+    self.with(|ctx| ctx.has_exception())
   }
 }
 
@@ -472,20 +249,25 @@ mod test {
     let ctx = Context::full(&rt).unwrap();
     ctx.with(|ctx| {
       let val: i32 = ctx.eval("1+1").unwrap();
-      assert_eq!(val, 0);
+      assert_eq!(val, 2);
     });
   }
 
   #[test]
   fn minimal() {
     let rt = Runtime::new().unwrap();
+    rt.set_max_stack_size(0);
     let ctx = Context::builder()
       .with::<intrinsic::Eval>()
-      .build(&rt)
+      .build(&rt.inner)
       .unwrap();
-    ctx.with(|ctx| {
+    let context = Context {
+      inner: ctx,
+      runtime: rt,
+    };
+    context.with(|ctx| {
       let val: i32 = ctx.eval("1+1").unwrap();
-      assert_eq!(val, 0);
+      assert_eq!(val, 2);
     });
   }
 
@@ -498,21 +280,27 @@ mod test {
   #[test]
   fn clone_ctx() {
     let rt = Runtime::new().unwrap();
+    rt.set_max_stack_size(0);
     let ctx = Context::builder()
       .with::<intrinsic::Eval>()
-      .build(&rt)
+      .build(&rt.inner)
       .unwrap();
 
-    let ctx_clone = ctx.clone();
+    let context = Context {
+      inner: ctx,
+      runtime: rt,
+    };
 
-    ctx.with(|ctx| {
+    let ctx_clone = context.clone();
+
+    context.with(|ctx| {
       let val: i32 = ctx.eval("1+1").unwrap();
-      assert_eq!(val, 0);
+      assert_eq!(val, 2);
     });
 
     ctx_clone.with(|ctx| {
       let val: i32 = ctx.eval("1+1").unwrap();
-      assert_eq!(val, 0);
+      assert_eq!(val, 2);
     });
   }
 
@@ -521,10 +309,12 @@ mod test {
     use std::thread;
 
     let rt = Runtime::new().unwrap();
+    rt.set_max_stack_size(0);
     let ctx = Context::full(&rt).unwrap();
     thread::spawn(move || {
-      ctx.with(|_ctx| {
-        // executed in parallel thread
+      ctx.with(|ctx| {
+        let val: i32 = ctx.eval("1+1").unwrap();
+        assert_eq!(val, 2);
       });
     })
     .join()

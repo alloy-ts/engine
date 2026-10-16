@@ -8,7 +8,10 @@ pub mod parser;
 pub mod runtime;
 
 pub use context::{Context, Ctx, EvalOptions};
-pub use loader::{BuiltinLoader, BuiltinResolver, FileResolver, Loader, ModuleLoader, NativeLoader, Resolver, ScriptLoader};
+pub use loader::{
+  BuiltinLoader, BuiltinResolver, JsBuiltinLoader, JsBuiltinResolver, JsFileResolver,
+  JsModuleLoader, JsNativeLoader, JsScriptLoader, Loader, ModuleLoader, NativeLoader, Resolver,
+};
 pub use runtime::{MemoryUsage, Runtime, WeakRuntime};
 
 #[napi]

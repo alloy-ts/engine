@@ -1,17 +1,8 @@
 //! QuickJS runtime related types and NAPI bindings.
 
-use std::sync::{Arc, Mutex, Weak};
 use napi_derive::napi;
 
-/// Opaque handle for C/FFI JSRuntime pointer.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct JSRuntime {
-  _private: [u8; 0],
-}
-
-unsafe impl Send for JSRuntime {}
-unsafe impl Sync for JSRuntime {}
+pub use rquickjs::qjs::JSRuntime;
 
 /// Memory usage statistics for runtime.
 #[napi(object)]
@@ -24,55 +15,26 @@ pub struct MemoryUsage {
   pub memory_usage_count: i64,
 }
 
-/// Error type when job execution fails.
-#[derive(Debug)]
-pub struct JobException(pub String);
-
-impl std::fmt::Display for JobException {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "JobException: {}", self.0)
-  }
-}
-
-impl std::error::Error for JobException {}
-
-#[derive(Debug, Default)]
-pub struct InnerRuntime {
-  pub info: String,
-  pub memory_limit: usize,
-  pub max_stack_size: usize,
-  pub gc_threshold: usize,
-  pub dump_flags: u64,
-  pub pending_jobs: usize,
-  pub memory_usage: MemoryUsage,
-}
-
 /// QuickJS runtime, entry point of the library.
 #[napi(js_name = "Runtime")]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Runtime {
-  pub(crate) inner: Arc<Mutex<InnerRuntime>>,
+  pub(crate) inner: rquickjs::Runtime,
 }
-
-unsafe impl Send for Runtime {}
-unsafe impl Sync for Runtime {}
 
 /// A weak handle to the runtime.
 #[napi(js_name = "WeakRuntime")]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct WeakRuntime {
-  pub(crate) inner: Weak<Mutex<InnerRuntime>>,
+  pub(crate) inner: rquickjs::runtime::WeakRuntime,
 }
-
-unsafe impl Send for WeakRuntime {}
-unsafe impl Sync for WeakRuntime {}
 
 #[napi]
 impl WeakRuntime {
   /// Upgrade the weak reference to a strong Runtime reference if still alive.
   #[napi]
   pub fn try_ref(&self) -> Option<Runtime> {
-    self.inner.upgrade().map(|inner| Runtime { inner })
+    self.inner.try_ref().map(|inner| Runtime { inner })
   }
 }
 
@@ -81,118 +43,144 @@ impl Runtime {
   /// Create a new runtime.
   #[napi(constructor)]
   pub fn new() -> napi::Result<Self> {
-    Ok(Self {
-      inner: Arc::new(Mutex::new(InnerRuntime {
-        max_stack_size: 256 * 1024,
-        ..Default::default()
-      })),
-    })
+    let inner = rquickjs::Runtime::new().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(Self { inner })
   }
 
   /// Get weak reference to runtime.
   #[napi]
   pub fn weak(&self) -> WeakRuntime {
     WeakRuntime {
-      inner: Arc::downgrade(&self.inner),
+      inner: self.inner.weak(),
     }
   }
 
   /// Set the info of the runtime.
   #[napi]
   pub fn set_info(&self, info: String) -> napi::Result<()> {
-    let mut lock = self
-      .inner
-      .lock()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    lock.info = info;
-    Ok(())
+    self.inner.set_info(info).map_err(|e| napi::Error::from_reason(e.to_string()))
   }
 
   /// Set a limit on the max amount of memory the runtime will use.
   #[napi]
   pub fn set_memory_limit(&self, limit: i64) {
-    if let Ok(mut lock) = self.inner.lock() {
-      let l = limit.max(0) as usize;
-      lock.memory_limit = l;
-      lock.memory_usage.malloc_limit = limit;
-    }
+    self.inner.set_memory_limit(limit.max(0) as usize);
   }
 
   /// Set a limit on the max size of stack the runtime will use.
   #[napi]
   pub fn set_max_stack_size(&self, limit: i64) {
-    if let Ok(mut lock) = self.inner.lock() {
-      lock.max_stack_size = limit.max(0) as usize;
-    }
+    self.inner.set_max_stack_size(limit.max(0) as usize);
   }
 
   /// Set a memory threshold for garbage collection.
   #[napi]
   pub fn set_gc_threshold(&self, threshold: i64) {
-    if let Ok(mut lock) = self.inner.lock() {
-      lock.gc_threshold = threshold.max(0) as usize;
-    }
+    self.inner.set_gc_threshold(threshold.max(0) as usize);
   }
 
   /// Set debug flags for dumping memory.
   #[napi]
   pub fn set_dump_flags(&self, flags: i64) {
-    if let Ok(mut lock) = self.inner.lock() {
-      lock.dump_flags = flags.max(0) as u64;
-    }
+    self.inner.set_dump_flags(flags.max(0) as u64);
   }
 
   /// Manually run the garbage collection.
   #[napi]
   pub fn run_gc(&self) {
-    // GC trigger
+    self.inner.run_gc();
   }
 
   /// Get memory usage stats.
   #[napi]
   pub fn memory_usage(&self) -> MemoryUsage {
-    self
-      .inner
-      .lock()
-      .map(|l| l.memory_usage)
-      .unwrap_or_default()
+    let usage = self.inner.memory_usage();
+    MemoryUsage {
+      memory_used_size: usage.memory_used_size as i64,
+      malloc_count: usage.malloc_count as i64,
+      malloc_size: usage.malloc_size as i64,
+      malloc_limit: usage.malloc_limit as i64,
+      memory_usage_count: usage.memory_used_count as i64,
+    }
   }
 
   /// Test for pending jobs.
   #[napi]
   pub fn is_job_pending(&self) -> bool {
-    self.inner.lock().map(|l| l.pending_jobs > 0).unwrap_or(false)
+    self.inner.is_job_pending()
   }
 
   /// Execute first pending job.
   #[napi]
   pub fn execute_pending_job(&self) -> napi::Result<bool> {
-    let mut lock = self
+    self
       .inner
-      .lock()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    if lock.pending_jobs > 0 {
-      lock.pending_jobs -= 1;
-      Ok(true)
-    } else {
-      Ok(false)
+      .execute_pending_job()
+      .map_err(|e| napi::Error::from_reason(e.to_string()))
+  }
+
+  /// Set the module loader with built-in resolver and loader.
+  #[napi(js_name = "setBuiltinLoader")]
+  pub fn set_builtin_loader(&self) {
+    self.inner.set_loader(
+      rquickjs::loader::BuiltinResolver::default(),
+      rquickjs::loader::BuiltinLoader::default(),
+    );
+  }
+
+  /// Set the module loader with file resolver and script loader.
+  #[napi(js_name = "setFileLoader")]
+  pub fn set_file_loader(&self) {
+    self.inner.set_loader(
+      rquickjs::loader::FileResolver::default(),
+      rquickjs::loader::ScriptLoader::default(),
+    );
+  }
+
+  /// Set the module loader by kind names.
+  #[napi(js_name = "setLoader")]
+  pub fn set_loader_kinds(&self, resolver_type: Option<String>, loader_type: Option<String>) {
+    let res_kind = resolver_type.as_deref().unwrap_or("file");
+    let load_kind = loader_type.as_deref().unwrap_or("script");
+
+    match (res_kind, load_kind) {
+      ("builtin", "builtin") => {
+        self.inner.set_loader(
+          rquickjs::loader::BuiltinResolver::default(),
+          rquickjs::loader::BuiltinLoader::default(),
+        );
+      }
+      ("builtin", _) => {
+        self.inner.set_loader(
+          rquickjs::loader::BuiltinResolver::default(),
+          rquickjs::loader::ScriptLoader::default(),
+        );
+      }
+      _ => {
+        self.inner.set_loader(
+          rquickjs::loader::FileResolver::default(),
+          rquickjs::loader::ScriptLoader::default(),
+        );
+      }
     }
   }
 
-  /// Get raw pointer to JSRuntime.
   pub fn as_raw_ptr(&self) -> *mut JSRuntime {
     std::ptr::null_mut()
   }
 }
 
 impl Runtime {
-  pub fn set_interrupt_handler(&self, _handler: Option<Box<dyn FnMut() -> bool + Send>>) {}
+  pub fn set_interrupt_handler(&self, handler: Option<Box<dyn FnMut() -> bool + Send>>) {
+    self.inner.set_interrupt_handler(handler.map(|h| h as Box<dyn FnMut() -> bool>));
+  }
 
-  pub fn set_loader<R: crate::loader::Resolver + 'static, L: crate::loader::Loader + 'static>(
-    &self,
-    _resolver: R,
-    _loader: L,
-  ) {
+  pub fn set_loader<R, L>(&self, resolver: R, loader: L)
+  where
+    R: rquickjs::loader::Resolver + 'static,
+    L: rquickjs::loader::Loader + 'static,
+  {
+    self.inner.set_loader(resolver, loader);
   }
 }
 

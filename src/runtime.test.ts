@@ -24,6 +24,14 @@ describe("napi: Runtime & Loader", () => {
     expect(() => rt.setDumpFlags(0)).not.toThrow();
   });
 
+  test("configures loaders on runtime", () => {
+    const rt = new Runtime();
+    expect(() => rt.setBuiltinLoader()).not.toThrow();
+    expect(() => rt.setFileLoader()).not.toThrow();
+    expect(() => rt.setLoader("builtin", "builtin")).not.toThrow();
+    expect(() => rt.setLoader("file", "script")).not.toThrow();
+  });
+
   test("runs garbage collection and gets memory usage", () => {
     const rt = new Runtime();
     expect(() => rt.runGc()).not.toThrow();
