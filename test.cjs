@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { add, Engine, Parser, Compiler } = require('./dist/index.js');
+const { add, Engine, Parser, Compiler, Context } = require('./dist/index.js');
 
 test('CJS require: add', () => {
   assert.strictEqual(add(2, 3), 5);
@@ -41,4 +41,10 @@ test('CJS require: Compiler execute', () => {
 test('CJS require: Compiler execute throws on invalid syntax', () => {
   const compiler = new Compiler();
   assert.throws(() => compiler.execute('const = ;', 'ts', 'app.ts'));
+});
+
+test('CJS require: Context eval', () => {
+  const ctx = new Context();
+  const res = ctx.eval('1 + 2');
+  assert.strictEqual(res, '3');
 });
