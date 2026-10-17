@@ -8,6 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 boa_engine = "0.22.0"
+boa_gc = "0.22.0"
 rquickjs = { version = "0.14", features = ["bindgen", "loader"] }
 napi = { version = "3", features = ["serde-json", "napi3", "napi5", "napi6", "compat-mode"] }
 napi-derive = "3"

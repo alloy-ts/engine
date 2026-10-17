@@ -58,9 +58,17 @@ static NEXT_REALM_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Insert a boa realm into the registry, returning its opaque id.
 pub(crate) fn insert_realm(realm: BoaRealm) -> u32 {
-    let id = NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed);
-    REALM_REGISTRY.with(|r| r.borrow_mut().insert(id, realm));
-    id
+    REALM_REGISTRY.with(|r| {
+        let mut reg = r.borrow_mut();
+        for (&existing_id, existing_realm) in reg.iter() {
+            if existing_realm == &realm {
+                return existing_id;
+            }
+        }
+        let id = NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed);
+        reg.insert(id, realm);
+        id
+    })
 }
 
 /// Look up a boa realm in the registry by id (if still registered).
@@ -181,7 +189,7 @@ pub fn realm_register_property(
 #[napi]
 pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("globalThis"))
+        ctx.eval(Source::from_bytes("(() => { const copy = {}; for (const k of Object.keys(globalThis)) { if (k !== 'globalThis' && k !== 'window') copy[k] = globalThis[k]; } return copy; })()"))
             .and_then(|v| v.to_json(ctx))
             .map(|json| json.unwrap_or(JsonValue::Null))
             .map_err(to_err)
@@ -197,7 +205,7 @@ pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
 #[napi]
 pub fn realm_global_this(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("this"))
+        ctx.eval(Source::from_bytes("(() => { const copy = {}; for (const k of Object.keys(this)) { if (k !== 'globalThis' && k !== 'window') copy[k] = this[k]; } return copy; })()"))
             .and_then(|v| v.to_json(ctx))
             .map(|json| json.unwrap_or(JsonValue::Null))
             .map_err(to_err)
