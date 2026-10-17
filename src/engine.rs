@@ -6,6 +6,7 @@ use napi::Env;
 use napi_derive::napi;
 #[cfg(feature = "quickjs")]
 use rquickjs::{runtime::WeakRuntime as QjsWeakRuntime, Runtime as QjsRuntime};
+#[cfg(feature = "quickjs")]
 use serde_json::json;
 
 use crate::context::Context;
@@ -16,6 +17,7 @@ use crate::loader::JsLoader;
 use crate::script::Script;
 
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
+#[cfg(feature = "quickjs")]
 fn to_napi_err(e: rquickjs::Error) -> Error {
     Error::from_reason(e.to_string())
 }
@@ -360,9 +362,7 @@ impl Engine {
     /// The set of `boa_engine` crate features enabled in this build.
     #[napi]
     pub fn features(&self) -> Vec<String> {
-        let mut f = Vec::new();
-        #[cfg(feature = "intl")]
-        f.push("intl".to_string());
+        let f = Vec::new();
         f
     }
 

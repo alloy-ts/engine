@@ -6,6 +6,40 @@ use napi_derive::napi;
 use serde_json::Value as JsonValue;
 
 use boa_engine::{Context, JsValue, Script as BoaScript, Source};
+use boa_engine::object::ObjectInitializer;
+use boa_engine::native_function::NativeFunction;
+use boa_engine::property::Attribute;
+use boa_engine::js_string;
+
+fn install_default_globals(ctx: &mut Context) {
+  let make = |is_err: bool| {
+    NativeFunction::from_copy_closure(move |_this, args, context| {
+      let parts: Vec<String> = args
+        .iter()
+        .filter_map(|a| a.to_string(context).ok())
+        .map(|s| s.to_std_string_escaped())
+        .collect();
+      let line = parts.join(" ");
+      if is_err {
+        eprintln!("{}", line);
+      } else {
+        println!("{}", line);
+      }
+      Ok(JsValue::undefined())
+    })
+  };
+
+  let console = ObjectInitializer::new(ctx)
+    .function(make(false), js_string!("log"), 0)
+    .function(make(false), js_string!("info"), 0)
+    .function(make(false), js_string!("debug"), 0)
+    .function(make(true), js_string!("error"), 0)
+    .function(make(true), js_string!("warn"), 0)
+    .function(make(false), js_string!("trace"), 0)
+    .build();
+
+  let _ = ctx.register_global_property(js_string!("console"), console, Attribute::all());
+}
 
 /// Map a Boa [`JsError`](boa_engine::JsError) onto a `napi::Error` so the JS
 /// caller sees a thrown exception.
@@ -61,6 +95,7 @@ impl Script {
   #[napi(constructor)]
   pub fn new(source: String, path: Option<String>) -> napi::Result<Self> {
     let mut context = Context::default();
+    install_default_globals(&mut context);
 
     let src = match &path {
       Some(p) => Source::from_reader(source.as_bytes(), Some(Path::new(p))),
@@ -86,6 +121,7 @@ impl Script {
   #[napi(factory)]
   pub fn from_file(path: String) -> napi::Result<Self> {
     let mut context = Context::default();
+    install_default_globals(&mut context);
 
     let src =
       Source::from_filepath(Path::new(&path)).map_err(|e| Error::from_reason(e.to_string()))?;
