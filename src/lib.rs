@@ -1,5 +1,3 @@
-use napi_derive::napi;
-
 pub mod context;
 pub mod engine;
 pub mod realm;

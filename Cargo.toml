@@ -24,3 +24,4 @@ napi-build = "2"
 [features]
 default = []
 quickjs = []
+intl = ["boa_engine/intl"]

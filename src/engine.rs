@@ -6,6 +6,7 @@ use napi::Env;
 use napi_derive::napi;
 #[cfg(feature = "quickjs")]
 use rquickjs::{runtime::WeakRuntime as QjsWeakRuntime, Runtime as QjsRuntime};
+#[cfg(feature = "quickjs")]
 use serde_json::json;
 
 use crate::context::Context;
@@ -361,7 +362,9 @@ impl Engine {
     /// The set of `boa_engine` crate features enabled in this build.
     #[napi]
     pub fn features(&self) -> Vec<String> {
-        let mut f = Vec::new();
+        let f = Vec::new();
+        #[cfg(feature = "intl")]
+        let mut f = f;
         #[cfg(feature = "intl")]
         f.push("intl".to_string());
         f

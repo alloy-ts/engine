@@ -10,11 +10,14 @@ export function main(): string {
   QuickJs: "quickjs",
 };
 
+import type { Realm as _Realm } from "../dist/index.js";
+
+export type Realm = _Realm;
+
 export {
   Context,
   Engine,
   Global,
-  Realm,
   realmEval,
   realmGlobalKeys,
   realmGlobalObject,
