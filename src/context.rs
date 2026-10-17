@@ -60,7 +60,7 @@ pub(crate) fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Res
 /// const ctx = new Context();
 /// const v = ctx.eval("1 + 1"); // 2
 /// ```
-#[napi]
+#[napi(js_name = "Context")]
 pub struct JsContext {
     /// The embedded QuickJS context. It keeps its runtime alive for us.
     inner: QjsContext,
@@ -107,7 +107,7 @@ impl JsContext {
 
     /// Evaluate `source` as an ES module (`import` / `export` allowed) and return
     /// its namespace object as a JS value.
-    #[napi]
+    #[napi(js_name = "eval_module")]
     pub fn eval_module(&self, source: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
             let seq = MODULE_SEQ.fetch_add(1, Ordering::Relaxed);
