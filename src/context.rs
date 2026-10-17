@@ -63,7 +63,7 @@ fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonVal
 #[napi(js_name = "Context")]
 pub struct JsContext {
     /// The embedded QuickJS context. It keeps its runtime alive for us.
-    inner: QjsContext,
+    pub(crate) inner: QjsContext,
 }
 
 #[napi]
