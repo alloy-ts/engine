@@ -7,6 +7,7 @@ export {
   Atom,
   Compiler,
   Context,
+  QjsContext,
   Engine,
   Global,
   Loader,

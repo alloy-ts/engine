@@ -30,7 +30,13 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const ctx = new Context();
 /// const int = new Atom.from_i64(3);
 /// ```
-#[napi]
+#[napi(object)]
+pub struct EngineBackendView {
+    pub boa: String,
+    pub quick_js: String,
+}
+
+#[napi(js_name = "Engine")]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
     inner: QjsRuntime,
@@ -42,6 +48,21 @@ pub struct JsEngine {
 
 #[napi]
 impl JsEngine {
+    /// Factory constructor for a QuickJS engine instance.
+    #[napi(factory, js_name = "quickjs")]
+    pub fn quickjs(env: Env, loader: Option<&JsLoader>) -> napi::Result<Self> {
+        Self::new(env, loader)
+    }
+
+    /// Backend engine identifiers (`Engine.backend.Boa` / `Engine.backend.QuickJs`).
+    #[napi(js_name = "backend")]
+    pub fn backend() -> EngineBackendView {
+        EngineBackendView {
+            boa: "boa".to_string(),
+            quick_js: "quickjs".to_string(),
+        }
+    }
+
     /// Capture the `napi::Env` that NAPI injects, register a cleanup hook so we
     /// learn when it stops being valid, and create the embedded QuickJS engine.
     ///
