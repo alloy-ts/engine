@@ -183,19 +183,21 @@ impl JsContext {
             value_to_json(&ctx, value)
         })
     }
-    #[napi]
+    #[napi(factory)]
     pub fn full(env: Env) -> napi::Result<Self> {
         let runtime = QjsRuntime::new().map_err(to_napi_err)?;
         let inner = QjsContext::full(&runtime).map_err(to_napi_err)?;
         Self::create_standalone(inner, env)
     }
-    #[napi]
+
+    #[napi(factory)]
     pub fn base(env: Env) -> napi::Result<Self> {
         let runtime = QjsRuntime::new().map_err(to_napi_err)?;
         let inner = QjsContext::base(&runtime).map_err(to_napi_err)?;
         Self::create_standalone(inner, env)
     }
-    #[napi]
+
+    #[napi(factory)]
     pub fn custom(env: Env, intrinsics: Option<Vec<String>>) -> napi::Result<Self> {
         let runtime = QjsRuntime::new().map_err(to_napi_err)?;
         let use_full = intrinsics
@@ -209,14 +211,14 @@ impl JsContext {
         Self::create_standalone(inner, env)
     }
 
-    #[napi]
+    #[napi(factory)]
     pub fn builder(env: Env) -> napi::Result<Self> {
         let runtime = QjsRuntime::new().map_err(to_napi_err)?;
         let inner = QjsContext::builder().build(&runtime).map_err(to_napi_err)?;
         Self::create_standalone(inner, env)
     }
 
-    #[napi]
+    #[napi(factory)]
     pub fn from_raw(env: Env, ctx_ptr: BigInt, engine: &JsEngine) -> napi::Result<Self> {
         let (negative, value, lossless) = ctx_ptr.get_u64();
         if negative || !lossless {
@@ -241,8 +243,8 @@ impl JsContext {
         self.env.create_bigint_from_u64(ptr)
     }
 
-    #[napi]
-    pub fn from_engine(&self) -> JsEngine {
+    #[napi(js_name = "Engine")]
+    pub fn engine(&self) -> JsEngine {
         JsEngine::from_runtime(
             self.inner.from_runtime().clone(),
             self.env,
