@@ -16,9 +16,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use napi::{Error, Result};
-use napi::bindgen_prelude::JsonValue;
 use napi_derive::napi;
-use serde_json::Value;
+use serde_json::Value as JsonValue;
 
 use boa_engine::js_string;
 use boa_engine::property::Attribute;
@@ -47,6 +46,14 @@ static NEXT_REALM_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Insert a boa realm into the registry, returning its opaque id.
 pub(crate) fn insert_realm(realm: BoaRealm) -> u32 {
+    let existing = REALM_REGISTRY.with(|r| {
+        r.borrow()
+            .iter()
+            .find_map(|(&id, r)| if r == &realm { Some(id) } else { None })
+    });
+    if let Some(id) = existing {
+        return id;
+    }
     let id = NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed);
     REALM_REGISTRY.with(|r| r.borrow_mut().insert(id, realm));
     id
@@ -116,8 +123,8 @@ fn with_entered_realm<R>(
 /// Evaluate `source` as a script **inside this realm** and return the result as
 /// JSON. Does not auto-run jobs — call [`realm_run_jobs`] after, like native boa.
 #[napi]
-pub fn realm_eval(realm: &Realm, source: String) -> Result<JsonValue> {
-    with_entered_realm(realm, |ctx| {
+pub fn realm_eval(realm: Realm, source: String) -> Result<JsonValue> {
+    with_entered_realm(&realm, |ctx| {
         ctx.eval(Source::from_bytes(source.as_str()))
             .and_then(|v| v.to_json(ctx))
             .map(|json| json.unwrap_or(JsonValue::Null))
@@ -129,7 +136,7 @@ pub fn realm_eval(realm: &Realm, source: String) -> Result<JsonValue> {
 /// are overwritten. `writable` / `enumerable` / `configurable` default to `true`.
 #[napi]
 pub fn realm_register_global_property(
-    realm: &Realm,
+    realm: Realm,
     key: String,
     value: JsonValue,
     writable: Option<bool>,
@@ -163,12 +170,12 @@ pub fn realm_register_global_property(
 
 /// Enumerable keys of this realm's global object (`Object.keys(this)`).
 #[napi]
-pub fn realm_global_keys(realm: &Realm) -> Result<Vec<String>> {
-    with_entered_realm(realm, |ctx| {
+pub fn realm_global_keys(realm: Realm) -> Result<Vec<String>> {
+    with_entered_realm(&realm, |ctx| {
         ctx.eval(Source::from_bytes("Object.keys(this)"))
             .and_then(|v| v.to_json(ctx))
             .map(|json| match json {
-                Some(Value::Array(items)) => items
+                Some(JsonValue::Array(items)) => items
                     .into_iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect(),
@@ -180,6 +187,6 @@ pub fn realm_global_keys(realm: &Realm) -> Result<Vec<String>> {
 
 /// Run all queued jobs for the parent context while this realm is active.
 #[napi]
-pub fn realm_run_jobs(realm: &Realm) -> Result<()> {
-    with_entered_realm(realm, |ctx| ctx.run_jobs().map_err(to_err))
+pub fn realm_run_jobs(realm: Realm) -> Result<()> {
+    with_entered_realm(&realm, |ctx| ctx.run_jobs().map_err(to_err))
 }

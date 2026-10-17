@@ -40,6 +40,16 @@ pub struct JsEngine {
     alive: Arc<AtomicBool>,
 }
 
+impl JsEngine {
+    pub(crate) fn runtime(&self) -> &QjsRuntime {
+        &self.inner
+    }
+
+    pub(crate) fn from_runtime(inner: QjsRuntime, env: Env, alive: Arc<AtomicBool>) -> Self {
+        JsEngine { inner, env, alive }
+    }
+}
+
 #[napi]
 impl JsEngine {
     /// Capture the `napi::Env` that NAPI injects, register a cleanup hook so we
