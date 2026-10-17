@@ -63,26 +63,20 @@ describe("napi: Engine + Loader (module resolution)", () => {
 
   test("resolves relative imports across a module graph", () => {
     const loader = new Loader();
-    loader.add(
-      "pkg/index",
-      'import { value } from "./util"; export const doubled = value * 2;',
-    );
+    loader.add("pkg/index", 'import { value } from "./util"; export const doubled = value * 2;');
     loader.add("pkg/util", "export const value = 21;");
 
     const rt = new Engine(loader);
     const ctx = rt.create_context();
 
-    ctx.eval_module(
-      'import { doubled } from "pkg/index"; globalThis.out = doubled;',
-    );
+    ctx.eval_module('import { doubled } from "pkg/index"; globalThis.out = doubled;');
     expect(ctx.eval("globalThis.out")).toBe(42);
   });
 
   test("throws when an imported module is missing", () => {
     const rt = new Engine(new Loader());
     const ctx = rt.create_context();
-    expect(() => ctx.eval_module('import { x } from "does-not-exist";'))
-      .toThrow();
+    expect(() => ctx.eval_module('import { x } from "does-not-exist";')).toThrow();
   });
 
   test("a loader added to one runtime does not leak to a standalone Context", () => {
@@ -93,7 +87,6 @@ describe("napi: Engine + Loader (module resolution)", () => {
 
     // A standalone Context has its own private runtime (no loader).
     const standalone = new Context();
-    expect(() => standalone.eval_module('import { v } from "secret";'))
-      .toThrow();
+    expect(() => standalone.eval_module('import { v } from "secret";')).toThrow();
   });
 });

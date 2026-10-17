@@ -32,14 +32,21 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const ctx = engine.create_context();
 /// const arr = engine.create_array(3);   // host N-API value
 /// ```
-#[napi]
+#[napi(js_name = "Engine")]
+#[derive(Clone)]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
-    inner: QjsRuntime,
+    pub(crate) inner: QjsRuntime,
     /// The host N-API environment, captured at construction.
-    env: Env,
+    pub(crate) env: Env,
     /// Set to `true` when the owning addon (and thus this context) is unloaded.
-    alive: Arc<AtomicBool>,
+    pub(crate) alive: Arc<AtomicBool>,
+}
+
+impl JsEngine {
+    pub(crate) fn inner(&self) -> &QjsRuntime {
+        &self.inner
+    }
 }
 
 #[napi]
@@ -76,6 +83,11 @@ impl JsEngine {
         Ok(())
     }
 
+    #[napi(js_name = "set_loader")]
+    pub fn set_loader_alias(&self, loader: &JsLoader) -> napi::Result<()> {
+        self.set_loader(loader)
+    }
+
     /// Create a `Context` that shares *this* engine.
     ///
     /// Prefer this over a standalone `Context` (i.e. `new Context()`) when you
@@ -85,7 +97,12 @@ impl JsEngine {
     #[napi]
     pub fn create_context(&self) -> napi::Result<JsContext> {
         let inner = QjsContext::full(&self.inner).map_err(to_napi_err)?;
-        Ok(JsContext::from_inner(inner))
+        Ok(JsContext::from_inner_with_engine(inner, self.clone()))
+    }
+
+    #[napi(js_name = "create_context")]
+    pub fn create_context_alias(&self) -> napi::Result<JsContext> {
+        self.create_context()
     }
 
     /// Get a weak handle to this engine. Holding it does not keep the engine
@@ -111,12 +128,22 @@ impl JsEngine {
         Ok(())
     }
 
+    #[napi(js_name = "set_memory_limit")]
+    pub fn set_memory_limit_alias(&self, limit: f64) -> napi::Result<()> {
+        self.set_memory_limit(limit)
+    }
+
     /// Set a limit (in bytes) on the max stack size the engine will use.
     /// The QuickJS default is `256 * 1024`.
     #[napi]
     pub fn set_max_stack_size(&self, limit: f64) -> napi::Result<()> {
         self.inner.set_max_stack_size(limit as usize);
         Ok(())
+    }
+
+    #[napi(js_name = "set_max_stack_size")]
+    pub fn set_max_stack_size_alias(&self, limit: f64) -> napi::Result<()> {
+        self.set_max_stack_size(limit)
     }
 
     /// Set the memory threshold (in bytes) that triggers garbage collection.
@@ -126,10 +153,20 @@ impl JsEngine {
         Ok(())
     }
 
+    #[napi(js_name = "set_gc_threshold")]
+    pub fn set_gc_threshold_alias(&self, threshold: f64) -> napi::Result<()> {
+        self.set_gc_threshold(threshold)
+    }
+
     /// Set the engine's informational string (visible in debugging tooling).
     #[napi]
     pub fn set_info(&self, info: String) -> napi::Result<()> {
         self.inner.set_info(info).map_err(to_napi_err)
+    }
+
+    #[napi(js_name = "set_info")]
+    pub fn set_info_alias(&self, info: String) -> napi::Result<()> {
+        self.set_info(info)
     }
 
     /// Manually run garbage collection. Most QuickJS values are reference
@@ -139,6 +176,11 @@ impl JsEngine {
     pub fn run_gc(&self) -> napi::Result<()> {
         self.inner.run_gc();
         Ok(())
+    }
+
+    #[napi(js_name = "run_gc")]
+    pub fn run_gc_alias(&self) -> napi::Result<()> {
+        self.run_gc()
     }
 
     /// Memory-usage statistics as a plain object (field names match QuickJS'
@@ -176,10 +218,20 @@ impl JsEngine {
         }))
     }
 
+    #[napi(js_name = "memory_usage")]
+    pub fn memory_usage_alias(&self) -> napi::Result<serde_json::Value> {
+        self.memory_usage()
+    }
+
     /// Whether at least one job (e.g. resolved promise callback) is pending.
     #[napi]
     pub fn is_job_pending(&self) -> napi::Result<bool> {
         Ok(self.inner.is_job_pending())
+    }
+
+    #[napi(js_name = "is_job_pending")]
+    pub fn is_job_pending_alias(&self) -> napi::Result<bool> {
+        self.is_job_pending()
     }
 
     /// Execute the first pending job. Returns `true` if a job ran, `false` if the
@@ -188,8 +240,6 @@ impl JsEngine {
     #[napi]
     pub fn execute_pending_job(&self) -> napi::Result<bool> {
         self.inner.execute_pending_job().map_err(|job_ex| {
-            // `JobException` is a thin wrapper around the `Context` the job ran
-            // in, so we can read the thrown value out of it.
             let msg = job_ex.0.with(|ctx| {
                 let thrown = ctx.catch();
                 ctx.json_stringify(thrown)
@@ -201,20 +251,18 @@ impl JsEngine {
             Error::from_reason(format!("job exception: {msg}"))
         })
     }
+
+    #[napi(js_name = "execute_pending_job")]
+    pub fn execute_pending_job_alias(&self) -> napi::Result<bool> {
+        self.execute_pending_job()
+    }
 }
 
 /// NAPI class wrapping a weak handle to a QuickJS engine
 /// ([`rquickjs::WeakRuntime`](rquickjs::WeakRuntime)).
-///
-/// Unlike [`JsEngine`], holding a `WeakEngine` does **not** keep the engine
-/// alive — use [`JsWeakEngine::try_ref`] to try to re-acquire a strong handle.
-/// Once the engine and every context created from it are dropped, `try_ref`
-/// returns `null`.
 #[napi]
 pub struct JsWeakEngine {
     inner: QjsWeakRuntime,
-    /// A copy of the host environment and the alive flag, so a promoted handle
-    /// can rebuild a full [`JsEngine`].
     env: Env,
     alive: Arc<AtomicBool>,
 }
@@ -232,17 +280,6 @@ impl JsWeakEngine {
         }))
     }
 }
-
-// ---------------------------------------------------------------------------
-// Host (N-API) environment surface.
-//
-// Besides the embedded QuickJS engine above, `Engine` also wraps the *host*
-// JavaScript environment (Node's V8) through the `napi::Env` captured at
-// construction. These methods let JS build and inspect host values and persist
-// host-level instance data. Because the `Env` is stored on the struct, values
-// returned here can borrow it for the lifetime of the `Engine` (and so can be
-// handed back to JS), and we can detect addon unload via `is_disposed`.
-// ---------------------------------------------------------------------------
 
 #[napi]
 impl JsEngine {

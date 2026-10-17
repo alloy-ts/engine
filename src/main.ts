@@ -9,8 +9,8 @@ export {
   Context,
   Engine,
   Global,
+  JsWeakEngine as WeakEngine,
   Loader,
   Parser,
-  PredefinedAtom,
-  WeakEngine,
+  type PredefinedAtom,
 } from "../dist/index.js";
