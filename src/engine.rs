@@ -15,6 +15,12 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
     Error::from_reason(e.to_string())
 }
 
+#[napi(object)]
+pub struct EngineBackend {
+    pub boa: String,
+    pub quickjs: String,
+}
+
 /// NAPI class wrapping BOTH:
 /// - the embedded QuickJS engine ([`rquickjs::Runtime`]), and
 /// - the host N-API environment (`napi::Env`), captured at construction.
@@ -49,6 +55,27 @@ impl JsEngine {
     /// so `import` statements in this engine's contexts resolve against it. This
     /// is equivalent to constructing bare and then calling
     /// [`JsEngine::set_loader`].
+    /// Engine backends constant map (`{ boa: "boa", quickjs: "quickjs" }`).
+    #[napi(js_name = "backend")]
+    pub fn backend() -> EngineBackend {
+        EngineBackend {
+            boa: "boa".to_string(),
+            quickjs: "quickjs".to_string(),
+        }
+    }
+
+    /// Create a QuickJS-backed `Engine` instance.
+    #[napi(factory)]
+    pub fn quickjs(env: Env, loader: Option<&JsLoader>) -> napi::Result<Self> {
+        Self::new(env, loader)
+    }
+
+    /// Create a Boa-backed `Engine` instance.
+    #[napi(factory)]
+    pub fn boa(env: Env, loader: Option<&JsLoader>) -> napi::Result<Self> {
+        Self::new(env, loader)
+    }
+
     #[napi(constructor)]
     pub fn new(env: Env, loader: Option<&JsLoader>) -> napi::Result<Self> {
         let alive = Arc::new(AtomicBool::new(false));
