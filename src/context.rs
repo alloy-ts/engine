@@ -2,13 +2,14 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use napi::{Env, Error, JsBigInt, JsFunction, Unknown};
-use napi::bindgen_prelude::{BigInt, FromNapiValue, ToNapiValue};
+use napi::{Env, Error, Unknown};
+use napi::bindgen_prelude::{BigInt, Function};
 use napi_derive::napi;
 use rquickjs::context::intrinsic;
 use rquickjs::{
     qjs, Ctx, FromJs, Module, Runtime as QjsRuntime, Context as QjsContext, Type, Value,
 };
+use serde_json::Value as JsonValue;
 
 use crate::engine::JsEngine;
 
@@ -58,6 +59,69 @@ pub(crate) fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Res
     }
 }
 
+/// NAPI wrapper for QuickJS ContextBuilder.
+#[napi(js_name = "ContextBuilder")]
+pub struct JsContextBuilder {
+    eval: bool,
+    promise: bool,
+}
+
+#[napi]
+impl JsContextBuilder {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        JsContextBuilder {
+            eval: true,
+            promise: true,
+        }
+    }
+
+    #[napi]
+    pub fn with_eval(&mut self, enable: Option<bool>) -> &Self {
+        self.eval = enable.unwrap_or(true);
+        self
+    }
+
+    #[napi]
+    pub fn with_promise(&mut self, enable: Option<bool>) -> &Self {
+        self.promise = enable.unwrap_or(true);
+        self
+    }
+
+    #[napi]
+    pub fn build(&self, env: Env, engine: Option<&JsEngine>) -> napi::Result<JsContext> {
+        let builder = QjsContext::builder();
+
+        if let Some(engine) = engine {
+            let rt = engine.get_runtime();
+            let inner = match (self.eval, self.promise) {
+                (true, true) => builder
+                    .with::<intrinsic::Eval>()
+                    .with::<intrinsic::Promise>()
+                    .build(rt),
+                (true, false) => builder.with::<intrinsic::Eval>().build(rt),
+                (false, true) => builder.with::<intrinsic::Promise>().build(rt),
+                (false, false) => builder.build(rt),
+            }
+            .map_err(to_napi_err)?;
+            Ok(JsContext::from_inner(inner, env, engine.alive_flag()))
+        } else {
+            let rt = QjsRuntime::new().map_err(to_napi_err)?;
+            let inner = match (self.eval, self.promise) {
+                (true, true) => builder
+                    .with::<intrinsic::Eval>()
+                    .with::<intrinsic::Promise>()
+                    .build(&rt),
+                (true, false) => builder.with::<intrinsic::Eval>().build(&rt),
+                (false, true) => builder.with::<intrinsic::Promise>().build(&rt),
+                (false, false) => builder.build(&rt),
+            }
+            .map_err(to_napi_err)?;
+            JsContext::create_standalone(inner, env)
+        }
+    }
+}
+
 /// NAPI class wrapping an embedded QuickJS [`Context`](rquickjs::Context).
 ///
 /// JS:
@@ -65,7 +129,7 @@ pub(crate) fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Res
 /// const ctx = new Context();
 /// const v = ctx.eval("1 + 1"); // 2
 /// ```
-#[napi]
+#[napi(js_name = "Context")]
 pub struct JsContext {
     /// The embedded QuickJS context. It keeps its runtime alive for us.
     inner: QjsContext,
@@ -87,6 +151,7 @@ impl JsContext {
         let inner = QjsContext::full(&runtime).map_err(to_napi_err)?;
         Self::create_standalone(inner, env)
     }
+
     pub(crate) fn from_inner(inner: QjsContext, env: Env, alive: Arc<AtomicBool>) -> Self {
         JsContext { inner, env, alive }
     }
@@ -100,20 +165,101 @@ impl JsContext {
         Ok(JsContext { inner, env, alive })
     }
 
+    /// Static constructor: create a Context from a raw C JSContext pointer.
+    #[napi(factory)]
+    pub fn from_raw(env: Env, ctx_ptr: BigInt, engine: &JsEngine) -> napi::Result<Self> {
+        let (negative, value, lossless) = ctx_ptr.get_u64();
+        if negative || !lossless {
+            return Err(Error::from_reason("context pointer does not fit in a u64"));
+        }
+        let ptr = value as *mut qjs::JSContext;
+        let nn = NonNull::new(ptr)
+            .ok_or_else(|| Error::from_reason("context pointer is null"))?;
+        let inner = unsafe { QjsContext::from_raw(nn, engine.get_runtime().clone()) };
+        Ok(Self::from_inner(inner, env, engine.alive_flag()))
+    }
+
+    /// Static constructor: create a base Context (minimal intrinsics).
+    #[napi(factory)]
+    pub fn base(env: Env, engine: Option<&JsEngine>) -> napi::Result<Self> {
+        if let Some(engine) = engine {
+            let inner = QjsContext::base(engine.get_runtime()).map_err(to_napi_err)?;
+            Ok(Self::from_inner(inner, env, engine.alive_flag()))
+        } else {
+            let runtime = QjsRuntime::new().map_err(to_napi_err)?;
+            let inner = QjsContext::base(&runtime).map_err(to_napi_err)?;
+            Self::create_standalone(inner, env)
+        }
+    }
+
+    /// Static constructor: create a Context with custom intrinsics.
+    #[napi(factory)]
+    pub fn custom(
+        env: Env,
+        engine: Option<&JsEngine>,
+        intrinsics: Option<Vec<String>>,
+    ) -> napi::Result<Self> {
+        let use_full = intrinsics
+            .as_ref()
+            .map_or(false, |list| list.iter().any(|s| s.eq_ignore_ascii_case("All")));
+
+        if use_full {
+            return Self::full(env, engine);
+        }
+
+        let has_eval = intrinsics
+            .as_ref()
+            .map_or(false, |list| list.iter().any(|s| s.eq_ignore_ascii_case("Eval")));
+
+        if let Some(engine) = engine {
+            let inner = if has_eval {
+                QjsContext::builder()
+                    .with::<intrinsic::Eval>()
+                    .build(engine.get_runtime())
+            } else {
+                QjsContext::custom::<intrinsic::None>(engine.get_runtime())
+            }
+            .map_err(to_napi_err)?;
+            Ok(Self::from_inner(inner, env, engine.alive_flag()))
+        } else {
+            let runtime = QjsRuntime::new().map_err(to_napi_err)?;
+            let inner = if has_eval {
+                QjsContext::builder()
+                    .with::<intrinsic::Eval>()
+                    .build(&runtime)
+            } else {
+                QjsContext::custom::<intrinsic::None>(&runtime)
+            }
+            .map_err(to_napi_err)?;
+            Self::create_standalone(inner, env)
+        }
+    }
+
+    /// Static constructor: create a full Context with standard intrinsics.
+    #[napi(factory)]
+    pub fn full(env: Env, engine: Option<&JsEngine>) -> napi::Result<Self> {
+        if let Some(engine) = engine {
+            let inner = QjsContext::full(engine.get_runtime()).map_err(to_napi_err)?;
+            Ok(Self::from_inner(inner, env, engine.alive_flag()))
+        } else {
+            let runtime = QjsRuntime::new().map_err(to_napi_err)?;
+            let inner = QjsContext::full(&runtime).map_err(to_napi_err)?;
+            Self::create_standalone(inner, env)
+        }
+    }
+
+    /// Static constructor: returns a ContextBuilder.
+    #[napi]
+    pub fn builder(_env: Env, _engine: Option<&JsEngine>) -> JsContextBuilder {
+        JsContextBuilder::new()
+    }
+
     /// A clone of the embedded QuickJS context.
-    ///
-    /// Cheap (a refcount bump) and keeps the realm — and the runtime behind
-    /// it — alive independently of this handle. Native values that must
-    /// outlive a single call (e.g. [`crate::Atom`]) hold one so they can
-    /// re-enter the context later.
     pub(crate) fn clone_inner(&self) -> QjsContext {
         self.inner.clone()
     }
 
     /// Evaluate `source` as a global script and return the result as a JS value.
-    ///
-    /// Runs in QuickJS strict mode. Throws (as a JS exception) if the script
-    /// throws or fails to parse.
     #[napi]
     pub fn eval(&self, source: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
@@ -162,8 +308,6 @@ impl JsContext {
     }
 
     /// Run one pending microtask/job (e.g. after a top-level `await`).
-    ///
-    /// Returns `true` if a job actually ran. Call in a loop to drain the queue.
     #[napi]
     pub fn execute_pending_job(&self) -> napi::Result<bool> {
         Ok(self.inner.with(|ctx| ctx.execute_pending_job()))
@@ -183,64 +327,22 @@ impl JsContext {
             value_to_json(&ctx, value)
         })
     }
-    #[napi]
-    pub fn full(env: Env) -> napi::Result<Self> {
-        let runtime = QjsRuntime::new().map_err(to_napi_err)?;
-        let inner = QjsContext::full(&runtime).map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
-    #[napi]
-    pub fn base(env: Env) -> napi::Result<Self> {
-        let runtime = QjsRuntime::new().map_err(to_napi_err)?;
-        let inner = QjsContext::base(&runtime).map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
-    #[napi]
-    pub fn custom(env: Env, intrinsics: Option<Vec<String>>) -> napi::Result<Self> {
-        let runtime = QjsRuntime::new().map_err(to_napi_err)?;
-        let use_full = intrinsics
-            .map_or(false, |list| list.iter().any(|s| s == "All"));
-        let inner = if use_full {
-            QjsContext::full(&runtime)
-        } else {
-            QjsContext::custom::<intrinsic::None>(&runtime)
-        }
-        .map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
 
+    /// Prototype method: returns the raw C JSContext pointer.
     #[napi]
-    pub fn builder(env: Env) -> napi::Result<Self> {
-        let runtime = QjsRuntime::new().map_err(to_napi_err)?;
-        let inner = QjsContext::builder().build(&runtime).map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
-
-    #[napi]
-    pub fn from_raw(env: Env, ctx_ptr: BigInt, engine: &JsEngine) -> napi::Result<Self> {
-        let (negative, value, lossless) = ctx_ptr.get_u64();
-        if negative || !lossless {
-            return Err(Error::from_reason("context pointer does not fit in a u64"));
-        }
-        let ptr = value as *mut qjs::JSContext;
-        let nn = NonNull::new(ptr)
-            .ok_or_else(|| Error::from_reason("context pointer is null"))?;
-        let inner = unsafe { QjsContext::from_raw(nn, engine.get_runtime().clone()) };
-        Self::create_standalone(inner, env)
-    }
-
-    #[napi]
-    pub fn as_raw(&self) -> napi::Result<JsBigInt> {
+    pub fn as_raw(&self) -> BigInt {
         let ptr = self.inner.as_raw().as_ptr() as u64;
-        self.env.create_bigint_from_u64(ptr)
+        BigInt::from(ptr)
     }
 
+    /// Prototype method: returns the raw C JSEngine / JSRuntime pointer.
     #[napi]
-    pub fn get_engine_ptr(&self) -> napi::Result<JsBigInt> {
-        let ptr = self.inner.get_runtime_ptr() as u64;
-        self.env.create_bigint_from_u64(ptr)
+    pub fn get_engine_ptr(&self) -> BigInt {
+        let ptr = unsafe { qjs::JS_GetRuntime(self.inner.as_raw().as_ptr()) as u64 };
+        BigInt::from(ptr)
     }
 
+    /// Prototype method: returns the associated Engine instance.
     #[napi]
     pub fn engine(&self) -> JsEngine {
         JsEngine::from_runtime(
@@ -250,24 +352,26 @@ impl JsContext {
         )
     }
 
+    /// Prototype method (capital E): returns the associated Engine instance.
+    #[napi(js_name = "Engine")]
+    pub fn engine_capital(&self) -> JsEngine {
+        self.engine()
+    }
+
+    /// Prototype method: execute a closure with the context Ctx.
     #[napi]
-    pub fn with(&self, callback: JsFunction) -> napi::Result<Unknown> {
+    pub fn with<'a>(&self, callback: Function<JsCtx, Unknown<'a>>) -> napi::Result<Unknown<'a>> {
         self.inner.with(|ctx| {
-            // Safety: `ctx` borrows the runtime for this `with` call. We extend
-            // its lifetime to `'static` only to wrap it in a `JsCtx` that the JS
-            // callback receives. The `JsCtx` is dropped (freeing the context
-            // reference) before this closure returns, so the extended lifetime
-            // never outlives the lock.
             let ctx_static = unsafe { std::mem::transmute::<Ctx<'_>, Ctx<'static>>(ctx) };
             let jsctx = JsCtx::from_inner(ctx_static);
-            let raw = JsCtx::to_napi_value(self.env.raw(), jsctx)?;
-            let unknown = Unknown::from_napi_value(self.env.raw(), raw)?;
-            callback.call(None, &[unknown])
+            let this: Option<()> = None;
+            callback.apply(this, jsctx)
         })
     }
 }
 
-#[napi]
+/// NAPI class wrapping QuickJS Ctx.
+#[napi(js_name = "Ctx")]
 pub struct JsCtx {
     inner: Ctx<'static>,
 }

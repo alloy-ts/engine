@@ -3,14 +3,14 @@ export function main(): string {
 }
 
 export {
-  add,
   Atom,
   Compiler,
   Context,
   Engine,
   Global,
-  Loader,
+  JsLoader as Loader,
   Parser,
-  PredefinedAtom,
   WeakEngine,
 } from "../dist/index.js";
+
+export type { PredefinedAtom } from "../dist/index.js";
