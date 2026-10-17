@@ -2,4 +2,4 @@ export function main(): string {
   return "Hello, world!";
 }
 
-export { Engine, Global, Parser, add, Context, WeakEngine, Loader, Compiler } from "../dist/index.js";
+export { Atom, Engine, Global, Parser, add, Context, WeakEngine, Loader, Compiler } from "../dist/index.js";
