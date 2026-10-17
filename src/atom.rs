@@ -15,28 +15,35 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// A symbol for instance is just an atom.
 #[napi(js_name = "Atom")]
 pub struct Atom {
+    _runtime: QjsRuntime,
     ctx: QjsContext,
     value: String,
+}
+
+impl Atom {
+    fn create(str_val: String) -> Self {
+        let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
+        let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
+        ctx.with(|c| {
+            let _atom = QjsAtom::from_str(c.clone(), &str_val);
+        });
+        Atom {
+            _runtime: runtime,
+            ctx,
+            value: str_val,
+        }
+    }
 }
 
 #[napi]
 impl Atom {
     #[napi(constructor)]
     pub fn new(value: Option<String>) -> Self {
-        let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
-        let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
-        let str_val = value.unwrap_or_default();
-        ctx.with(|c| {
-            let _atom = QjsAtom::from_str(c.clone(), &str_val);
-        });
-        Atom {
-            ctx,
-            value: str_val,
-        }
+        Self::create(value.unwrap_or_default())
     }
 
     /// Create an atom from a predefined atom name.
-    #[napi(factory, js_name = "from_predefined")]
+    #[napi(factory)]
     pub fn from_predefined(predefined: String) -> Self {
         let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
         let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
@@ -45,13 +52,14 @@ impl Atom {
             atom.to_string().expect("failed to stringify atom")
         });
         Atom {
+            _runtime: runtime,
             ctx,
             value: str_val,
         }
     }
 
     /// Create an atom from a `u32`.
-    #[napi(factory, js_name = "from_u32")]
+    #[napi(factory)]
     pub fn from_u32(val: u32) -> Self {
         let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
         let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
@@ -60,13 +68,14 @@ impl Atom {
             atom.to_string().expect("failed to stringify atom")
         });
         Atom {
+            _runtime: runtime,
             ctx,
             value: str_val,
         }
     }
 
     /// Create an atom from an `i32`.
-    #[napi(factory, js_name = "from_i32")]
+    #[napi(factory)]
     pub fn from_i32(val: i32) -> Self {
         let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
         let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
@@ -75,13 +84,14 @@ impl Atom {
             atom.to_string().expect("failed to stringify atom")
         });
         Atom {
+            _runtime: runtime,
             ctx,
             value: str_val,
         }
     }
 
     /// Create an atom from a `bool`.
-    #[napi(factory, js_name = "from_bool")]
+    #[napi(factory)]
     pub fn from_bool(val: bool) -> Self {
         let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
         let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
@@ -90,13 +100,14 @@ impl Atom {
             atom.to_string().expect("failed to stringify atom")
         });
         Atom {
+            _runtime: runtime,
             ctx,
             value: str_val,
         }
     }
 
     /// Create an atom from a `f64`.
-    #[napi(factory, js_name = "from_f64")]
+    #[napi(factory)]
     pub fn from_f64(val: f64) -> Self {
         let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
         let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
@@ -105,28 +116,20 @@ impl Atom {
             atom.to_string().expect("failed to stringify atom")
         });
         Atom {
+            _runtime: runtime,
             ctx,
             value: str_val,
         }
     }
 
     /// Create an atom from a string.
-    #[napi(factory, js_name = "from_str")]
+    #[napi(factory)]
     pub fn from_str(name: String) -> Self {
-        let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
-        let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
-        let str_val = ctx.with(|c| {
-            let atom = QjsAtom::from_str(c.clone(), &name).expect("failed atom creation");
-            atom.to_string().expect("failed to stringify atom")
-        });
-        Atom {
-            ctx,
-            value: str_val,
-        }
+        Self::create(name)
     }
 
     /// Create an atom from a JavaScript value representation (stringified or primitive string).
-    #[napi(factory, js_name = "from_value")]
+    #[napi(factory)]
     pub fn from_value(val: String) -> Self {
         let runtime = QjsRuntime::new().expect("failed to create QuickJS runtime");
         let ctx = QjsContext::full(&runtime).expect("failed to create QuickJS context");
@@ -136,13 +139,14 @@ impl Atom {
             atom.to_string().expect("failed to stringify atom")
         });
         Atom {
+            _runtime: runtime,
             ctx,
             value: str_val,
         }
     }
 
     /// Convert the atom to a JavaScript string.
-    #[napi(js_name = "to_string")]
+    #[napi]
     pub fn to_string(&self) -> NapiResult<String> {
         self.ctx.with(|c| {
             let atom = QjsAtom::from_str(c.clone(), &self.value).map_err(to_napi_err)?;
@@ -151,7 +155,7 @@ impl Atom {
     }
 
     /// Convert the atom to a JavaScript string representation.
-    #[napi(js_name = "to_js_string")]
+    #[napi]
     pub fn to_js_string(&self) -> NapiResult<String> {
         self.ctx.with(|c| {
             let atom = QjsAtom::from_str(c.clone(), &self.value).map_err(to_napi_err)?;
@@ -161,7 +165,7 @@ impl Atom {
     }
 
     /// Convert the atom to a JavaScript value.
-    #[napi(js_name = "to_value")]
+    #[napi]
     pub fn to_value(&self) -> NapiResult<String> {
         Ok(self.value.clone())
     }
