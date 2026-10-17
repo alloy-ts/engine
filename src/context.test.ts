@@ -47,6 +47,54 @@ describe("napi: Context", () => {
     // Realms are isolated: `b` does not see `a`'s global.
     expect(b.eval("typeof globalThis.tag")).toBe("undefined");
   });
+
+  test("Context static factory constructors work", () => {
+    const engine = new Engine();
+
+    const fullCtx = Context.full(engine);
+    expect(fullCtx).toBeDefined();
+    expect(fullCtx.eval("1 + 1")).toBe(2);
+
+    const baseCtx = Context.base(engine);
+    expect(baseCtx).toBeDefined();
+
+    const customCtx = Context.custom(engine);
+    expect(customCtx).toBeDefined();
+
+    const builderCtx = Context.builder(engine);
+    expect(builderCtx).toBeDefined();
+    expect(builderCtx.eval("2 * 3")).toBe(6);
+
+    const rawPtr = fullCtx.asRaw();
+    expect(typeof rawPtr).toBe("bigint");
+    expect(rawPtr).toBeGreaterThan(0n);
+
+    const fromRawCtx = Context.fromRaw(engine, rawPtr);
+    expect(fromRawCtx).toBeDefined();
+    expect(fromRawCtx.eval("10 + 20")).toBe(30);
+  });
+
+  test("Context prototype methods work (asRaw, getEnginePtr, Engine, with)", () => {
+    const engine = new Engine();
+    const ctx = Context.full(engine);
+
+    expect(ctx.asRaw()).toBeGreaterThan(0n);
+    expect(ctx.as_raw()).toBeGreaterThan(0n);
+
+    expect(ctx.getEnginePtr()).toBeGreaterThan(0n);
+    expect(ctx.get_engine_ptr()).toBeGreaterThan(0n);
+
+    const eng1 = ctx.Engine();
+    expect(eng1).toBeDefined();
+
+    const eng2 = ctx.engine();
+    expect(eng2).toBeDefined();
+
+    const res = ctx.with(() => {
+      return 100;
+    });
+    expect(res).toBe(100);
+  });
 });
 
 describe("napi: Engine + Context", () => {

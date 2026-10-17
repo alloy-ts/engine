@@ -88,6 +88,15 @@ impl JsEngine {
         Ok(JsContext::from_inner(inner))
     }
 
+    pub(crate) fn from_inner(inner: QjsRuntime, env: Env) -> Self {
+        let alive = Arc::new(AtomicBool::new(false));
+        JsEngine { inner, env, alive }
+    }
+
+    pub(crate) fn inner(&self) -> &QjsRuntime {
+        &self.inner
+    }
+
     /// Get a weak handle to this engine. Holding it does not keep the engine
     /// alive; [`JsWeakEngine::try_ref`] returns `null` once the engine (and
     /// all contexts created from it) are gone.

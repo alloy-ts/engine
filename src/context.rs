@@ -1,4 +1,4 @@
-use napi::Error;
+use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rquickjs::{
     Ctx, FromJs, Module, Runtime as QjsRuntime, Context as QjsContext, Type, Value,
 };
+
+use crate::engine::JsEngine;
 
 /// Monotonic counter used to give each `eval_module` call a unique module name,
 /// since QuickJS keys its module registry by name (re-declaring a name errors).
@@ -81,6 +83,104 @@ impl JsContext {
 
     pub(crate) fn from_inner(inner: QjsContext) -> Self {
         JsContext { inner }
+    }
+
+    /// Create a Context from a raw context pointer and a JsEngine.
+    #[napi(factory, js_name = "from_raw")]
+    pub fn from_raw(engine: &JsEngine, ptr: BigInt) -> napi::Result<Self> {
+        let (signed, raw_ptr, lossless) = ptr.get_u64();
+        if signed || !lossless || raw_ptr == 0 {
+            return Err(Error::from_reason("Invalid raw context pointer"));
+        }
+        let non_null = std::ptr::NonNull::new(raw_ptr as *mut rquickjs::qjs::JSContext)
+            .ok_or_else(|| Error::from_reason("Null pointer"))?;
+        unsafe { rquickjs::qjs::JS_DupContext(non_null.as_ptr()) };
+        let inner = unsafe { QjsContext::from_raw(non_null, engine.inner().clone()) };
+        Ok(JsContext { inner })
+    }
+
+    /// Alias for `from_raw` in camelCase for JS convenience.
+    #[napi(factory, js_name = "fromRaw")]
+    pub fn from_raw_camel(engine: &JsEngine, ptr: BigInt) -> napi::Result<Self> {
+        Self::from_raw(engine, ptr)
+    }
+
+    /// Creates a base context with only required functions registered.
+    #[napi(factory, js_name = "base")]
+    pub fn base(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::base(engine.inner()).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Creates a context with custom intrinsics registered.
+    #[napi(factory, js_name = "custom")]
+    pub fn custom(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::custom::<rquickjs::context::intrinsic::None>(engine.inner())
+            .map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Creates a context with all standard intrinsics registered.
+    #[napi(factory, js_name = "full")]
+    pub fn full(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::full(engine.inner()).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Create a context builder for creating a context with a specific set of intrinsics.
+    #[napi(factory, js_name = "builder")]
+    pub fn builder(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::builder()
+            .with::<rquickjs::context::intrinsic::Eval>()
+            .build(engine.inner())
+            .map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Returns the raw pointer to the QuickJS C context as a BigInt.
+    #[napi(js_name = "as_raw")]
+    pub fn as_raw(&self) -> BigInt {
+        BigInt::from(self.inner.as_raw().as_ptr() as usize as u64)
+    }
+
+    /// Alias for `as_raw` in camelCase for JS convenience.
+    #[napi(js_name = "asRaw")]
+    pub fn as_raw_camel(&self) -> BigInt {
+        self.as_raw()
+    }
+
+    /// Returns the pointer to the underlying QuickJS Engine (JSRuntime) as a BigInt.
+    #[napi(js_name = "get_engine_ptr")]
+    pub fn get_engine_ptr(&self) -> BigInt {
+        let ptr = unsafe { rquickjs::qjs::JS_GetRuntime(self.inner.as_raw().as_ptr()) };
+        BigInt::from(ptr as usize as u64)
+    }
+
+    /// Alias for `get_engine_ptr` in camelCase for JS convenience.
+    #[napi(js_name = "getEnginePtr")]
+    pub fn get_engine_ptr_camel(&self) -> BigInt {
+        self.get_engine_ptr()
+    }
+
+    /// Returns the associated Engine wrapper instance.
+    #[napi(js_name = "engine")]
+    pub fn engine(&self, env: Env) -> napi::Result<JsEngine> {
+        Ok(JsEngine::from_inner(self.inner.runtime().clone(), env))
+    }
+
+    /// Alias for `engine` in PascalCase for JS convenience.
+    #[napi(js_name = "Engine")]
+    pub fn engine_pascal(&self, env: Env) -> napi::Result<JsEngine> {
+        self.engine(env)
+    }
+
+    /// Executes a callback inside this context's scope and returns its result.
+    #[napi(js_name = "with")]
+    pub fn with_callback<'env>(&self, env: &'env Env, callback: Function<'env, (), Unknown<'env>>) -> napi::Result<Unknown<'env>> {
+        self.inner.with(|_c| {
+            let global = env.get_global()?;
+            callback.apply(global, ())
+        })
     }
 
     /// Evaluate `source` as a global script and return the result as a JS value.
