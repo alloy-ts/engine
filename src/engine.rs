@@ -32,7 +32,7 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const ctx = engine.create_context();
 /// const arr = engine.create_array(3);   // host N-API value
 /// ```
-#[napi]
+#[napi(js_name = "Engine")]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
     inner: QjsRuntime,
@@ -222,7 +222,7 @@ impl JsEngine {
 /// alive — use [`JsWeakEngine::try_ref`] to try to re-acquire a strong handle.
 /// Once the engine and every context created from it are dropped, `try_ref`
 /// returns `null`.
-#[napi]
+#[napi(js_name = "WeakEngine")]
 pub struct JsWeakEngine {
     inner: QjsWeakRuntime,
     /// A copy of the host environment and the alive flag, so a promoted handle

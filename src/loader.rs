@@ -102,7 +102,7 @@ impl Loader for SharedModules {
     }
 }
 
-#[napi]
+#[napi(js_name = "Loader")]
 pub struct JsLoader {
     inner: Arc<Mutex<LoaderData>>,
 }

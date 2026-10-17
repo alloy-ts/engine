@@ -28,7 +28,7 @@
 
 use core::{ffi::CStr, ptr::null_mut};
 
-use napi::bindgen_prelude::{BigInt, Env, Error, JsObject, Result};
+use napi::bindgen_prelude::{BigInt, Env, Error, JsObjectValue, Object as JsObject, Result};
 use napi_derive::napi;
 use rquickjs::{qjs, Context as QjsContext, Ctx, Value};
 use serde_json::Value as JsonValue;
@@ -563,8 +563,8 @@ impl Atom {
     })
   }
   #[napi(getter)]
-  pub fn in_js(env: &Env) -> Result<JsObject> {
-    let mut obj = env.create_object()?;
+  pub fn in_js(env: &Env) -> Result<JsObject<'_>> {
+    let mut obj = JsObject::new(env)?;
     // A curated, JavaScript-facing subset of the QuickJS predefined atoms.
     macro_rules! put {
       ($($variant:ident),* $(,)?) => {
@@ -589,62 +589,62 @@ impl Atom {
   }
 
   #[napi(getter)]
-  pub fn in_rs(env: &Env) -> Result<JsObject> {
-    let mut obj = env.create_object()?;
+  pub fn in_rs(env: &Env) -> Result<JsObject<'_>> {
+    let mut obj = JsObject::new(env)?;
 
     let u32_fn = env.create_function_from_closure::<(), Atom, _>("U32", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<u32>(1)?;
-      Atom::from_u32(&jsctx, val)
+      Atom::from_u32(jsctx, val)
     })?;
     obj.set_named_property("U32", u32_fn)?;
 
     let i32_fn = env.create_function_from_closure::<(), Atom, _>("I32", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<i32>(1)?;
-      Atom::from_i32(&jsctx, val)
+      Atom::from_i32(jsctx, val)
     })?;
     obj.set_named_property("I32", i32_fn)?;
 
     let u64_fn = env.create_function_from_closure::<(), Atom, _>("U64", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<BigInt>(1)?;
-      Atom::from_u64(&jsctx, val)
+      Atom::from_u64(jsctx, val)
     })?;
     obj.set_named_property("U64", u64_fn)?;
 
     let i64_fn = env.create_function_from_closure::<(), Atom, _>("I64", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<BigInt>(1)?;
-      Atom::from_i64(&jsctx, val)
+      Atom::from_i64(jsctx, val)
     })?;
     obj.set_named_property("I64", i64_fn)?;
 
     let f64_fn = env.create_function_from_closure::<(), Atom, _>("F64", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<f64>(1)?;
-      Atom::from_f64(&jsctx, val)
+      Atom::from_f64(jsctx, val)
     })?;
     obj.set_named_property("F64", f64_fn)?;
 
     let f32_fn = env.create_function_from_closure::<(), Atom, _>("F32", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<f64>(1)?;
-      Atom::from_f32(&jsctx, val)
+      Atom::from_f32(jsctx, val)
     })?;
     obj.set_named_property("F32", f32_fn)?;
 
     let bool_fn = env.create_function_from_closure::<(), Atom, _>("BOOL", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<bool>(1)?;
-      Atom::from_bool(&jsctx, val)
+      Atom::from_bool(jsctx, val)
     })?;
     obj.set_named_property("BOOL", bool_fn)?;
 
     let str_fn = env.create_function_from_closure::<(), Atom, _>("STRING", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&JsContext>(0)?;
       let val = ctx.get::<String>(1)?;
-      Atom::from_str(&jsctx, val)
+      Atom::from_str(jsctx, val)
     })?;
     obj.set_named_property("STRING", str_fn)?;
 
