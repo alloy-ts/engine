@@ -5,11 +5,9 @@ use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
 use rquickjs::{
-    runtime::WeakRuntime as QjsWeakRuntime, Context as QjsContext, Runtime as QjsRuntime,
+    runtime::WeakRuntime as QjsWeakRuntime, Runtime as QjsRuntime,
 };
 use serde_json::json;
-
-use crate::context::JsContext;
 use crate::loader::JsLoader;
 
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
@@ -32,7 +30,7 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const ctx = new Context();
 /// const int = new Atom.from_i64(3);
 /// ```
-#[napi]
+#[napi(js_name = "Engine")]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
     inner: QjsRuntime,
@@ -210,7 +208,7 @@ impl JsEngine {
 /// alive — use [`JsWeakEngine::try_ref`] to try to re-acquire a strong handle.
 /// Once the engine and every context created from it are dropped, `try_ref`
 /// returns `null`.
-#[napi]
+#[napi(js_name = "WeakEngine")]
 pub struct JsWeakEngine {
     inner: QjsWeakRuntime,
     /// A copy of the host environment and the alive flag, so a promoted handle

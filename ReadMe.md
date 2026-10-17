@@ -94,7 +94,9 @@ engine.runGc(); // force a garbage-collection sweep
 
 // Promise / microtask jobs queue on the engine; drain them explicitly:
 if (engine.is_job_pending()) {
-  while (engine.execute_pending_job()) { /* run queued jobs */ }
+  while (engine.execute_pending_job()) {
+    /* run queued jobs */
+  }
 }
 
 // A weak handle that does NOT keep the engine alive:

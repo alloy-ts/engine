@@ -1,14 +1,15 @@
 use std::ptr::NonNull;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
-use napi::{Env, Error, JsBigInt, JsFunction, Unknown};
-use napi::bindgen_prelude::{BigInt, FromNapiValue, ToNapiValue};
+use napi::bindgen_prelude::{BigInt, FromNapiValue, Function, ToNapiValue, Unknown};
+use napi::{Env, Error};
 use napi_derive::napi;
 use rquickjs::context::intrinsic;
 use rquickjs::{
-    qjs, Ctx, FromJs, Module, Runtime, Context as Inner, Type, Value,
+    qjs, Context as Inner, Ctx, FromJs, Module, Runtime, Type, Value,
 };
+use serde_json::Value as JsonValue;
 
 use crate::engine::JsEngine;
 
@@ -22,10 +23,6 @@ pub(crate) fn to_napi_err(e: rquickjs::Error) -> Error {
 }
 
 /// Convert a QuickJS value into a JSON value Node can receive directly.
-///
-/// Data types (objects, arrays, numbers, strings, booleans, null) round-trip
-/// losslessly. Functions / symbols / promises are not JSON-representable and
-/// collapse to `null` for now (see module docs).
 pub(crate) fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonValue> {
     use rquickjs::String as QjsString;
 
@@ -47,9 +44,6 @@ pub(crate) fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Res
                 .to_string()
                 .map_err(to_napi_err)?,
         )),
-        // Objects, arrays, functions, symbols and promises: try JSON first.
-        // Functions/symbols/promises stringify to `undefined`, which we surface
-        // as `null`.
         _ => match ctx.json_stringify(value).map_err(to_napi_err)? {
             Some(s) => serde_json::from_str(&s.to_string().map_err(to_napi_err)?)
                 .map_err(|e| Error::from_reason(e.to_string())),
@@ -84,9 +78,6 @@ impl Context {
         let inner = Inner::full(&runtime).map_err(to_napi_err)?;
         Self::create_standalone(inner, env)
     }
-    pub(crate) fn from_inner(inner: Inner, env: Env, alive: Arc<AtomicBool>) -> Self {
-        Context { inner, env, alive }
-    }
 
     fn create_standalone(inner: Inner, env: Env) -> napi::Result<Self> {
         let alive = Arc::new(AtomicBool::new(false));
@@ -97,123 +88,13 @@ impl Context {
         Ok(Context { inner, env, alive })
     }
 
-    /// A clone of the embedded QuickJS context.
-    ///
-    /// Cheap (a refcount bump) and keeps the realm — and the runtime behind
-    /// it — alive independently of this handle. Native values that must
-    /// outlive a single call (e.g. [`crate::Atom`]) hold one so they can
-    /// re-enter the context later.
     pub(crate) fn clone_inner(&self) -> Inner {
         self.inner.clone()
     }
 
-    /// Evaluate `source` as a global script and return the result as a JS value.
-    ///
-    /// Runs in QuickJS strict mode. Throws (as a JS exception) if the script
-    /// throws or fails to parse.
-    #[napi]
-    pub fn eval(&self, source: String) -> napi::Result<JsonValue> {
-        self.inner.with(|ctx| {
-            let value: Value = ctx.eval(source).map_err(to_napi_err)?;
-            value_to_json(&ctx, value)
-        })
-    }
+    // --- Static constructor methods ---
 
-    /// Evaluate `source` as an ES module (`import` / `export` allowed) and return
-    /// its namespace object as a JS value.
-    #[napi]
-    pub fn eval_module(&self, source: String) -> napi::Result<JsonValue> {
-        self.inner.with(|ctx| {
-            let seq = MODULE_SEQ.fetch_add(1, Ordering::Relaxed);
-            let name = format!("<eval:{seq}>");
-            let module = Module::declare(ctx.clone(), name, source).map_err(to_napi_err)?;
-            let (evaluated, _promise) = module.eval().map_err(to_napi_err)?;
-            let ns = evaluated.namespace().map_err(to_napi_err)?;
-            value_to_json(&ctx, ns.into_value())
-        })
-    }
-
-    /// Parse `json` inside the embedded engine and return it as a JS value.
-    #[napi]
-    pub fn json_parse(&self, json: String) -> napi::Result<JsonValue> {
-        self.inner.with(|ctx| {
-            let value = ctx.json_parse(json).map_err(to_napi_err)?;
-            value_to_json(&ctx, value)
-        })
-    }
-
-    /// Enumerable own keys of the global object (`Object.keys(this)`).
-    #[napi]
-    pub fn global_keys(&self) -> napi::Result<Vec<String>> {
-        self.inner.with(|ctx| {
-            let keys: Vec<String> = ctx.eval("Object.keys(this)").map_err(to_napi_err)?;
-            Ok(keys)
-        })
-    }
-
-    /// Run a garbage-collection cycle over the embedded engine.
-    #[napi]
-    pub fn run_gc(&self) -> napi::Result<()> {
-        self.inner.with(|ctx| ctx.run_gc());
-        Ok(())
-    }
-
-    /// Run one pending microtask/job (e.g. after a top-level `await`).
-    ///
-    /// Returns `true` if a job actually ran. Call in a loop to drain the queue.
-    #[napi]
-    pub fn execute_pending_job(&self) -> napi::Result<bool> {
-        Ok(self.inner.with(|ctx| ctx.execute_pending_job()))
-    }
-
-    /// Whether a JS exception is currently pending in this context.
-    #[napi]
-    pub fn has_exception(&self) -> napi::Result<bool> {
-        Ok(self.inner.with(|ctx| ctx.has_exception()))
-    }
-
-    /// Return the pending JS exception marshalled into a JS value (or `null`).
-    #[napi]
-    pub fn catch(&self) -> napi::Result<JsonValue> {
-        self.inner.with(|ctx| {
-            let value = ctx.catch();
-            value_to_json(&ctx, value)
-        })
-    }
-    #[napi]
-    pub fn full(env: Env) -> napi::Result<Self> {
-        let runtime = Runtime::new().map_err(to_napi_err)?;
-        let inner = Inner::full(&runtime).map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
-    #[napi]
-    pub fn base(env: Env) -> napi::Result<Self> {
-        let runtime = Runtime::new().map_err(to_napi_err)?;
-        let inner = Inner::base(&runtime).map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
-    #[napi]
-    pub fn custom(env: Env, intrinsics: Option<Vec<String>>) -> napi::Result<Self> {
-        let runtime = Runtime::new().map_err(to_napi_err)?;
-        let use_full = intrinsics
-            .map_or(false, |list| list.iter().any(|s| s == "All"));
-        let inner = if use_full {
-            Inner::full(&runtime)
-        } else {
-            Inner::custom::<intrinsic::None>(&runtime)
-        }
-        .map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
-
-    #[napi]
-    pub fn builder(env: Env) -> napi::Result<Self> {
-        let runtime = Runtime::new().map_err(to_napi_err)?;
-        let inner = Inner::builder().build(&runtime).map_err(to_napi_err)?;
-        Self::create_standalone(inner, env)
-    }
-
-    #[napi]
+    #[napi(js_name = "fromRaw")]
     pub fn from_raw(env: Env, ctx_ptr: BigInt, engine: &JsEngine) -> napi::Result<Self> {
         let (negative, value, lossless) = ctx_ptr.get_u64();
         if negative || !lossless {
@@ -227,40 +108,307 @@ impl Context {
     }
 
     #[napi]
-    pub fn as_raw(&self) -> napi::Result<JsBigInt> {
+    pub fn base(env: Env, engine: Option<&JsEngine>) -> napi::Result<Self> {
+        let inner = if let Some(e) = engine {
+            Inner::base(e.get_runtime()).map_err(to_napi_err)?
+        } else {
+            let runtime = Runtime::new().map_err(to_napi_err)?;
+            Inner::base(&runtime).map_err(to_napi_err)?
+        };
+        Self::create_standalone(inner, env)
+    }
+
+    #[napi]
+    pub fn custom(
+        env: Env,
+        engine: Option<&JsEngine>,
+        intrinsics: Option<Vec<String>>,
+    ) -> napi::Result<Self> {
+        let runtime_owned;
+        let rt = if let Some(e) = engine {
+            e.get_runtime()
+        } else {
+            runtime_owned = Runtime::new().map_err(to_napi_err)?;
+            &runtime_owned
+        };
+
+        if let Some(ref list) = intrinsics {
+            if list.iter().any(|s| s.eq_ignore_ascii_case("all")) {
+                let inner = Inner::full(rt).map_err(to_napi_err)?;
+                return Self::create_standalone(inner, env);
+            } else if list.is_empty() || list.iter().any(|s| s.eq_ignore_ascii_case("none")) {
+                let inner = Inner::custom::<intrinsic::None>(rt).map_err(to_napi_err)?;
+                return Self::create_standalone(inner, env);
+            } else {
+                let mut builder = ContextBuilder::new();
+                for name in list {
+                    builder.with(name.clone());
+                }
+                return builder.build(env, engine);
+            }
+        } else {
+            let inner = Inner::custom::<intrinsic::None>(rt).map_err(to_napi_err)?;
+            Self::create_standalone(inner, env)
+        }
+    }
+
+    #[napi]
+    pub fn full(env: Env, engine: Option<&JsEngine>) -> napi::Result<Self> {
+        let inner = if let Some(e) = engine {
+            Inner::full(e.get_runtime()).map_err(to_napi_err)?
+        } else {
+            let runtime = Runtime::new().map_err(to_napi_err)?;
+            Inner::full(&runtime).map_err(to_napi_err)?
+        };
+        Self::create_standalone(inner, env)
+    }
+
+    #[napi]
+    pub fn builder() -> ContextBuilder {
+        ContextBuilder::new()
+    }
+
+    // --- Instance prototype methods ---
+
+    #[napi(js_name = "asRaw")]
+    pub fn as_raw(&self) -> napi::Result<BigInt> {
         let ptr = self.inner.as_raw().as_ptr() as u64;
-        self.env.create_bigint_from_u64(ptr)
+        Ok(BigInt::from(ptr))
     }
 
-    #[napi]
-    pub fn get_engine_ptr(&self) -> napi::Result<JsBigInt> {
-        let ptr = self.inner.get_runtime_ptr() as u64;
-        self.env.create_bigint_from_u64(ptr)
+    #[napi(js_name = "getEnginePtr")]
+    pub fn get_engine_ptr(&self) -> napi::Result<BigInt> {
+        let ptr = unsafe { qjs::JS_GetRuntime(self.inner.as_raw().as_ptr()) } as u64;
+        Ok(BigInt::from(ptr))
     }
 
-    #[napi]
-    pub fn from_engine(&self) -> JsEngine {
+    #[napi(js_name = "Engine")]
+    pub fn engine(&self) -> JsEngine {
         JsEngine::from_runtime(
-            self.inner.from_runtime().clone(),
+            self.inner.runtime().clone(),
             self.env,
             Arc::clone(&self.alive),
         )
     }
 
     #[napi]
-    pub fn with(&self, callback: JsFunction) -> napi::Result<Unknown> {
+    pub fn with<'a>(&self, callback: Function<'a>) -> napi::Result<Unknown<'a>> {
         self.inner.with(|ctx| {
-            // Safety: `ctx` borrows the runtime for this `with` call. We extend
-            // its lifetime to `'static` only to wrap it in a `JsCtx` that the JS
-            // callback receives. The `JsCtx` is dropped (freeing the context
-            // reference) before this closure returns, so the extended lifetime
-            // never outlives the lock.
             let ctx_static = unsafe { std::mem::transmute::<Ctx<'_>, Ctx<'static>>(ctx) };
             let jsctx = JsCtx::from_inner(ctx_static);
-            let raw = JsCtx::to_napi_value(self.env.raw(), jsctx)?;
-            let unknown = Unknown::from_napi_value(self.env.raw(), raw)?;
-            callback.call(None, &[unknown])
+            let raw = unsafe { JsCtx::to_napi_value(self.env.raw(), jsctx)? };
+            let unknown = unsafe { Unknown::from_napi_value(self.env.raw(), raw)? };
+            callback.call(unknown)
         })
+    }
+
+    // --- Additional Context evaluation helpers ---
+
+    #[napi]
+    pub fn eval(&self, source: String) -> napi::Result<JsonValue> {
+        self.inner.with(|ctx| {
+            let value: Value = ctx.eval(source).map_err(to_napi_err)?;
+            value_to_json(&ctx, value)
+        })
+    }
+
+    #[napi]
+    pub fn eval_module(&self, source: String) -> napi::Result<JsonValue> {
+        self.inner.with(|ctx| {
+            let seq = MODULE_SEQ.fetch_add(1, Ordering::Relaxed);
+            let name = format!("<eval:{seq}>");
+            let module = Module::declare(ctx.clone(), name, source).map_err(to_napi_err)?;
+            let (evaluated, _promise) = module.eval().map_err(to_napi_err)?;
+            let ns = evaluated.namespace().map_err(to_napi_err)?;
+            value_to_json(&ctx, ns.into_value())
+        })
+    }
+
+    #[napi]
+    pub fn json_parse(&self, json: String) -> napi::Result<JsonValue> {
+        self.inner.with(|ctx| {
+            let value = ctx.json_parse(json).map_err(to_napi_err)?;
+            value_to_json(&ctx, value)
+        })
+    }
+
+    #[napi]
+    pub fn global_keys(&self) -> napi::Result<Vec<String>> {
+        self.inner.with(|ctx| {
+            let keys: Vec<String> = ctx.eval("Object.keys(this)").map_err(to_napi_err)?;
+            Ok(keys)
+        })
+    }
+
+    #[napi]
+    pub fn run_gc(&self) -> napi::Result<()> {
+        self.inner.with(|ctx| ctx.run_gc());
+        Ok(())
+    }
+
+    #[napi]
+    pub fn execute_pending_job(&self) -> napi::Result<bool> {
+        Ok(self.inner.with(|ctx| ctx.execute_pending_job()))
+    }
+
+    #[napi]
+    pub fn has_exception(&self) -> napi::Result<bool> {
+        Ok(self.inner.with(|ctx| ctx.has_exception()))
+    }
+
+    #[napi]
+    pub fn catch(&self) -> napi::Result<JsonValue> {
+        self.inner.with(|ctx| {
+            let value = ctx.catch();
+            value_to_json(&ctx, value)
+        })
+    }
+}
+
+#[napi]
+pub struct ContextBuilder {
+    eval: bool,
+    promise: bool,
+    bignum: bool,
+    json: bool,
+    proxy: bool,
+    typed_arrays: bool,
+    map_set: bool,
+    regexp: bool,
+    date: bool,
+}
+
+#[napi]
+impl ContextBuilder {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self {
+            eval: false,
+            promise: false,
+            bignum: false,
+            json: false,
+            proxy: false,
+            typed_arrays: false,
+            map_set: false,
+            regexp: false,
+            date: false,
+        }
+    }
+
+    #[napi]
+    pub fn with_eval(&mut self) -> &Self {
+        self.eval = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_promise(&mut self) -> &Self {
+        self.promise = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_bignum(&mut self) -> &Self {
+        self.bignum = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_json(&mut self) -> &Self {
+        self.json = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_proxy(&mut self) -> &Self {
+        self.proxy = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_typed_arrays(&mut self) -> &Self {
+        self.typed_arrays = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_map_set(&mut self) -> &Self {
+        self.map_set = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_regexp(&mut self) -> &Self {
+        self.regexp = true;
+        self
+    }
+
+    #[napi]
+    pub fn with_date(&mut self) -> &Self {
+        self.date = true;
+        self
+    }
+
+    #[napi]
+    pub fn with(&mut self, intrinsic: String) -> &Self {
+        match intrinsic.to_lowercase().as_str() {
+            "eval" | "intrinsic::eval" => self.eval = true,
+            "promise" | "intrinsic::promise" => self.promise = true,
+            "bignum" | "intrinsic::bignum" => self.bignum = true,
+            "json" | "intrinsic::json" => self.json = true,
+            "proxy" | "intrinsic::proxy" => self.proxy = true,
+            "typedarrays" | "typed_arrays" | "intrinsic::typedarrays" => self.typed_arrays = true,
+            "mapset" | "map_set" | "intrinsic::mapset" => self.map_set = true,
+            "regexp" | "intrinsic::regexp" => self.regexp = true,
+            "date" | "intrinsic::date" => self.date = true,
+            _ => {}
+        }
+        self
+    }
+
+    #[napi]
+    pub fn build(&self, env: Env, engine: Option<&JsEngine>) -> napi::Result<Context> {
+        let runtime_owned;
+        let rt = if let Some(e) = engine {
+            e.get_runtime()
+        } else {
+            runtime_owned = Runtime::new().map_err(to_napi_err)?;
+            &runtime_owned
+        };
+
+        let inner = Inner::custom::<intrinsic::None>(rt).map_err(to_napi_err)?;
+        inner.with(|ctx| unsafe {
+            let ptr = ctx.as_raw().as_ptr();
+            if self.eval {
+                qjs::JS_AddIntrinsicEval(ptr);
+            }
+            if self.promise {
+                qjs::JS_AddIntrinsicPromise(ptr);
+            }
+            if self.bignum {
+                qjs::JS_AddIntrinsicBigInt(ptr);
+            }
+            if self.json {
+                qjs::JS_AddIntrinsicJSON(ptr);
+            }
+            if self.proxy {
+                qjs::JS_AddIntrinsicProxy(ptr);
+            }
+            if self.typed_arrays {
+                qjs::JS_AddIntrinsicTypedArrays(ptr);
+            }
+            if self.map_set {
+                qjs::JS_AddIntrinsicMapSet(ptr);
+            }
+            if self.regexp {
+                qjs::JS_AddIntrinsicRegExp(ptr);
+            }
+            if self.date {
+                qjs::JS_AddIntrinsicDate(ptr);
+            }
+        });
+
+        Context::create_standalone(inner, env)
     }
 }
 
@@ -275,14 +423,12 @@ impl JsCtx {
         JsCtx { inner }
     }
 
-    /// Evaluate `source` as a global script and return the result as a JS value.
     #[napi]
     pub fn eval(&self, source: String) -> napi::Result<JsonValue> {
         let value: Value = self.inner.eval(source).map_err(to_napi_err)?;
         value_to_json(&self.inner, value)
     }
 
-    /// Evaluate `source` as an ES module and return its namespace as a JS value.
     #[napi]
     pub fn eval_module(&self, source: String) -> napi::Result<JsonValue> {
         let seq = MODULE_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -293,40 +439,34 @@ impl JsCtx {
         value_to_json(&self.inner, ns.into_value())
     }
 
-    /// Parse `json` inside the engine and return it as a JS value.
     #[napi]
     pub fn json_parse(&self, json: String) -> napi::Result<JsonValue> {
         let value = self.inner.json_parse(json).map_err(to_napi_err)?;
         value_to_json(&self.inner, value)
     }
 
-    /// Enumerable own keys of the global object.
     #[napi]
     pub fn global_keys(&self) -> napi::Result<Vec<String>> {
         let keys: Vec<String> = self.inner.eval("Object.keys(this)").map_err(to_napi_err)?;
         Ok(keys)
     }
 
-    /// Run a garbage-collection cycle over the engine.
     #[napi]
     pub fn run_gc(&self) -> napi::Result<()> {
         self.inner.run_gc();
         Ok(())
     }
 
-    /// Run one pending microtask/job. Returns `true` if a job ran.
     #[napi]
     pub fn execute_pending_job(&self) -> napi::Result<bool> {
         Ok(self.inner.execute_pending_job())
     }
 
-    /// Whether a JS exception is pending.
     #[napi]
     pub fn has_exception(&self) -> napi::Result<bool> {
         Ok(self.inner.has_exception())
     }
 
-    /// Return the pending JS exception as a JS value (or `null`).
     #[napi]
     pub fn catch(&self) -> napi::Result<JsonValue> {
         let value = self.inner.catch();
