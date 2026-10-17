@@ -5,7 +5,7 @@ use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
 use rquickjs::{
-    runtime::WeakRuntime as QjsWeakRuntime, Context as QjsContext, Runtime as QjsRuntime,
+    runtime::WeakRuntime as QjsWeakRuntime, Runtime as QjsRuntime,
 };
 use serde_json::json;
 
@@ -73,9 +73,19 @@ impl JsEngine {
         JsEngine { inner, env, alive }
     }
 
+    pub(crate) fn alive_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.alive)
+    }
+
     /// Borrow the embedded `rquickjs::Runtime` (used by `Context.fromRaw`).
     pub(crate) fn get_runtime(&self) -> &QjsRuntime {
         &self.inner
+    }
+
+    /// Create a new `JsContext` associated with this engine.
+    #[napi]
+    pub fn create_context(&self) -> napi::Result<JsContext> {
+        JsContext::full(self.env, Some(self))
     }
 
     /// Attach (or replace) the module loader/resolver for this engine.
