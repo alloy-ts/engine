@@ -111,7 +111,9 @@ engine.run_gc(); // force a garbage-collection sweep
 
 // Promise / microtask jobs queue on the engine; drain them explicitly:
 if (engine.is_job_pending()) {
-  while (engine.execute_pending_job()) { /* run queued jobs */ }
+  while (engine.execute_pending_job()) {
+    /* run queued jobs */
+  }
 }
 
 // A weak handle that does NOT keep the engine alive:
@@ -177,7 +179,9 @@ const engine = new Engine();
 // Facet A — compute inside QuickJS; the result comes back as a host value.
 const ctx = engine.create_context();
 const out = ctx.eval("Array.from({ length: 3 }, (_, i) => i * 2)"); // [0, 2, 4]
-while (engine.execute_pending_job()) { /* drain any queued jobs */ }
+while (engine.execute_pending_job()) {
+  /* drain any queued jobs */
+}
 
 // Facet B — reflect into the host environment and persist host-level state.
 engine.set_instance_data(JSON.stringify(out)); // "[0,2,4]"

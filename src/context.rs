@@ -1,11 +1,13 @@
-use napi::Error;
+use napi::bindgen_prelude::{BigInt, Env, Error, Function, Unknown};
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rquickjs::{
-    Ctx, FromJs, Module, Runtime as QjsRuntime, Context as QjsContext, Type, Value,
+    context::intrinsic, Ctx, FromJs, Module, Context as QjsContext, Type, Value,
 };
+
+use crate::engine::Engine;
 
 /// Monotonic counter used to give each `eval_module` call a unique module name,
 /// since QuickJS keys its module registry by name (re-declaring a name errors).
@@ -61,26 +63,35 @@ pub(crate) fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Res
 /// const v = ctx.eval("1 + 1"); // 2
 /// ```
 #[napi]
-pub struct JsContext {
+#[derive(Clone)]
+pub struct Context {
     /// The embedded QuickJS context. It keeps its runtime alive for us.
-    inner: QjsContext,
+    pub(crate) inner: QjsContext,
+    /// Optional associated engine.
+    pub(crate) engine: Option<Engine>,
 }
 
 #[napi]
-impl JsContext {
+impl Context {
     /// Create a `Context` backed by a freshly-created *private* QuickJS runtime.
     ///
     /// This is the self-contained form. Prefer `new Runtime().create_context()`
     /// to share one engine across several contexts.
     #[napi(constructor)]
-    pub fn new() -> napi::Result<Self> {
-        let runtime = QjsRuntime::new().map_err(to_napi_err)?;
-        let inner = QjsContext::full(&runtime).map_err(to_napi_err)?;
-        Ok(JsContext { inner })
+    pub fn new(env: Env) -> napi::Result<Self> {
+        let engine = Engine::new(env, None)?;
+        let inner = QjsContext::full(&engine.inner).map_err(to_napi_err)?;
+        Ok(Context {
+            inner,
+            engine: Some(engine),
+        })
     }
 
     pub(crate) fn from_inner(inner: QjsContext) -> Self {
-        JsContext { inner }
+        Context {
+            inner,
+            engine: None,
+        }
     }
 
     /// A clone of the embedded QuickJS context.
@@ -92,6 +103,109 @@ impl JsContext {
     pub(crate) fn clone_inner(&self) -> QjsContext {
         self.inner.clone()
     }
+
+    // --- Static Constructors ---
+
+    /// Create a context from a raw pointer to a JSContext.
+    #[napi(js_name = "fromRaw", factory)]
+    pub fn from_raw(env: Env, ptr: BigInt, engine: Option<&Engine>) -> napi::Result<Self> {
+        let (_, u64_val, _) = ptr.get_u64();
+        let raw_ptr = u64_val as *mut rquickjs::qjs::JSContext;
+        let non_null = std::ptr::NonNull::new(raw_ptr)
+            .ok_or_else(|| Error::from_reason("null pointer for JSContext"))?;
+
+        let engine_obj = match engine {
+            Some(e) => e.clone(),
+            None => Engine::new(env, None)?,
+        };
+
+        unsafe { rquickjs::qjs::JS_DupContext(non_null.as_ptr()) };
+        let inner = unsafe { QjsContext::from_raw(non_null, engine_obj.inner.clone()) };
+        Ok(Context {
+            inner,
+            engine: Some(engine_obj),
+        })
+    }
+
+    /// Creates a base context with only required functions registered.
+    #[napi(js_name = "base", factory)]
+    pub fn base(env: Env, engine: Option<&Engine>) -> napi::Result<Self> {
+        let engine_obj = match engine {
+            Some(e) => e.clone(),
+            None => Engine::new(env, None)?,
+        };
+        let inner = QjsContext::base(&engine_obj.inner).map_err(to_napi_err)?;
+        Ok(Context {
+            inner,
+            engine: Some(engine_obj),
+        })
+    }
+
+    /// Creates a context with custom intrinsics registered.
+    #[napi(js_name = "custom", factory)]
+    pub fn custom(env: Env, engine: Option<&Engine>) -> napi::Result<Self> {
+        let engine_obj = match engine {
+            Some(e) => e.clone(),
+            None => Engine::new(env, None)?,
+        };
+        let inner = QjsContext::custom::<intrinsic::None>(&engine_obj.inner).map_err(to_napi_err)?;
+        Ok(Context {
+            inner,
+            engine: Some(engine_obj),
+        })
+    }
+
+    /// Creates a context with all standard intrinsics registered.
+    #[napi(js_name = "full", factory)]
+    pub fn full(env: Env, engine: Option<&Engine>) -> napi::Result<Self> {
+        let engine_obj = match engine {
+            Some(e) => e.clone(),
+            None => Engine::new(env, None)?,
+        };
+        let inner = QjsContext::full(&engine_obj.inner).map_err(to_napi_err)?;
+        Ok(Context {
+            inner,
+            engine: Some(engine_obj),
+        })
+    }
+
+    /// Returns a ContextBuilder for creating custom contexts.
+    #[napi(js_name = "builder")]
+    pub fn builder() -> ContextBuilder {
+        ContextBuilder::new()
+    }
+
+    // --- Prototype Methods ---
+
+    /// Pointer to raw JSContext.
+    #[napi(js_name = "asRaw")]
+    pub fn as_raw(&self) -> BigInt {
+        BigInt::from(self.inner.as_raw().as_ptr() as u64)
+    }
+
+    /// Pointer to raw JSRuntime / JSEngine.
+    #[napi(js_name = "getEnginePtr")]
+    pub fn get_engine_ptr(&self) -> BigInt {
+        let ptr = unsafe { rquickjs::qjs::JS_GetRuntime(self.inner.as_raw().as_ptr()) };
+        BigInt::from(ptr as u64)
+    }
+
+    /// Associated Engine instance.
+    #[napi(js_name = "Engine")]
+    pub fn engine(&self, env: Env) -> napi::Result<Engine> {
+        match &self.engine {
+            Some(e) => Ok(e.clone()),
+            None => Engine::new(env, None),
+        }
+    }
+
+    /// Execute a callback within the context scope.
+    #[napi(js_name = "with")]
+    pub fn with<'a>(&self, cb: Function<'a, Context, Unknown<'a>>) -> napi::Result<Unknown<'a>> {
+        cb.call(self.clone())
+    }
+
+    // --- Script / Module Evaluation ---
 
     /// Evaluate `source` as a global script and return the result as a JS value.
     ///
@@ -164,6 +278,31 @@ impl JsContext {
         self.inner.with(|ctx| {
             let value = ctx.catch();
             value_to_json(&ctx, value)
+        })
+    }
+}
+
+/// NAPI class wrapping a ContextBuilder for constructing QuickJS contexts.
+#[napi]
+pub struct ContextBuilder;
+
+#[napi]
+impl ContextBuilder {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        ContextBuilder
+    }
+
+    #[napi]
+    pub fn build(&self, env: Env, engine: Option<&Engine>) -> napi::Result<Context> {
+        let engine_obj = match engine {
+            Some(e) => e.clone(),
+            None => Engine::new(env, None)?,
+        };
+        let inner = QjsContext::full(&engine_obj.inner).map_err(to_napi_err)?;
+        Ok(Context {
+            inner,
+            engine: Some(engine_obj),
         })
     }
 }

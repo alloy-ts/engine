@@ -28,12 +28,12 @@
 
 use core::{ffi::CStr, ptr::null_mut};
 
-use napi::bindgen_prelude::{BigInt, Env, Error, JsObject, Result};
+use napi::bindgen_prelude::{BigInt, Env, Error, JsObjectValue, Object, Result};
 use napi_derive::napi;
 use rquickjs::{qjs, Context as QjsContext, Ctx, Value};
 use serde_json::Value as JsonValue;
 
-use crate::context::{to_napi_err, value_to_json, JsContext};
+use crate::context::{to_napi_err, value_to_json, Context};
 
 /// `JS_ATOM_TAG_INT` — the bit QuickJS sets on number-like atoms instead of
 /// interning them (see the module docs). The macro lives in `quickjs.c` and is
@@ -353,7 +353,7 @@ impl Atom {
   /// `undefined` are rejected rather than coerced. Objects are coerced by
   /// QuickJS itself (usually to `"[object Object]"`).
   #[napi(factory)]
-  pub fn from_value(ctx: &JsContext, value: JsonValue) -> Result<Self> {
+  pub fn from_value(ctx: &Context, value: JsonValue) -> Result<Self> {
     let inner = ctx.clone_inner();
     let atom = inner.with(|ctx| {
       let json = serde_json::to_string(&value).map_err(|e| Error::from_reason(e.to_string()))?;
@@ -378,7 +378,7 @@ impl Atom {
   /// itself, not as an interned string (see [`Atom`]); larger values are
   /// interned as their decimal string.
   #[napi(factory)]
-  pub fn from_u32(ctx: &JsContext, val: u32) -> Result<Self> {
+  pub fn from_u32(ctx: &Context, val: u32) -> Result<Self> {
     let inner = ctx.clone_inner();
     let atom = inner.with(|ctx| {
       // Safety: `JS_NewAtomUInt32` cannot call back into JavaScript, so the
@@ -397,7 +397,7 @@ impl Atom {
   /// Only non-negative values up to `2^30 - 1` become number-like atoms; any
   /// other value is interned as its decimal string.
   #[napi(factory)]
-  pub fn from_i32(ctx: &JsContext, val: i32) -> Result<Self> {
+  pub fn from_i32(ctx: &Context, val: i32) -> Result<Self> {
     let inner = ctx.clone_inner();
     let atom = inner.with(|ctx| {
       let value = Value::new_int(ctx.clone(), val);
@@ -417,7 +417,7 @@ impl Atom {
   /// QuickJS has no 64-bit atom, so the value is interned as its decimal
   /// string, matching how a `BigInt` property key is converted.
   #[napi(factory)]
-  pub fn from_u64(ctx: &JsContext, val: BigInt) -> Result<Self> {
+  pub fn from_u64(ctx: &Context, val: BigInt) -> Result<Self> {
     let (negative, value, lossless) = val.get_u64();
     if negative || !lossless {
       return Err(Error::from_reason("value does not fit in a u64"));
@@ -430,7 +430,7 @@ impl Atom {
   /// QuickJS has no 64-bit atom, so the value is interned as its decimal
   /// string, matching how a `BigInt` property key is converted.
   #[napi(factory)]
-  pub fn from_i64(ctx: &JsContext, val: BigInt) -> Result<Self> {
+  pub fn from_i64(ctx: &Context, val: BigInt) -> Result<Self> {
     let (value, lossless) = val.get_i64();
     if !lossless {
       return Err(Error::from_reason("value does not fit in an i64"));
@@ -443,7 +443,7 @@ impl Atom {
   /// A whole number up to `2^30 - 1` becomes a number-like atom; anything
   /// else is interned as its decimal string.
   #[napi(factory)]
-  pub fn from_f64(ctx: &JsContext, val: f64) -> Result<Self> {
+  pub fn from_f64(ctx: &Context, val: f64) -> Result<Self> {
     let inner = ctx.clone_inner();
     let atom = inner.with(|ctx| {
       let value = Value::new_float(ctx.clone(), val);
@@ -463,13 +463,13 @@ impl Atom {
   /// QuickJS numbers are `f64`; the value is rounded to `f32` precision first,
   /// matching what an `f32` field would hold.
   #[napi(factory)]
-  pub fn from_f32(ctx: &JsContext, val: f64) -> Result<Self> {
+  pub fn from_f32(ctx: &Context, val: f64) -> Result<Self> {
     Self::from_f64(ctx, val as f32 as f64)
   }
 
   /// Create an atom from a `bool` via value.
   #[napi(factory)]
-  pub fn from_bool(ctx: &JsContext, val: bool) -> Result<Self> {
+  pub fn from_bool(ctx: &Context, val: bool) -> Result<Self> {
     let inner = ctx.clone_inner();
     let atom = inner.with(|ctx| {
       let value = Value::new_bool(ctx.clone(), val);
@@ -486,7 +486,7 @@ impl Atom {
   /// Create an atom from a Rust string.
   #[napi(factory)]
   #[allow(clippy::should_implement_trait)]
-  pub fn from_str(ctx: &JsContext, name: String) -> Result<Self> {
+  pub fn from_str(ctx: &Context, name: String) -> Result<Self> {
     let inner = ctx.clone_inner();
     let atom = inner.with(|ctx| {
       // Safety: `name` outlives the call and `JS_NewAtomLen` copies what it
@@ -508,7 +508,7 @@ impl Atom {
 
   /// Create an atom from a predefined atom.
   #[napi(factory)]
-  pub fn from_predefined(ctx: &JsContext, predefined: PredefinedAtom) -> Self {
+  pub fn from_predefined(ctx: &Context, predefined: PredefinedAtom) -> Self {
     // Predefined atoms are QuickJS constants: no context work, no failure
     // mode. The context is still cloned so the atom can be converted later.
     Self {
@@ -563,8 +563,8 @@ impl Atom {
     })
   }
   #[napi(getter)]
-  pub fn in_js(env: &Env) -> Result<JsObject> {
-    let mut obj = env.create_object()?;
+  pub fn in_js(env: &Env) -> Result<Object<'_>> {
+    let mut obj = Object::new(env)?;
     // A curated, JavaScript-facing subset of the QuickJS predefined atoms.
     macro_rules! put {
       ($($variant:ident),* $(,)?) => {
@@ -589,62 +589,62 @@ impl Atom {
   }
 
   #[napi(getter)]
-  pub fn in_rs(env: &Env) -> Result<JsObject> {
-    let mut obj = env.create_object()?;
+  pub fn in_rs(env: &Env) -> Result<Object<'_>> {
+    let mut obj = Object::new(env)?;
 
     let u32_fn = env.create_function_from_closure::<(), Atom, _>("U32", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<u32>(1)?;
-      Atom::from_u32(&jsctx, val)
+      Atom::from_u32(jsctx, val)
     })?;
     obj.set_named_property("U32", u32_fn)?;
 
     let i32_fn = env.create_function_from_closure::<(), Atom, _>("I32", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<i32>(1)?;
-      Atom::from_i32(&jsctx, val)
+      Atom::from_i32(jsctx, val)
     })?;
     obj.set_named_property("I32", i32_fn)?;
 
     let u64_fn = env.create_function_from_closure::<(), Atom, _>("U64", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<BigInt>(1)?;
-      Atom::from_u64(&jsctx, val)
+      Atom::from_u64(jsctx, val)
     })?;
     obj.set_named_property("U64", u64_fn)?;
 
     let i64_fn = env.create_function_from_closure::<(), Atom, _>("I64", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<BigInt>(1)?;
-      Atom::from_i64(&jsctx, val)
+      Atom::from_i64(jsctx, val)
     })?;
     obj.set_named_property("I64", i64_fn)?;
 
     let f64_fn = env.create_function_from_closure::<(), Atom, _>("F64", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<f64>(1)?;
-      Atom::from_f64(&jsctx, val)
+      Atom::from_f64(jsctx, val)
     })?;
     obj.set_named_property("F64", f64_fn)?;
 
     let f32_fn = env.create_function_from_closure::<(), Atom, _>("F32", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<f64>(1)?;
-      Atom::from_f32(&jsctx, val)
+      Atom::from_f32(jsctx, val)
     })?;
     obj.set_named_property("F32", f32_fn)?;
 
     let bool_fn = env.create_function_from_closure::<(), Atom, _>("BOOL", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<bool>(1)?;
-      Atom::from_bool(&jsctx, val)
+      Atom::from_bool(jsctx, val)
     })?;
     obj.set_named_property("BOOL", bool_fn)?;
 
     let str_fn = env.create_function_from_closure::<(), Atom, _>("STRING", |ctx| {
-      let jsctx = ctx.get::<JsContext>(0)?;
+      let jsctx = ctx.get::<&Context>(0)?;
       let val = ctx.get::<String>(1)?;
-      Atom::from_str(&jsctx, val)
+      Atom::from_str(jsctx, val)
     })?;
     obj.set_named_property("STRING", str_fn)?;
 

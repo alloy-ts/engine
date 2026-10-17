@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use napi_derive::napi;
 use rquickjs::{
-    loader::{ImportAttributes, Loader, Resolver},
+    loader::{ImportAttributes, Loader as QjsLoaderTrait, Resolver},
     Ctx, Error, Module, Result as QjsResult,
 };
 
@@ -83,7 +83,7 @@ impl Resolver for SharedModules {
     }
 }
 
-impl Loader for SharedModules {
+impl QjsLoaderTrait for SharedModules {
     fn load<'js>(
         &mut self,
         ctx: &Ctx<'js>,
@@ -114,17 +114,17 @@ impl Loader for SharedModules {
 /// const ctx = engine.create_context();
 /// ctx.eval_module('import { add } from "math"; globalThis.sum = add(2, 3);');
 /// ```
-#[napi(js_name = "Loader")]
-pub struct JsLoader {
+#[napi]
+pub struct Loader {
     inner: Arc<Mutex<LoaderData>>,
 }
 
 #[napi]
-impl JsLoader {
+impl Loader {
     /// Create an empty loader.
     #[napi(constructor)]
     pub fn new() -> Self {
-        JsLoader {
+        Loader {
             inner: Arc::new(Mutex::new(LoaderData::default())),
         }
     }
@@ -160,14 +160,14 @@ impl JsLoader {
     }
 }
 
-impl JsLoader {
+impl Loader {
     /// A [`Resolver`] sharing this loader's registry. `pub(crate)` — only the
     /// runtime needs it, to hand to `set_loader`.
     pub(crate) fn resolver(&self) -> SharedModules {
         SharedModules(self.inner.clone())
     }
 
-    /// A [`Loader`] sharing this loader's registry. `pub(crate)` — only the
+    /// A [`QjsLoaderTrait`] sharing this loader's registry. `pub(crate)` — only the
     /// runtime needs it, to hand to `set_loader`.
     pub(crate) fn loader(&self) -> SharedModules {
         SharedModules(self.inner.clone())

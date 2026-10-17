@@ -9,8 +9,8 @@ use rquickjs::{
 };
 use serde_json::json;
 
-use crate::context::JsContext;
-use crate::loader::JsLoader;
+use crate::context::Context;
+use crate::loader::Loader;
 
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
 fn to_napi_err(e: rquickjs::Error) -> Error {
@@ -33,26 +33,27 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const arr = engine.create_array(3);   // host N-API value
 /// ```
 #[napi]
-pub struct JsEngine {
+#[derive(Clone)]
+pub struct Engine {
     /// The embedded QuickJS engine.
-    inner: QjsRuntime,
+    pub(crate) inner: QjsRuntime,
     /// The host N-API environment, captured at construction.
-    env: Env,
+    pub(crate) env: Env,
     /// Set to `true` when the owning addon (and thus this context) is unloaded.
-    alive: Arc<AtomicBool>,
+    pub(crate) alive: Arc<AtomicBool>,
 }
 
 #[napi]
-impl JsEngine {
+impl Engine {
     /// Capture the `napi::Env` that NAPI injects, register a cleanup hook so we
     /// learn when it stops being valid, and create the embedded QuickJS engine.
     ///
-    /// Optionally initiate the engine with a module [`crate::loader::JsLoader`],
+    /// Optionally initiate the engine with a module [`crate::loader::Loader`],
     /// so `import` statements in this engine's contexts resolve against it. This
     /// is equivalent to constructing bare and then calling
-    /// [`JsEngine::set_loader`].
+    /// [`Engine::set_loader`].
     #[napi(constructor)]
-    pub fn new(env: Env, loader: Option<&JsLoader>) -> napi::Result<Self> {
+    pub fn new(env: Env, loader: Option<&Loader>) -> napi::Result<Self> {
         let alive = Arc::new(AtomicBool::new(false));
         let hook_data = Arc::clone(&alive);
         env.add_env_cleanup_hook(hook_data, |flag: Arc<AtomicBool>| {
@@ -63,7 +64,7 @@ impl JsEngine {
         if let Some(loader) = loader {
             inner.set_loader(loader.resolver(), loader.loader());
         }
-        Ok(JsEngine { inner, env, alive })
+        Ok(Engine { inner, env, alive })
     }
 
     /// Attach (or replace) the module loader/resolver for this engine.
@@ -71,7 +72,7 @@ impl JsEngine {
     /// After this, `import` statements in any of this engine's contexts resolve
     /// through the given `Loader`.
     #[napi]
-    pub fn set_loader(&self, loader: &JsLoader) -> napi::Result<()> {
+    pub fn set_loader(&self, loader: &Loader) -> napi::Result<()> {
         self.inner.set_loader(loader.resolver(), loader.loader());
         Ok(())
     }
@@ -83,17 +84,17 @@ impl JsEngine {
     /// (memory limits, etc.) before any context exists. Objects may be shared
     /// between contexts minted from the same engine.
     #[napi]
-    pub fn create_context(&self) -> napi::Result<JsContext> {
+    pub fn create_context(&self) -> napi::Result<Context> {
         let inner = QjsContext::full(&self.inner).map_err(to_napi_err)?;
-        Ok(JsContext::from_inner(inner))
+        Ok(Context::from_inner(inner))
     }
 
     /// Get a weak handle to this engine. Holding it does not keep the engine
-    /// alive; [`JsWeakEngine::try_ref`] returns `null` once the engine (and
+    /// alive; [`WeakEngine::try_ref`] returns `null` once the engine (and
     /// all contexts created from it) are gone.
     #[napi]
-    pub fn weak(&self) -> JsWeakEngine {
-        JsWeakEngine {
+    pub fn weak(&self) -> WeakEngine {
+        WeakEngine {
             inner: self.inner.weak(),
             env: self.env,
             alive: Arc::clone(&self.alive),
@@ -206,26 +207,26 @@ impl JsEngine {
 /// NAPI class wrapping a weak handle to a QuickJS engine
 /// ([`rquickjs::WeakRuntime`](rquickjs::WeakRuntime)).
 ///
-/// Unlike [`JsEngine`], holding a `WeakEngine` does **not** keep the engine
-/// alive — use [`JsWeakEngine::try_ref`] to try to re-acquire a strong handle.
+/// Unlike [`Engine`], holding a `WeakEngine` does **not** keep the engine
+/// alive — use [`WeakEngine::try_ref`] to try to re-acquire a strong handle.
 /// Once the engine and every context created from it are dropped, `try_ref`
 /// returns `null`.
 #[napi]
-pub struct JsWeakEngine {
+pub struct WeakEngine {
     inner: QjsWeakRuntime,
     /// A copy of the host environment and the alive flag, so a promoted handle
-    /// can rebuild a full [`JsEngine`].
+    /// can rebuild a full [`Engine`].
     env: Env,
     alive: Arc<AtomicBool>,
 }
 
 #[napi]
-impl JsWeakEngine {
-    /// Attempt to promote this weak handle back to a strong [`JsEngine`].
+impl WeakEngine {
+    /// Attempt to promote this weak handle back to a strong [`Engine`].
     /// Returns `null` if the engine has already been freed.
     #[napi]
-    pub fn try_ref(&self) -> napi::Result<Option<JsEngine>> {
-        Ok(self.inner.try_ref().map(|inner| JsEngine {
+    pub fn try_ref(&self) -> napi::Result<Option<Engine>> {
+        Ok(self.inner.try_ref().map(|inner| Engine {
             inner,
             env: self.env,
             alive: Arc::clone(&self.alive),
@@ -245,7 +246,7 @@ impl JsWeakEngine {
 // ---------------------------------------------------------------------------
 
 #[napi]
-impl JsEngine {
+impl Engine {
     /// Whether the owning addon (and thus this context) has been unloaded.
     #[napi]
     pub fn is_disposed(&self) -> bool {
