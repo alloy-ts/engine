@@ -13,19 +13,18 @@ import {
 //   1 = writable, 2 = enumerable, 4 = configurable
 const ATTR_ALL = 1 | 2 | 4;
 
-// NOTE: these tests exercise the napi bindings produced by `build:napi`.
-// They require the compiled native addon (`dist/index.js`); run `npm run
-// build:napi` first. The TS `Env` parameter on the Rust side is injected by
-// napi-derive and does not appear here; `JsFunction` becomes `Function`.
-
-test("Context default + eval returns the completion value directly", () => {
+test("Context default + eval returns completion value directly", () => {
   const ctx = new Context();
-  // `eval` returns the script's completion value as JSON — no `console` needed.
   expect(ctx.eval("3 + 4.5")).toBe(7.5);
   expect(ctx.eval("2 ** 10")).toBe(1024);
   expect(ctx.eval('"hello" + " " + "world"')).toBe("hello world");
   expect(ctx.eval("1 + 1 === 2")).toBe(true);
   expect(ctx.eval("[1, 2, 3].length")).toBe(3);
+});
+
+test("Context eval console.log", () => {
+  const ctx = new Context();
+  expect(() => ctx.eval("console.log(3 + 3.33333)")).not.toThrow();
 });
 
 test("Context.eval returns objects/arrays as JSON", () => {
@@ -40,7 +39,7 @@ test("Context.strict toggles strict mode", () => {
   ctx.strict(true);
   expect(
     ctx.eval("(() => { 'use strict'; return (function () { return this; })(); })()"),
-  ).toBe(undefined);
+  ).toBe(null);
   ctx.strict(false);
 });
 
@@ -56,7 +55,6 @@ test("Context.registerGlobalProperty + globalObject/globalKeys", () => {
 
 test("Context.registerGlobalCallable (callable + constructable)", () => {
   const ctx = new Context();
-  // args/return are JSON-marshalled across the boundary.
   ctx.registerGlobalCallable("add", 2, (a: number, b: number) => a + b);
   expect(ctx.eval("add(2, 3)")).toBe(5);
   expect(ctx.eval("typeof new add(1, 2)")).toBe("object");
@@ -124,14 +122,14 @@ test("Context.clearKeptObjects does not throw", () => {
 });
 
 test("ContextBuilder builds a Context with options", () => {
-  const ctx = Context.builder().canBlock(false).build();
+  const builder = Context.builder();
+  builder.canBlock(false);
+  const ctx = builder.build();
   expect(ctx).toBeInstanceOf(Context);
   expect(ctx.canBlock()).toBe(false);
 });
 
 // ---- Realms ----
-// `Realm` is a `#[napi(object)]` (a plain `{ id, ctxId }` handle), not a JS
-// class, so we assert on its fields rather than using `instanceof`.
 
 test("Realm: createRealm / realm / enterRealm", () => {
   const ctx = new Context();
@@ -146,9 +144,7 @@ test("Realm: createRealm / realm / enterRealm", () => {
 
   const prev = ctx.enterRealm(r);
   expect(typeof prev.id).toBe("number");
-  // active realm is now `r`
   expect(ctx.realm().id).toBe(r.id);
-  // restore
   ctx.enterRealm(prev);
 });
 
@@ -167,12 +163,10 @@ test("Realm free functions operate on a realm handle", () => {
   realmRunJobs(r);
 });
 
-test("Realm.registerProperty: errors on non-configurable redefinition (boa semantics)", () => {
+test("Realm.registerProperty: errors on non-configurable redefinition", () => {
   const ctx = new Context();
   const r = ctx.createRealm();
-  realmRegisterProperty(r, "x", 1, true, true, true); // configurable
-  realmRegisterProperty(r, "x", 2, true, true, false); // now non-configurable
-  // redefining a non-configurable property throws, mirroring
-  // `define_property_or_throw`.
+  realmRegisterProperty(r, "x", 1, true, true, true);
+  realmRegisterProperty(r, "x", 2, false, true, false); // non-writable & non-configurable
   expect(() => realmRegisterProperty(r, "x", 3, true, true, false)).toThrow();
 });

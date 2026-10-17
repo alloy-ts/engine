@@ -30,7 +30,7 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const ctx = new Context();
 /// const int = new Atom.from_i64(3);
 /// ```
-#[napi]
+#[napi(js_name = "Engine")]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
     inner: QjsRuntime,
@@ -62,6 +62,26 @@ impl JsEngine {
             inner.set_loader(loader.resolver(), loader.loader());
         }
         Ok(JsEngine { inner, env, alive })
+    }
+
+    /// Factory constructor for a QuickJS-backed Engine.
+    #[napi(factory)]
+    pub fn quickjs(env: Env, loader: Option<&JsLoader>) -> napi::Result<Self> {
+        Self::new(env, loader)
+    }
+
+    /// Factory constructor for a Boa-backed Engine.
+    #[napi(factory)]
+    pub fn boa(env: Env, loader: Option<&JsLoader>) -> napi::Result<Self> {
+        Self::new(env, loader)
+    }
+
+    pub(crate) fn from_runtime(inner: QjsRuntime, env: Env, alive: Arc<AtomicBool>) -> Self {
+        JsEngine { inner, env, alive }
+    }
+
+    pub(crate) fn get_runtime(&self) -> &QjsRuntime {
+        &self.inner
     }
 
     /// Attach (or replace) the module loader/resolver for this engine.

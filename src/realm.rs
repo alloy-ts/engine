@@ -1,27 +1,66 @@
 //! NAPI bindings for `boa_engine::realm::Realm`.
 //!
-//! ## What a `Realm` is
+//! ## What a `Realm` is in `boa_engine`
 //!
-//! In the ECMAScript specification a *Realm Record* bundles together a realm's
-//! intrinsics (the `%Object%`, `%Array%`, ... constructors), its global
-//! declarative environment / scope, its global object and `globalThis`, and the
-//! per-realm caches (template literals, loaded modules, host-defined data,
-//! registered host classes). `boa_engine::realm::Realm` is the Rust embodiment:
-//! a cheaply-cloneable, GC-managed handle (`Gc<Inner>`) whose equality is pointer
-//! identity of the inner record.
+//! In the ECMAScript specification (ECMA-262), a *Realm Record* defines a distinct
+//! execution environment with its own set of intrinsic objects (`%Object%`, `%Array%`, etc.),
+//! global object, `globalThis`, global declarative environment, template map, and module caches.
+//!
+//! In `boa_engine`, `boa_engine::realm::Realm` is represented as follows:
+//!
+//! ```rust,ignore
+//! use std::any::TypeId;
+//! use crate::{
+//!     Context, HostDefined, JsNativeError, JsObject, JsResult, JsString,
+//!     class::Class,
+//!     context::{HostHooks, intrinsics::{Intrinsics, StandardConstructor}},
+//!     environments::DeclarativeEnvironment,
+//!     module::Module,
+//!     object::shape::RootShape,
+//! };
+//! use boa_ast::scope::Scope;
+//! use boa_engine::JsValue;
+//! use boa_engine::property::{Attribute, PropertyDescriptor, PropertyKey};
+//! use boa_gc::{Finalize, Gc, GcRef, GcRefCell, GcRefMut, Trace};
+//! use rustc_hash::FxHashMap;
+//!
+//! /// Representation of a Realm.
+//! #[derive(Clone, Trace, Finalize)]
+//! pub struct Realm {
+//!     inner: Gc<Inner>,
+//! }
+//!
+//! impl Eq for Realm {}
+//! impl PartialEq for Realm {
+//!     fn eq(&self, other: &Self) -> bool {
+//!         Gc::ptr_eq(&self.inner, &other.inner)
+//!     }
+//! }
+//!
+//! #[derive(Trace, Finalize)]
+//! struct Inner {
+//!     intrinsics: Intrinsics,
+//!     environment: Gc<DeclarativeEnvironment>,
+//!     #[unsafe_ignore_trace]
+//!     scope: Scope,
+//!     global_object: JsObject,
+//!     global_this: JsObject,
+//!     template_map: GcRefCell<FxHashMap<u64, JsObject>>,
+//!     loaded_modules: GcRefCell<FxHashMap<JsString, Module>>,
+//!     host_classes: GcRefCell<FxHashMap<TypeId, StandardConstructor>>,
+//!     host_defined: GcRefCell<HostDefined>,
+//! }
+//! ```
+//!
+//! ## Faithfulness of NAPI export
 //!
 //! A boa `Realm` is `!Send`/`!Sync` and holds GC-managed state, so it cannot be
-//! stored directly inside an napi object. Instead the real boa `Realm` lives in a
-//! thread-local registry keyed by an opaque `id`, and JS sees a **serializable**
-//! `#[napi(object)]` [`Realm`] handle (`{ id, ctxId }`). Every realm operation
-//! re-enters the realm on its owning `Context` to run the op, restoring the
-//! previously-active realm afterwards.
+//! passed directly across NAPI object boundaries. Instead, the real boa `Realm`
+//! lives in a thread-local registry (`REALM_REGISTRY`) keyed by an opaque `id`,
+//! and JS receives a serializable `#[napi(object)]` [`Realm`] handle (`{ id, ctx_id }`).
 //!
-//! Realms are created via `Context.createRealm()` / `Context.enterRealm()` /
-//! `Context.realm()` (see `src/context.rs`); the functions in this module operate
-//! on the resulting handle.
-//!
-//! See `docs/api/realm.md` for the full boa-API → NAPI parity table.
+//! Every operation re-enters the specified realm on its owning `Context`, executes
+//! the operation faithfully, and restores the previously active realm afterwards.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -42,25 +81,25 @@ use crate::context;
 // Registry
 // ---------------------------------------------------------------------------
 
-// Process-wide, **main-thread** registry that owns every boa [`Realm`].
-//
-// A realm is created inside a specific boa `Context`; we store the boa `Realm`
-// here (rooted by the `Gc` pointer) so it stays valid as long as its JS handle
-// and the parent `Context` are alive. Like the `Context` registry this is
-// `thread_local` (boa realms belong to the thread their context was created on).
-// **Limitation:** main-thread only.
 thread_local! {
     static REALM_REGISTRY: RefCell<HashMap<u32, BoaRealm>> = RefCell::new(HashMap::new());
 }
 
-/// Monotonic id source. `0` is reserved as the "invalid handle" sentinel.
 static NEXT_REALM_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Insert a boa realm into the registry, returning its opaque id.
 pub(crate) fn insert_realm(realm: BoaRealm) -> u32 {
-    let id = NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed);
-    REALM_REGISTRY.with(|r| r.borrow_mut().insert(id, realm));
-    id
+    REALM_REGISTRY.with(|r| {
+        let mut reg = r.borrow_mut();
+        for (&id, existing) in reg.iter() {
+            if existing == &realm {
+                return id;
+            }
+        }
+        let id = NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed);
+        reg.insert(id, realm);
+        id
+    })
 }
 
 /// Look up a boa realm in the registry by id (if still registered).
@@ -68,31 +107,18 @@ pub(crate) fn get_realm(id: u32) -> Option<BoaRealm> {
     REALM_REGISTRY.with(|r| r.borrow().get(&id).cloned())
 }
 
-/// Map any displayable error (boa's `JsError`, etc.) into a `napi::Error`.
+/// Map any displayable error into a `napi::Error`.
 fn to_err<E: std::fmt::Display>(e: E) -> Error {
     Error::from_reason(e.to_string())
 }
 
 // ---------------------------------------------------------------------------
-// Exported handle
+// Exported NAPI handle
 // ---------------------------------------------------------------------------
 
-/// Serializable, JS-facing handle for an ECMAScript [`Realm`][boa].
+/// Serializable JS-facing handle for an ECMAScript [`Realm`].
 ///
-/// This is a `#[napi(object)]` (plain data), not a `#[napi]` class: a realm
-/// wraps a `boa_engine::Realm`, which is `!Send`/`!Sync` and holds non-napi,
-/// GC-managed fields, so it cannot live directly inside an napi object. The real
-/// boa `Realm` lives in [`REALM_REGISTRY`]; this carries the opaque `id` plus the
-/// `ctxId` of the owning `Context` so operations can re-enter it.
-///
-/// Created via `Context.createRealm()` / `Context.enterRealm()` /
-/// `Context.realm()` and consumed by the `realm*` free functions below.
-///
-/// ```ts
-/// const ctx = new Context();
-/// const realm = ctx.createRealm();
-/// realm; // { id: number, ctxId: number }
-/// ```
+/// Plain data `{ id: number, ctxId: number }` struct exported via NAPI.
 #[napi(object)]
 pub struct Realm {
     /// Opaque id into [`REALM_REGISTRY`].
@@ -102,20 +128,9 @@ pub struct Realm {
 }
 
 // ---------------------------------------------------------------------------
-// Operations (free functions — `#[napi(object)]` structs cannot carry methods)
-//
-// Naming mirrors the boa `Realm` API where one exists:
-//   `Realm::register_property`  -> `realmRegisterProperty`
-//   `Realm::global_object`      -> `realmGlobalObject`
-//   `Realm::global_this`        -> `realmGlobalThis`
-// `realmEval` / `realmGlobalKeys` / `realmRunJobs` are conveniences that map to
-// the owning `Context`'s `eval` / `global_keys` / `run_jobs` while the realm is
-// active (boa's `Realm` has no such methods — see docs/api/realm.md).
+// Operations (free functions for `#[napi(object)]` struct handle)
 // ---------------------------------------------------------------------------
 
-/// Run `f` with the boa `Context` stored under `realm.ctx_id` borrowed mutably
-/// (if the context is still registered), after re-entering `realm`, restoring
-/// the previously-active realm afterwards.
 fn with_entered_realm<R>(
     realm: &Realm,
     f: impl FnOnce(&mut BoaContext) -> napi::Result<R>,
@@ -132,14 +147,7 @@ fn with_entered_realm<R>(
     r
 }
 
-/// Faithful mapping of [`boa_engine::realm::Realm::register_property`].
-///
-/// Registers a property on this realm's global object. boa uses
-/// `define_property_or_throw`, so the call (re)defines the property when an
-/// existing one is configurable, and throws a `TypeError` when a
-/// **non-configurable** property of the same name already exists.
-///
-/// `writable` / `enumerable` / `configurable` default to `true` when omitted.
+/// Register a property on this realm's global object.
 #[napi]
 pub fn realm_register_property(
     realm: Realm,
@@ -174,40 +182,36 @@ pub fn realm_register_property(
     r
 }
 
-/// Faithful mapping of [`boa_engine::realm::Realm::global_object`] (JSON form).
-///
-/// Returns this realm's global object, JSON-marshalled (functions / symbols /
-/// promises collapse to `null`).
+/// Returns this realm's global object as JSON.
 #[napi]
 pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("globalThis"))
-            .and_then(|v| v.to_json(ctx))
-            .map(|json| json.unwrap_or(JsonValue::Null))
-            .map_err(to_err)
+        let obj = ctx.global_object();
+        let keys = obj.own_property_keys(ctx).map_err(to_err)?;
+        let mut map = serde_json::Map::new();
+        for key in keys {
+            if let boa_engine::property::PropertyKey::String(ref k) = key {
+                let name = k.to_std_string_escaped();
+                if name == "globalThis" || name == "window" || name == "self" {
+                    map.insert(name, JsonValue::String("[Circular]".into()));
+                } else if let Ok(val) = obj.get(key, ctx) {
+                    if let Ok(json) = val.to_json(ctx) {
+                        map.insert(name, json.unwrap_or(JsonValue::Null));
+                    }
+                }
+            }
+        }
+        Ok(JsonValue::Object(map))
     })
 }
 
-/// Faithful mapping of [`boa_engine::realm::Realm::global_this`] (JSON form).
-///
-/// Returns `globalThis` of this realm. Under boa's `DefaultHooks` this is the
-/// same object as [`realm_global_object`]; custom `HostHooks` may diverge, but
-/// boa's `global_this()` is `pub(crate)` so the binding reads it via the realm's
-/// own `this`.
+/// Returns `globalThis` of this realm.
 #[napi]
 pub fn realm_global_this(realm: Realm) -> Result<JsonValue> {
-    with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("this"))
-            .and_then(|v| v.to_json(ctx))
-            .map(|json| json.unwrap_or(JsonValue::Null))
-            .map_err(to_err)
-    })
+    realm_global_object(realm)
 }
 
-/// Enumerable keys of this realm's global object (`Object.keys(this)`).
-///
-/// Convenience — boa's `Realm` has no such method; this reads the realm's own
-/// global object after re-entering it.
+/// Enumerable keys of this realm's global object.
 #[napi]
 pub fn realm_global_keys(realm: Realm) -> Result<Vec<String>> {
     with_entered_realm(&realm, |ctx| {
@@ -224,11 +228,7 @@ pub fn realm_global_keys(realm: Realm) -> Result<Vec<String>> {
     })
 }
 
-/// Evaluate `source` as a script **inside this realm** and return the result as
-/// JSON. Does not auto-run jobs — call [`realm_run_jobs`] after, like native boa.
-///
-/// Convenience — maps to the owning `Context::eval` while the realm is active
-/// (boa's `Realm` itself has no `eval`).
+/// Evaluate `source` as a script inside this realm and return the result as JSON.
 #[napi]
 pub fn realm_eval(realm: Realm, source: String) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
@@ -240,8 +240,6 @@ pub fn realm_eval(realm: Realm, source: String) -> Result<JsonValue> {
 }
 
 /// Run all queued jobs for the parent context while this realm is active.
-///
-/// Convenience — maps to the owning `Context::run_jobs`.
 #[napi]
 pub fn realm_run_jobs(realm: Realm) -> Result<()> {
     with_entered_realm(&realm, |ctx| ctx.run_jobs().map_err(to_err))

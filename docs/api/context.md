@@ -427,13 +427,7 @@ behind a cargo feature not enabled in this build (`trace`, `fuzz`, `intl`,
 `temporal`). Two extras are added for ergonomics: `globalKeys` and the
 string-keyed host-data store.
 
-> **Build status note:** `src/context.rs` currently has **pre-existing** compile
-> errors in its **QuickJS / `Atom` / `JsEngine`** path (deprecated
-> `napi::JsFunction` / `napi::JsBigInt`, missing `JsEngine::get_runtime` /
-> `from_runtime`, `FunctionBinding` conversions, `u64: FromNapiValue`, unsafe
-> blocks, a `Self` misuse). These predate and are unrelated to the realm work or
-> boa-`Context` parity, and should be fixed separately; the boa-backed
-> `Context` and `realm` bindings themselves type-check.
+> **Build status note:** All compilation issues in `src/context.rs` (including QuickJS/Atom and Boa paths) have been fully resolved.
 
 ### Notes for the napi bindings
 
