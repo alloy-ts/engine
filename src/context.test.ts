@@ -33,9 +33,10 @@ describe("napi: Context", () => {
 
   test("eval_module returns the module namespace", () => {
     const ctx = new Context();
-    const ns = ctx.eval_module(
-      "export const x = 5; export const arr = [1, 2, 3];",
-    ) as { x: number; arr: number[] };
+    const ns = ctx.eval_module("export const x = 5; export const arr = [1, 2, 3];") as {
+      x: number;
+      arr: number[];
+    };
     expect(ns.x).toBe(5);
     expect(ns.arr).toEqual([1, 2, 3]);
   });
@@ -46,6 +47,36 @@ describe("napi: Context", () => {
     a.eval("globalThis.tag = 'a';");
     // Realms are isolated: `b` does not see `a`'s global.
     expect(b.eval("typeof globalThis.tag")).toBe("undefined");
+  });
+
+  test("Context static constructors (fromRaw, base, custom, full, builder)", () => {
+    const fromRawCtx = Context.fromRaw();
+    expect(fromRawCtx).toBeDefined();
+    expect(fromRawCtx.eval("1 + 1")).toBe(2);
+
+    const baseCtx = Context.base();
+    expect(baseCtx).toBeDefined();
+
+    const customCtx = Context.custom();
+    expect(customCtx).toBeDefined();
+
+    const fullCtx = Context.full();
+    expect(fullCtx).toBeDefined();
+
+    const builderCtx = Context.builder();
+    expect(builderCtx).toBeDefined();
+  });
+
+  test("Context prototype methods (asRaw, getEnginePtr, Engine, with)", () => {
+    const ctx = new Context();
+    expect(typeof ctx.asRaw()).toBe("string");
+    expect(typeof ctx.getEnginePtr()).toBe("string");
+
+    const engine = ctx.Engine();
+    expect(engine).toBeInstanceOf(Engine);
+
+    const withRes = ctx.with(() => "hello from with");
+    expect(withRes).toBe("hello from with");
   });
 });
 

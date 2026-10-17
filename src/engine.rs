@@ -32,14 +32,15 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 /// const ctx = engine.create_context();
 /// const arr = engine.create_array(3);   // host N-API value
 /// ```
+#[derive(Clone)]
 #[napi(js_name = "Engine")]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
-    inner: QjsRuntime,
+    pub(crate) inner: QjsRuntime,
     /// The host N-API environment, captured at construction.
-    env: Env,
+    pub(crate) env: Env,
     /// Set to `true` when the owning addon (and thus this context) is unloaded.
-    alive: Arc<AtomicBool>,
+    pub(crate) alive: Arc<AtomicBool>,
 }
 
 #[napi]
@@ -85,7 +86,7 @@ impl JsEngine {
     #[napi(js_name = "create_context")]
     pub fn create_context(&self) -> napi::Result<JsContext> {
         let inner = QjsContext::full(&self.inner).map_err(to_napi_err)?;
-        Ok(JsContext::from_inner(inner))
+        Ok(JsContext::from_inner_and_engine(inner, Some(self.clone())))
     }
 
     /// Get a weak handle to this engine. Holding it does not keep the engine

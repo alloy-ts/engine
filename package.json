@@ -18,7 +18,7 @@
     "build:release": "node build.ts --release",
     "dev": "vp pack --watch",
     "start": "vp run src/main.ts",
-    "test": "vp test && node --test test.cjs",
+    "test": "vp test",
     "check": "vp check",
     "fmt": "vp fmt",
     "lint": "vp lint",

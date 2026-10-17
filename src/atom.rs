@@ -7,9 +7,22 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
     Error::from_reason(e.to_string())
 }
 
+/// Native primitive types exported to JavaScript.
+#[napi]
+pub enum PrimitiveType {
+    U32,
+    I32,
+    U64,
+    I64,
+    F64,
+    F32,
+    BOOL,
+    STRING,
+}
+
 /// In QuickJS atoms are similar to interned strings but with additional uses.
 /// A symbol for instance is just an atom.
-#[napi(object)]
+#[napi]
 pub struct Atom {
     ctx: QjsContext,
     value: String,
