@@ -517,6 +517,41 @@ impl Atom {
     }
   }
 
+  #[napi(factory, js_name = "from_value")]
+  pub fn from_value_snake(ctx: &JsContext, value: JsonValue) -> Result<Self> {
+    Self::from_value(ctx, value)
+  }
+
+  #[napi(factory, js_name = "from_u32")]
+  pub fn from_u32_snake(ctx: &JsContext, val: u32) -> Result<Self> {
+    Self::from_u32(ctx, val)
+  }
+
+  #[napi(factory, js_name = "from_i32")]
+  pub fn from_i32_snake(ctx: &JsContext, val: i32) -> Result<Self> {
+    Self::from_i32(ctx, val)
+  }
+
+  #[napi(factory, js_name = "from_bool")]
+  pub fn from_bool_snake(ctx: &JsContext, val: bool) -> Result<Self> {
+    Self::from_bool(ctx, val)
+  }
+
+  #[napi(factory, js_name = "from_f64")]
+  pub fn from_f64_snake(ctx: &JsContext, val: f64) -> Result<Self> {
+    Self::from_f64(ctx, val)
+  }
+
+  #[napi(factory, js_name = "from_str")]
+  pub fn from_str_snake(ctx: &JsContext, name: String) -> Result<Self> {
+    Self::from_str(ctx, name)
+  }
+
+  #[napi(factory, js_name = "from_predefined")]
+  pub fn from_predefined_snake(ctx: &JsContext, predefined: PredefinedAtom) -> Self {
+    Self::from_predefined(ctx, predefined)
+  }
+
   /// Convert the atom to a JavaScript string.
   #[napi]
   pub fn to_string(&self) -> Result<String> {
@@ -536,6 +571,11 @@ impl Atom {
     })
   }
 
+  #[napi(js_name = "to_string")]
+  pub fn to_string_snake(&self) -> Result<String> {
+    self.to_string()
+  }
+
   /// Convert the atom to a JavaScript string.
   #[napi]
   pub fn to_js_string(&self) -> Result<String> {
@@ -546,6 +586,11 @@ impl Atom {
         _ => Err(Error::from_reason("atom did not convert to a string")),
       }
     })
+  }
+
+  #[napi(js_name = "to_js_string")]
+  pub fn to_js_string_snake(&self) -> Result<String> {
+    self.to_js_string()
   }
 
   /// Convert the atom to a JavaScript value.
@@ -562,7 +607,12 @@ impl Atom {
       value_to_json(&ctx, value)
     })
   }
-  #[napi(getter)]
+
+  #[napi(js_name = "to_value")]
+  pub fn to_value_snake(&self) -> Result<JsonValue> {
+    self.to_value()
+  }
+  #[napi(getter, js_name = "inJs")]
   pub fn in_js<'a>(env: &'a Env) -> Result<Object<'a>> {
     let mut obj = Object::new(env)?;
     // A curated, JavaScript-facing subset of the QuickJS predefined atoms.
@@ -588,7 +638,12 @@ impl Atom {
     Ok(obj)
   }
 
-  #[napi(getter)]
+  #[napi(getter, js_name = "in_js")]
+  pub fn in_js_snake<'a>(env: &'a Env) -> Result<Object<'a>> {
+    Self::in_js(env)
+  }
+
+  #[napi(getter, js_name = "inRs")]
   pub fn in_rs<'a>(env: &'a Env) -> Result<Object<'a>> {
     let mut obj = Object::new(env)?;
 
@@ -649,5 +704,10 @@ impl Atom {
     obj.set_named_property("STRING", str_fn)?;
 
     Ok(obj)
+  }
+
+  #[napi(getter, js_name = "in_rs")]
+  pub fn in_rs_snake<'a>(env: &'a Env) -> Result<Object<'a>> {
+    Self::in_rs(env)
   }
 }

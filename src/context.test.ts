@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { Context, JsEngine } from "../dist/index.js";
+import { Context, Engine as JsEngine } from "./main.ts";
 
 test("Context static constructor methods exist and work", () => {
   expect(typeof Context.fromRaw).toBe("function");
