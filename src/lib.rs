@@ -1,5 +1,3 @@
-use napi_derive::napi;
-
 pub mod atom;
 pub mod compiler;
 pub mod context;
