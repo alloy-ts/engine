@@ -10,12 +10,12 @@ crate-type = ["cdylib"]
 boa_engine = "0.22.0"
 napi = { version = "3", features = ["serde-json", "napi3", "napi5", "napi6", "compat-mode"] }
 napi-derive = "3"
-oxc = "0.152.0"
-oxc_allocator = "0.152.0"
-oxc_ast = { version = "0.152.0", features = ["serialize"] }
-oxc_estree = { version = "0.152.0", features = ["serialize"] }
-oxc_parser = "0.152.0"
-oxc_span = "0.152.0"
+oxc = "0.130.0"
+oxc_allocator = "0.130.0"
+oxc_ast = { version = "0.130.0", features = ["serialize"] }
+oxc_estree = { version = "0.130.0", features = ["serialize"] }
+oxc_parser = "0.130.0"
+oxc_span = "0.130.0"
 serde_json = "1.0.154"
 
 [build-dependencies]

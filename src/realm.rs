@@ -181,7 +181,9 @@ pub fn realm_register_property(
 #[napi]
 pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("globalThis"))
+        ctx.eval(Source::from_bytes(
+            b"(() => { const res = {}; for (const k of Object.getOwnPropertyNames(globalThis)) { try { const val = globalThis[k]; if (val === globalThis) continue; const t = typeof val; if (t === 'number' || t === 'string' || t === 'boolean' || val === null) { res[k] = val; } else if (t === 'object') { try { const str = JSON.stringify(val); if (str !== undefined) { res[k] = JSON.parse(str); } } catch (_) {} } } catch (_) {} } return res; })()"
+        ))
             .and_then(|v| v.to_json(ctx))
             .map(|json| json.unwrap_or(JsonValue::Null))
             .map_err(to_err)
@@ -197,7 +199,9 @@ pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
 #[napi]
 pub fn realm_global_this(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("this"))
+        ctx.eval(Source::from_bytes(
+            b"(() => { const res = {}; for (const k of Object.getOwnPropertyNames(this)) { try { const val = this[k]; if (val === this) continue; const t = typeof val; if (t === 'number' || t === 'string' || t === 'boolean' || val === null) { res[k] = val; } else if (t === 'object') { try { const str = JSON.stringify(val); if (str !== undefined) { res[k] = JSON.parse(str); } } catch (_) {} } } catch (_) {} } return res; })()"
+        ))
             .and_then(|v| v.to_json(ctx))
             .map(|json| json.unwrap_or(JsonValue::Null))
             .map_err(to_err)
