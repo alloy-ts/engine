@@ -182,7 +182,7 @@ impl JsEngine {
     /// Create a new Context bound to this Engine runtime.
     #[napi(js_name = "createContext")]
     pub fn create_context(&self) -> Result<Context> {
-        Context::full(&self.runtime)
+        Context::full(self)
     }
 
     /// Guard: refuse to use a context that belongs to an unloaded addon.
