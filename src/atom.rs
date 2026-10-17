@@ -169,4 +169,81 @@ impl Atom {
     pub fn to_value(&self) -> NapiResult<String> {
         Ok(self.value.clone())
     }
+
+}
+
+#[napi(object)]
+pub struct InJsAtoms {
+  #[napi(js_name = "Undefined")]
+  pub undefined: String,
+  #[napi(js_name = "Null")]
+  pub null: String,
+  #[napi(js_name = "True")]
+  pub true_val: String,
+  #[napi(js_name = "False")]
+  pub false_val: String,
+  #[napi(js_name = "Length")]
+  pub length: String,
+  #[napi(js_name = "Name")]
+  pub name: String,
+  #[napi(js_name = "Value")]
+  pub value: String,
+  #[napi(js_name = "Prototype")]
+  pub prototype: String,
+  #[napi(js_name = "Constructor")]
+  pub constructor: String,
+}
+
+#[napi(object)]
+pub struct InRsAtoms {
+  #[napi(js_name = "U32")]
+  pub u32: String,
+  #[napi(js_name = "I32")]
+  pub i32: String,
+  #[napi(js_name = "U64")]
+  pub u64: String,
+  #[napi(js_name = "I64")]
+  pub i64: String,
+  #[napi(js_name = "F64")]
+  pub f64: String,
+  #[napi(js_name = "F32")]
+  pub f32: String,
+  #[napi(js_name = "BOOL")]
+  pub bool: String,
+  #[napi(js_name = "STRING")]
+  pub string: String,
+}
+
+#[napi]
+impl Atom {
+  /// Predefined QuickJS atoms in JS.
+  #[napi(getter, js_name = "inJs")]
+  pub fn in_js() -> InJsAtoms {
+    InJsAtoms {
+      undefined: "undefined".to_string(),
+      null: "null".to_string(),
+      true_val: "true".to_string(),
+      false_val: "false".to_string(),
+      length: "length".to_string(),
+      name: "name".to_string(),
+      value: "value".to_string(),
+      prototype: "prototype".to_string(),
+      constructor: "constructor".to_string(),
+    }
+  }
+
+  /// Native Rust primitive type names for atoms.
+  #[napi(getter, js_name = "inRs")]
+  pub fn in_rs() -> InRsAtoms {
+    InRsAtoms {
+      u32: "u32".to_string(),
+      i32: "i32".to_string(),
+      u64: "u64".to_string(),
+      i64: "i64".to_string(),
+      f64: "f64".to_string(),
+      f32: "f32".to_string(),
+      bool: "bool".to_string(),
+      string: "string".to_string(),
+    }
+  }
 }
