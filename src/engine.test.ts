@@ -19,6 +19,37 @@ describe("napi: Engine", () => {
     expect(engine.execute_pending_job()).toBe(false);
   });
 
+  test("camelCase API aliases work after const engine = new Engine()", () => {
+    const engine = new Engine();
+    expect(engine.isJobPending()).toBe(false);
+    expect(engine.execPendingJob()).toBe(false);
+
+    const ctx = engine.createContext();
+    expect(ctx.eval("10 + 20")).toBe(30);
+
+    ctx.eval(`
+      globalThis.queue = [];
+      Promise.resolve('qjs').then(v => globalThis.queue.push(v));
+    `);
+    expect(engine.isJobPending()).toBe(true);
+
+    let ran = 0;
+    while (engine.execPendingJob()) {
+      ran += 1;
+    }
+    expect(ran).toBeGreaterThan(0);
+    expect(ctx.eval("globalThis.queue")).toEqual(["qjs"]);
+
+    engine.setMemoryLimit(2 << 20);
+    engine.setMaxStackSize(128 * 1024);
+    engine.setGcThreshold(512);
+    engine.setInfo("qjs-engine");
+    engine.runGc();
+
+    const stats = engine.memoryUsage() as { malloc_size: number };
+    expect(typeof stats.malloc_size).toBe("number");
+  });
+
   test("create_context returns a working Context on the shared engine", () => {
     const engine = new Engine();
     const ctx = engine.create_context();
@@ -43,6 +74,8 @@ describe("napi: Engine", () => {
     const weak = engine.weak();
     const upgraded = weak.try_ref();
     expect(upgraded).toBeInstanceOf(Engine);
+    const upgradedCamel = weak.tryRef();
+    expect(upgradedCamel).toBeInstanceOf(Engine);
   });
 
   test("engine tuning methods do not throw", () => {
@@ -114,6 +147,16 @@ describe("napi: Engine", () => {
     ctx.eval_module('import { v } from "k"; globalThis.out = v;');
     expect(ctx.eval("globalThis.out")).toBe("from-loader");
   });
+
+  test("setLoader attaches a loader using camelCase name", () => {
+    const loader = new Loader();
+    loader.add("k2", "export const v = 'from-loader-camel';");
+    const engine = new Engine();
+    engine.setLoader(loader);
+    const ctx = engine.createContext();
+    ctx.eval_module('import { v } from "k2"; globalThis.out = v;');
+    expect(ctx.eval("globalThis.out")).toBe("from-loader-camel");
+  });
 });
 
 describe("napi: Engine host environment", () => {
@@ -122,6 +165,10 @@ describe("napi: Engine host environment", () => {
     const arr = engine.create_array(3) as unknown[];
     expect(Array.isArray(arr)).toBe(true);
     expect(arr.length).toBe(3);
+
+    const arrCamel = engine.createArray(3) as unknown[];
+    expect(Array.isArray(arrCamel)).toBe(true);
+    expect(arrCamel.length).toBe(3);
   });
 
   test("create_string / create_int32 / create_double build JS values", () => {
@@ -129,17 +176,25 @@ describe("napi: Engine host environment", () => {
     expect(engine.create_string("hello")).toBe("hello");
     expect(engine.create_int32(42)).toBe(42);
     expect(engine.create_double(1.5)).toBe(1.5);
+
+    expect(engine.createString("hello")).toBe("hello");
+    expect(engine.createInt32(42)).toBe(42);
+    expect(engine.createDouble(1.5)).toBe(1.5);
   });
 
   test("has_global reads the host global object", () => {
     const engine = new Engine();
     expect(engine.has_global("Math")).toBe(true);
     expect(engine.has_global("definitelyNotAGlobal")).toBe(false);
+
+    expect(engine.hasGlobal("Math")).toBe(true);
+    expect(engine.hasGlobal("definitelyNotAGlobal")).toBe(false);
   });
 
   test("get_napi_version reports the host N-API version", () => {
     const engine = new Engine();
     expect(engine.get_napi_version()).toBeGreaterThan(0);
+    expect(engine.getNapiVersion()).toBeGreaterThan(0);
   });
 
   test("make_object builds a JS object via the host context", () => {
@@ -147,17 +202,25 @@ describe("napi: Engine host environment", () => {
     const obj = engine.make_object() as { ok: boolean; engine: string };
     expect(obj.ok).toBe(true);
     expect(obj.engine).toBe("napi");
+
+    const objCamel = engine.makeObject() as { ok: boolean; engine: string };
+    expect(objCamel.ok).toBe(true);
+    expect(objCamel.engine).toBe("napi");
   });
 
   test("set_instance_data persists host-level state on the Agent", () => {
     const engine = new Engine();
     engine.set_instance_data("vm-state");
     expect(engine.get_instance_data()).toBe("vm-state");
+
+    engine.setInstanceData("vm-state-camel");
+    expect(engine.getInstanceData()).toBe("vm-state-camel");
   });
 
   test("is_disposed is false while the addon is loaded", () => {
     const engine = new Engine();
     expect(engine.is_disposed()).toBe(false);
+    expect(engine.isDisposed()).toBe(false);
   });
 
   test("each instance captures its own context handle", () => {

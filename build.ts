@@ -20,6 +20,7 @@ async function run() {
     useNapiCross,
     crossCompile,
     useCross,
+    cargoExtraArgs: ["--ignore-rust-version"],
   });
 }
 
