@@ -23,8 +23,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
-use napi::{Env, Error, JsBigInt, JsFunction, NapiRaw, sys};
-use napi::bindgen_prelude::{FromNapiValue, ToNapiValue};
+use napi::{Env, Error, JsBigInt, JsValue as NapiJsValueTrait, sys};
+use napi::bindgen_prelude::{FromNapiValue, Function, ToNapiValue, Unknown};
 use napi::check_status;
 use napi_derive::napi;
 use rquickjs::context::intrinsic;
@@ -207,14 +207,14 @@ impl QjsContext {
 
     #[napi]
     pub fn from_raw(env: Env, ctx_ptr: JsBigInt, engine: &JsEngine) -> napi::Result<Self> {
-        let (value, lossless) = ctx_ptr.get_u64();
+        let (value, lossless) = ctx_ptr.get_u64()?;
         if !lossless {
             return Err(Error::from_reason("context pointer does not fit in a u64"));
         }
         let ptr = value as *mut qjs::JSContext;
         let nn = NonNull::new(ptr)
             .ok_or_else(|| Error::from_reason("context pointer is null"))?;
-        let inner = unsafe { Inner::from_raw(nn, engine.get_runtime().clone()) };
+        let inner = unsafe { Inner::from_raw(nn, engine.runtime().clone()) };
         Self::create_standalone(inner, env)
     }
 
@@ -231,27 +231,23 @@ impl QjsContext {
     }
 
     #[napi(js_name = "Engine")]
-    pub fn engine(&self) -> JsEngine {
-        JsEngine::from_runtime(
-            self.inner.runtime().clone(),
-            self.env,
-            Arc::clone(&self.alive),
-        )
+    pub fn engine(&self) -> napi::Result<JsEngine> {
+        JsEngine::new(self.env, None)
     }
 
     #[napi]
-    pub fn with(&self, callback: JsFunction) -> napi::Result<JsonValue> {
+    pub fn with(&self, callback: Function<(), JsonValue>) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
             let ctx_static = unsafe { std::mem::transmute::<Ctx<'_>, Ctx<'static>>(ctx) };
             let jsctx = JsContext::from_inner(ctx_static);
-            let jsctx_raw = <JsContext as ToNapiValue>::to_napi_value(self.env.raw(), jsctx)?;
+            let jsctx_raw = unsafe { <JsContext as ToNapiValue>::to_napi_value(self.env.raw(), jsctx)? };
             let mut return_value = ptr::null_mut();
             check_status!(
                 unsafe {
                     sys::napi_call_function(
                         self.env.raw(),
                         ptr::null_mut(),
-                        unsafe { callback.raw() },
+                        callback.raw(),
                         1,
                         &jsctx_raw as *const _,
                         &mut return_value,
@@ -259,7 +255,7 @@ impl QjsContext {
                 },
                 "QjsContext.with callback failed"
             )?;
-            <JsonValue as FromNapiValue>::from_napi_value(self.env.raw(), return_value)
+            unsafe { <JsonValue as FromNapiValue>::from_napi_value(self.env.raw(), return_value) }
         })
     }
 }
@@ -276,7 +272,7 @@ impl JsContext {
         JsContext { inner }
     }
 
-    pub(crate) fn clone_inner(&self) -> Inner {
+    pub(crate) fn clone_inner(&self) -> Ctx<'static> {
         self.inner.clone()
     }
 
@@ -377,7 +373,7 @@ pub(crate) struct ContextEntry {
     /// Keyed reinterpretation of boa's typed `HostDefined<T>` slot store.
     pub(crate) host_data: RefCell<HashMap<String, JsValue>>,
     /// JS callbacks queued via `enqueueJob`, drained by `runJobs`.
-    pub(crate) job_queue: RefCell<Vec<(Env, JsFunction)>>,
+    pub(crate) job_queue: RefCell<Vec<(sys::napi_env, sys::napi_ref)>>,
 }
 
 thread_local! {
@@ -449,12 +445,12 @@ fn install_default_globals(ctx: &mut BoaContext) {
     };
 
     let console = ObjectInitializer::new(ctx)
-        .function(make(false), "log", 0)
-        .function(make(false), "info", 0)
-        .function(make(false), "debug", 0)
-        .function(make(true), "error", 0)
-        .function(make(true), "warn", 0)
-        .function(make(false), "trace", 0)
+        .function(make(false), js_string!("log"), 0)
+        .function(make(false), js_string!("info"), 0)
+        .function(make(false), js_string!("debug"), 0)
+        .function(make(true), js_string!("error"), 0)
+        .function(make(true), js_string!("warn"), 0)
+        .function(make(false), js_string!("trace"), 0)
         .build();
 
     let _ = ctx.register_global_property(js_string!("console"), console, Attribute::all());
@@ -480,16 +476,61 @@ pub(crate) fn attribute_from_u32(flags: u32) -> Attribute {
 fn jsvalue_to_napi_raw(
     value: &JsValue,
     context: &mut BoaContext,
-    env: &Env,
+    env: sys::napi_env,
 ) -> napi::Result<sys::napi_value> {
     let json = jsvalue_to_json(value, context)?;
-    <JsonValue as ToNapiValue>::to_napi_value(json, env.raw())
+    let env_obj = Env::from_raw(env);
+    let val = env_obj.to_js_value(&json)?;
+    Ok(val.raw())
+}
+
+fn napi_raw_to_json(env: sys::napi_env, val: sys::napi_value) -> napi::Result<JsonValue> {
+    let mut value_type = sys::ValueType::napi_undefined;
+    unsafe { sys::napi_typeof(env, val, &mut value_type) };
+    match value_type {
+        sys::ValueType::napi_undefined | sys::ValueType::napi_null => Ok(JsonValue::Null),
+        sys::ValueType::napi_boolean => {
+            let mut b = false;
+            unsafe { sys::napi_get_value_bool(env, val, &mut b) };
+            Ok(JsonValue::Bool(b))
+        }
+        sys::ValueType::napi_number => {
+            let mut d = 0.0;
+            unsafe { sys::napi_get_value_double(env, val, &mut d) };
+            Ok(serde_json::Number::from_f64(d)
+                .map(JsonValue::Number)
+                .unwrap_or(JsonValue::Null))
+        }
+        sys::ValueType::napi_string => {
+            let mut len = 0;
+            unsafe { sys::napi_get_value_string_utf8(env, val, ptr::null_mut(), 0, &mut len) };
+            let mut buf = vec![0u8; len + 1];
+            let mut written = 0;
+            unsafe {
+                sys::napi_get_value_string_utf8(
+                    env,
+                    val,
+                    buf.as_mut_ptr() as *mut std::os::raw::c_char,
+                    buf.len(),
+                    &mut written,
+                )
+            };
+            buf.truncate(written);
+            let s = String::from_utf8(buf).map_err(|e| Error::from_reason(e.to_string()))?;
+            Ok(JsonValue::String(s))
+        }
+        _ => {
+            let env_obj = Env::from_raw(env);
+            let unknown = unsafe { napi::Unknown::from_raw_unchecked(env, val) };
+            env_obj.from_js_value(unknown)
+        }
+    }
 }
 
 #[napi(object)]
 pub struct RuntimeLimitsView {
     pub stack_size: Option<u32>,
-    pub loop_iteration_limit: Option<u64>,
+    pub loop_iteration_limit: Option<f64>,
     pub backtrace_limit: Option<u32>,
     pub recursion_limit: Option<u32>,
 }
@@ -535,7 +576,7 @@ impl Context {
     }
 
     /// Start building a `Context` with explicit options.
-    #[napi(factory)]
+    #[napi]
     pub fn builder() -> ContextBuilder {
         ContextBuilder { can_block: false }
     }
@@ -574,18 +615,42 @@ impl Context {
             let mut ctx = entry.inner.borrow_mut();
             ctx.run_jobs().map_err(to_napi_err)?;
         }
-        let jobs: Vec<(Env, JsFunction)> = entry.job_queue.borrow_mut().drain(..).collect();
-        for (env, cb) in jobs {
-            cb.call(None, &[])?;
+        let jobs: Vec<(sys::napi_env, sys::napi_ref)> = entry.job_queue.borrow_mut().drain(..).collect();
+        for (raw_env, cb_ref) in jobs {
+            let mut cb_val = ptr::null_mut();
+            let status = unsafe { sys::napi_get_reference_value(raw_env, cb_ref, &mut cb_val) };
+            if status == sys::Status::napi_ok && !cb_val.is_null() {
+                let mut undef = ptr::null_mut();
+                unsafe { sys::napi_get_undefined(raw_env, &mut undef) };
+                let mut return_value = ptr::null_mut();
+                let _ = unsafe {
+                    sys::napi_call_function(
+                        raw_env,
+                        undef,
+                        cb_val,
+                        0,
+                        ptr::null(),
+                        &mut return_value,
+                    )
+                };
+            }
+            let _ = unsafe { sys::napi_delete_reference(raw_env, cb_ref) };
         }
         Ok(())
     }
 
     /// Queue a JS `callback` to run on the next [`Context::runJobs`].
     #[napi]
-    pub fn enqueue_job(&self, env: Env, callback: JsFunction) -> napi::Result<()> {
+    pub fn enqueue_job(&self, env: Env, callback: Function<'static, (), Unknown<'static>>) -> napi::Result<()> {
         let entry = self.entry()?;
-        entry.job_queue.borrow_mut().push((env, callback));
+        let raw_env = env.raw();
+        let raw_cb = callback.raw();
+        let mut cb_ref = ptr::null_mut();
+        check_status!(
+            unsafe { sys::napi_create_reference(raw_env, raw_cb, 1, &mut cb_ref) },
+            "enqueue_job create ref failed"
+        )?;
+        entry.job_queue.borrow_mut().push((raw_env, cb_ref));
         Ok(())
     }
 
@@ -621,7 +686,7 @@ impl Context {
         env: Env,
         name: String,
         length: u32,
-        callback: JsFunction,
+        callback: Function<Unknown, JsonValue>,
     ) -> napi::Result<()> {
         self.register_callable(env, name, length, callback, true)
     }
@@ -634,7 +699,7 @@ impl Context {
         env: Env,
         name: String,
         length: u32,
-        callback: JsFunction,
+        callback: Function<Unknown, JsonValue>,
     ) -> napi::Result<()> {
         self.register_callable(env, name, length, callback, false)
     }
@@ -644,28 +709,47 @@ impl Context {
         env: Env,
         name: String,
         length: u32,
-        callback: JsFunction,
+        callback: Function<Unknown, JsonValue>,
         constructable: bool,
     ) -> napi::Result<()> {
         let entry = self.entry()?;
         let mut ctx = entry.inner.borrow_mut();
+        let raw_env = env.raw();
+        let raw_cb = callback.raw();
+        let mut cb_ref = ptr::null_mut();
+        check_status!(
+            unsafe { sys::napi_create_reference(raw_env, raw_cb, 1, &mut cb_ref) },
+            "create callable ref failed"
+        )?;
+
         let native = NativeFunction::from_copy_closure(move |this, args, context| {
-            let this_n = jsvalue_to_napi_raw(this, context, &env)
+            let mut cb_val = ptr::null_mut();
+            check_status!(
+                unsafe { sys::napi_get_reference_value(raw_env, cb_ref, &mut cb_val) },
+                "get callable ref failed"
+            )
+            .map_err(|e| napi_to_js_err(e, context))?;
+
+            let this_n = jsvalue_to_napi_raw(this, context, raw_env)
                 .map_err(|e| napi_to_js_err(e, context))?;
             let mut argv: Vec<sys::napi_value> = Vec::with_capacity(args.len());
             for a in args {
                 argv.push(
-                    jsvalue_to_napi_raw(a, context, &env)
+                    jsvalue_to_napi_raw(a, context, raw_env)
                         .map_err(|e| napi_to_js_err(e, context))?,
                 );
+            }
+            let mut recv = this_n;
+            if recv.is_null() {
+                unsafe { sys::napi_get_undefined(raw_env, &mut recv) };
             }
             let mut return_value = ptr::null_mut();
             check_status!(
                 unsafe {
                     sys::napi_call_function(
-                        env.raw(),
-                        ptr::null_mut(),
-                        unsafe { callback.raw() },
+                        raw_env,
+                        recv,
+                        cb_val,
                         argv.len(),
                         argv.as_ptr(),
                         &mut return_value,
@@ -674,7 +758,7 @@ impl Context {
                 "registered global callable threw"
             )
             .map_err(|e| napi_to_js_err(e, context))?;
-            let json = <JsonValue as FromNapiValue>::from_napi_value(env.raw(), return_value)
+            let json = napi_raw_to_json(raw_env, return_value)
                 .map_err(|e| napi_to_js_err(e, context))?;
             JsValue::from_json(&json, context)
         });
@@ -730,7 +814,7 @@ impl Context {
         let rl = entry.inner.borrow().runtime_limits();
         Ok(RuntimeLimitsView {
             stack_size: Some(rl.stack_size_limit() as u32),
-            loop_iteration_limit: Some(rl.loop_iteration_limit()),
+            loop_iteration_limit: Some(rl.loop_iteration_limit() as f64),
             backtrace_limit: Some(rl.backtrace_limit() as u32),
             recursion_limit: Some(rl.recursion_limit() as u32),
         })
@@ -746,7 +830,7 @@ impl Context {
             rl.set_stack_size_limit(v as usize);
         }
         if let Some(v) = limits.loop_iteration_limit {
-            rl.set_loop_iteration_limit(v);
+            rl.set_loop_iteration_limit(v as u64);
         }
         if let Some(v) = limits.backtrace_limit {
             rl.set_backtrace_limit(v as usize);
@@ -828,7 +912,7 @@ impl Context {
 
     /// Replace the active realm and return the previous one.
     #[napi]
-    pub fn enter_realm(&self, handle: &Realm) -> napi::Result<Realm> {
+    pub fn enter_realm(&self, handle: Realm) -> napi::Result<Realm> {
         let entry = self.entry()?;
         let realm = get_realm(handle.id)
             .ok_or_else(|| Error::from_reason("invalid Realm handle"))?;
@@ -915,7 +999,7 @@ impl ContextBuilder {
 
     /// Set whether this context can be suspended by `Atomics.wait`.
     #[napi]
-    pub fn can_block(&mut self, can: bool) -> &mut Self {
+    pub fn can_block(&mut self, can: bool) -> &Self {
         self.can_block = can;
         self
     }

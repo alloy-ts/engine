@@ -42,6 +42,10 @@ pub struct JsEngine {
 
 #[napi]
 impl JsEngine {
+    pub(crate) fn runtime(&self) -> &QjsRuntime {
+        &self.inner
+    }
+
     /// Capture the `napi::Env` that NAPI injects, register a cleanup hook so we
     /// learn when it stops being valid, and create the embedded QuickJS engine.
     ///

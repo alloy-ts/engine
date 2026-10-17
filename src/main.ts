@@ -3,20 +3,18 @@ export function main(): string {
 }
 
 export {
-  add,
-  Atom,
   Compiler,
   Context,
-  Engine,
   Global,
-  Loader,
+  JsEngine as Engine,
+  JsLoader as Loader,
   Parser,
-  PredefinedAtom,
-  Realm,
   Script,
-  WeakEngine,
+  JsWeakEngine as WeakEngine,
   realmEval,
   realmGlobalKeys,
   realmRegisterGlobalProperty,
   realmRunJobs,
 } from "../dist/index.js";
+
+export type { Realm } from "../dist/index.js";
