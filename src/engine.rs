@@ -35,7 +35,7 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 #[napi]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
-    inner: QjsRuntime,
+    pub(crate) inner: QjsRuntime,
     /// The host N-API environment, captured at construction.
     env: Env,
     /// Set to `true` when the owning addon (and thus this context) is unloaded.
@@ -66,11 +66,20 @@ impl JsEngine {
         Ok(JsEngine { inner, env, alive })
     }
 
+    pub(crate) fn from_runtime(env: Env, inner: QjsRuntime) -> napi::Result<Self> {
+        let alive = Arc::new(AtomicBool::new(false));
+        let hook_data = Arc::clone(&alive);
+        env.add_env_cleanup_hook(hook_data, |flag: Arc<AtomicBool>| {
+            flag.store(true, Ordering::SeqCst);
+        })?;
+        Ok(JsEngine { inner, env, alive })
+    }
+
     /// Attach (or replace) the module loader/resolver for this engine.
     ///
     /// After this, `import` statements in any of this engine's contexts resolve
     /// through the given `Loader`.
-    #[napi]
+    #[napi(js_name = "set_loader")]
     pub fn set_loader(&self, loader: &JsLoader) -> napi::Result<()> {
         self.inner.set_loader(loader.resolver(), loader.loader());
         Ok(())
@@ -82,7 +91,7 @@ impl JsEngine {
     /// need several realms on one engine, or when you want the engine configured
     /// (memory limits, etc.) before any context exists. Objects may be shared
     /// between contexts minted from the same engine.
-    #[napi]
+    #[napi(js_name = "create_context")]
     pub fn create_context(&self) -> napi::Result<JsContext> {
         let inner = QjsContext::full(&self.inner).map_err(to_napi_err)?;
         Ok(JsContext::from_inner(inner))

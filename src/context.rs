@@ -1,4 +1,4 @@
-use napi::Error;
+use napi::bindgen_prelude::{BigInt, Env, Error, Function, Unknown};
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rquickjs::{
     Ctx, FromJs, Module, Runtime as QjsRuntime, Context as QjsContext, Type, Value,
 };
+
+use crate::engine::JsEngine;
 
 /// Monotonic counter used to give each `eval_module` call a unique module name,
 /// since QuickJS keys its module registry by name (re-declaring a name errors).
@@ -67,6 +69,23 @@ pub struct JsContext {
 }
 
 #[napi]
+pub struct JsContextBuilder;
+
+#[napi]
+impl JsContextBuilder {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        JsContextBuilder
+    }
+
+    #[napi]
+    pub fn build(&self, engine: &JsEngine) -> napi::Result<JsContext> {
+        let inner = QjsContext::builder().build(&engine.inner).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+}
+
+#[napi]
 impl JsContext {
     /// Create a `Context` backed by a freshly-created *private* QuickJS runtime.
     ///
@@ -77,6 +96,71 @@ impl JsContext {
         let runtime = QjsRuntime::new().map_err(to_napi_err)?;
         let inner = QjsContext::full(&runtime).map_err(to_napi_err)?;
         Ok(JsContext { inner })
+    }
+
+    /// Create a context from a raw QuickJS context pointer and an Engine.
+    #[napi(factory, js_name = "fromRaw")]
+    pub fn from_raw(ptr: BigInt, engine: &JsEngine) -> napi::Result<Self> {
+        let (_, ptr_u64, _) = ptr.get_u64();
+        let non_null = std::ptr::NonNull::new(ptr_u64 as *mut rquickjs::qjs::JSContext)
+            .ok_or_else(|| Error::from_reason("Null pointer passed to Context.fromRaw"))?;
+        unsafe {
+            rquickjs::qjs::JS_DupContext(non_null.as_ptr());
+        }
+        let inner = unsafe { QjsContext::from_raw(non_null, engine.inner.clone()) };
+        Ok(JsContext { inner })
+    }
+
+    /// Creates a base context with only the required functions registered.
+    #[napi(factory, js_name = "base")]
+    pub fn base(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::base(&engine.inner).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Creates a custom context.
+    #[napi(factory, js_name = "custom")]
+    pub fn custom(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::custom::<rquickjs::context::intrinsic::None>(&engine.inner).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Creates a context with all standard available intrinsics registered.
+    #[napi(factory, js_name = "full")]
+    pub fn full(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::full(&engine.inner).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Create a context builder for creating a context.
+    #[napi(js_name = "builder")]
+    pub fn builder() -> JsContextBuilder {
+        JsContextBuilder::new()
+    }
+
+    /// Returns the pointer to the C library context as a BigInt.
+    #[napi(js_name = "asRaw")]
+    pub fn as_raw(&self) -> BigInt {
+        BigInt::from(self.inner.as_raw().as_ptr() as u64)
+    }
+
+    /// Returns the pointer to the C library engine as a BigInt.
+    #[napi(js_name = "getEnginePtr")]
+    pub fn get_engine_ptr(&self) -> BigInt {
+        let ptr = unsafe { rquickjs::qjs::JS_GetRuntime(self.inner.as_raw().as_ptr()) };
+        BigInt::from(ptr as u64)
+    }
+
+    /// Returns the associated Engine.
+    #[napi(js_name = "Engine")]
+    pub fn engine(&self, env: Env) -> napi::Result<JsEngine> {
+        JsEngine::from_runtime(env, self.inner.runtime().clone())
+    }
+
+    /// Execute a callback within the context lock scope.
+    #[napi(js_name = "with")]
+    pub fn with<'a>(&self, _env: Env, callback: Function<(), Unknown<'a>>) -> napi::Result<Unknown<'a>> {
+        self.inner.with(move |_ctx| callback.call(()))
     }
 
     pub(crate) fn from_inner(inner: QjsContext) -> Self {
@@ -107,7 +191,7 @@ impl JsContext {
 
     /// Evaluate `source` as an ES module (`import` / `export` allowed) and return
     /// its namespace object as a JS value.
-    #[napi]
+    #[napi(js_name = "eval_module")]
     pub fn eval_module(&self, source: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
             let seq = MODULE_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -120,7 +204,7 @@ impl JsContext {
     }
 
     /// Parse `json` inside the embedded engine and return it as a JS value.
-    #[napi]
+    #[napi(js_name = "json_parse")]
     pub fn json_parse(&self, json: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
             let value = ctx.json_parse(json).map_err(to_napi_err)?;
@@ -129,7 +213,7 @@ impl JsContext {
     }
 
     /// Enumerable own keys of the global object (`Object.keys(this)`).
-    #[napi]
+    #[napi(js_name = "global_keys")]
     pub fn global_keys(&self) -> napi::Result<Vec<String>> {
         self.inner.with(|ctx| {
             let keys: Vec<String> = ctx.eval("Object.keys(this)").map_err(to_napi_err)?;
@@ -138,7 +222,7 @@ impl JsContext {
     }
 
     /// Run a garbage-collection cycle over the embedded engine.
-    #[napi]
+    #[napi(js_name = "run_gc")]
     pub fn run_gc(&self) -> napi::Result<()> {
         self.inner.with(|ctx| ctx.run_gc());
         Ok(())
@@ -147,13 +231,13 @@ impl JsContext {
     /// Run one pending microtask/job (e.g. after a top-level `await`).
     ///
     /// Returns `true` if a job actually ran. Call in a loop to drain the queue.
-    #[napi]
+    #[napi(js_name = "execute_pending_job")]
     pub fn execute_pending_job(&self) -> napi::Result<bool> {
         Ok(self.inner.with(|ctx| ctx.execute_pending_job()))
     }
 
     /// Whether a JS exception is currently pending in this context.
-    #[napi]
+    #[napi(js_name = "has_exception")]
     pub fn has_exception(&self) -> napi::Result<bool> {
         Ok(self.inner.with(|ctx| ctx.has_exception()))
     }
