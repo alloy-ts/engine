@@ -7,6 +7,7 @@ export {
   Atom,
   Compiler,
   Context,
+  ContextBuilder,
   Engine,
   Global,
   Loader,

@@ -33,11 +33,11 @@ fn to_napi_err(e: rquickjs::Error) -> Error {
 #[napi]
 pub struct JsEngine {
     /// The embedded QuickJS engine.
-    inner: QjsRuntime,
+    pub(crate) inner: QjsRuntime,
     /// The host runtime environment, captured at construction.
-    env: Env,
+    pub(crate) env: Env,
     /// Set to `true` when the owning addon (and thus this context) is unloaded.
-    alive: Arc<AtomicBool>,
+    pub(crate) alive: Arc<AtomicBool>,
 }
 
 #[napi]
