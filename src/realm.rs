@@ -181,7 +181,8 @@ pub fn realm_register_property(
 #[napi]
 pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("globalThis"))
+        let code = "(() => { const o = {}; for (const k of Object.keys(this)) { try { const v = this[k]; if (v !== this) o[k] = v; } catch {} } return o; })()";
+        ctx.eval(Source::from_bytes(code))
             .and_then(|v| v.to_json(ctx))
             .map(|json| json.unwrap_or(JsonValue::Null))
             .map_err(to_err)
@@ -197,7 +198,8 @@ pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
 #[napi]
 pub fn realm_global_this(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("this"))
+        let code = "(() => { const o = {}; for (const k of Object.keys(this)) { try { const v = this[k]; if (v !== this) o[k] = v; } catch {} } return o; })()";
+        ctx.eval(Source::from_bytes(code))
             .and_then(|v| v.to_json(ctx))
             .map(|json| json.unwrap_or(JsonValue::Null))
             .map_err(to_err)

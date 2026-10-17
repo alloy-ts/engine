@@ -74,6 +74,14 @@ impl JsEngine {
         Ok(())
     }
 
+    pub(crate) fn get_runtime(&self) -> &QjsRuntime {
+        &self.inner
+    }
+
+    pub(crate) fn from_runtime(inner: QjsRuntime, env: Env, alive: Arc<AtomicBool>) -> Self {
+        JsEngine { inner, env, alive }
+    }
+
     /// Create a new [`Context`] (boa-backed) and return it.
     ///
     /// Each context owns its own realm and global object, isolated from every
