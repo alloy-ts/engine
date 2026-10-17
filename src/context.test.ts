@@ -2,7 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import { Context, Engine, JSContext } from "./main.ts";
 
 describe("napi: Context & Engine bindings", () => {
-  test("creates Context with full and base constructors using Engine", () => {
+  test("creates Context with full, base, custom, builder, and fromRaw constructors", () => {
     const engine = new Engine();
     const ctxFull = Context.full(engine);
     expect(ctxFull).toBeDefined();
@@ -10,8 +10,39 @@ describe("napi: Context & Engine bindings", () => {
     const ctxBase = Context.base(engine);
     expect(ctxBase).toBeDefined();
 
-    const defaultCtx = new Context();
-    expect(defaultCtx).toBeDefined();
+    const ctxCustom = Context.custom(engine);
+    expect(ctxCustom).toBeDefined();
+
+    const ctxBuilder = Context.builder(engine);
+    expect(ctxBuilder).toBeDefined();
+
+    const rawPtr = ctxFull.asRaw();
+    expect(typeof rawPtr).toBe("bigint");
+    expect(rawPtr).toBeGreaterThan(0n);
+
+    const ctxFromRaw = Context.fromRaw(rawPtr, engine);
+    expect(ctxFromRaw).toBeDefined();
+  });
+
+  test("prototype methods: asRaw, getEnginePtr, Engine, and with", () => {
+    const engine = new Engine();
+    const ctx = Context.full(engine);
+
+    const rawPtr = ctx.asRaw();
+    expect(typeof rawPtr).toBe("bigint");
+
+    const enginePtr = ctx.getEnginePtr();
+    expect(typeof enginePtr).toBe("bigint");
+
+    const eng = ctx.Engine();
+    expect(eng).toBeDefined();
+
+    let called = false;
+    ctx.with((c: unknown) => {
+      called = true;
+      expect(c).toBeDefined();
+    });
+    expect(called).toBe(true);
   });
 
   test("JSContext alias is identical to Context", () => {

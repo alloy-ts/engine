@@ -81,6 +81,7 @@ fn to_rquickjs_eval_options(opts: Option<EvalOptions>) -> QuickJsEvalOptions {
 #[derive(Clone)]
 pub struct JsContext {
   pub(crate) inner: rquickjs::Context,
+  pub(crate) engine: Option<JsEngine>,
 }
 
 #[napi]
@@ -91,32 +92,113 @@ impl JsContext {
     Self::full(engine)
   }
 
+  /// Create a unused context from a raw context pointer.
+  #[napi(factory, js_name = "fromRaw")]
+  pub fn from_raw(raw_ptr: BigInt, engine: &JsEngine) -> Result<Self> {
+    let (_is_signed, ptr, _lossless) = raw_ptr.get_u64();
+    let non_null_ptr = std::ptr::NonNull::new(ptr as *mut rquickjs::qjs::JSContext)
+      .ok_or_else(|| Error::from_reason("Invalid null context pointer".to_string()))?;
+    unsafe {
+      rquickjs::qjs::JS_DupContext(non_null_ptr.as_ptr());
+    }
+    let ctx = unsafe { rquickjs::Context::from_raw(non_null_ptr, engine.qjs_runtime.clone()) };
+    Ok(Self {
+      inner: ctx,
+      engine: Some(engine.clone()),
+    })
+  }
+
   /// Create a base context with minimum registered intrinsics.
   #[napi(factory, js_name = "base")]
   pub fn base(engine: Option<&JsEngine>) -> Result<Self> {
-    let ctx = if let Some(e) = engine {
-      rquickjs::Context::base(&e.qjs_runtime)
+    let (ctx, eng) = if let Some(e) = engine {
+      (
+        rquickjs::Context::base(&e.qjs_runtime).map_err(|e| Error::from_reason(e.to_string()))?,
+        Some(e.clone()),
+      )
     } else {
       let rt = rquickjs::Runtime::new().map_err(|e| Error::from_reason(e.to_string()))?;
-      rquickjs::Context::base(&rt)
-    }
-    .map_err(|e| Error::from_reason(e.to_string()))?;
+      (
+        rquickjs::Context::base(&rt).map_err(|e| Error::from_reason(e.to_string()))?,
+        None,
+      )
+    };
 
-    Ok(Self { inner: ctx })
+    Ok(Self {
+      inner: ctx,
+      engine: eng,
+    })
+  }
+
+  /// Create a custom context with minimal base intrinsic objects.
+  #[napi(factory, js_name = "custom")]
+  pub fn custom(engine: Option<&JsEngine>) -> Result<Self> {
+    Self::base(engine)
   }
 
   /// Create a context with all standard intrinsics registered.
   #[napi(factory, js_name = "full")]
   pub fn full(engine: Option<&JsEngine>) -> Result<Self> {
-    let ctx = if let Some(e) = engine {
-      rquickjs::Context::full(&e.qjs_runtime)
+    let (ctx, eng) = if let Some(e) = engine {
+      (
+        rquickjs::Context::full(&e.qjs_runtime).map_err(|e| Error::from_reason(e.to_string()))?,
+        Some(e.clone()),
+      )
     } else {
       let rt = rquickjs::Runtime::new().map_err(|e| Error::from_reason(e.to_string()))?;
-      rquickjs::Context::full(&rt)
-    }
-    .map_err(|e| Error::from_reason(e.to_string()))?;
+      (
+        rquickjs::Context::full(&rt).map_err(|e| Error::from_reason(e.to_string()))?,
+        None,
+      )
+    };
 
-    Ok(Self { inner: ctx })
+    Ok(Self {
+      inner: ctx,
+      engine: eng,
+    })
+  }
+
+  /// Create a context builder.
+  #[napi(factory, js_name = "builder")]
+  pub fn builder(engine: Option<&JsEngine>) -> Result<Self> {
+    Self::full(engine)
+  }
+
+  /// Returns raw context pointer as BigInt.
+  #[napi(js_name = "asRaw")]
+  pub fn as_raw(&self) -> BigInt {
+    BigInt::from(self.inner.as_raw().as_ptr() as usize as u64)
+  }
+
+  /// Returns associated runtime/engine raw pointer as BigInt.
+  #[napi(js_name = "getEnginePtr")]
+  pub fn get_engine_ptr(&self) -> BigInt {
+    let ptr = self
+      .inner
+      .with(|ctx| unsafe { rquickjs::qjs::JS_GetRuntime(ctx.as_raw().as_ptr()) });
+    BigInt::from(ptr as usize as u64)
+  }
+
+  /// Returns the associated Engine instance or constructs one if missing.
+  #[napi(js_name = "Engine")]
+  pub fn get_engine(&self, env: Env) -> Result<JsEngine> {
+    if let Some(ref e) = self.engine {
+      Ok(e.clone())
+    } else {
+      let mut eng = JsEngine::new(env)?;
+      eng.qjs_runtime = self.inner.runtime().clone();
+      Ok(eng)
+    }
+  }
+
+  /// Entry point for executing a callback in this context.
+  #[napi(js_name = "with")]
+  pub fn with<'a>(
+    &self,
+    env: &'a Env,
+    callback: Function<'a, JsContext, Unknown<'a>>,
+  ) -> Result<Unknown<'a>> {
+    callback.apply(env.get_global()?, self.clone())
   }
 
   /// Evaluate a JavaScript script in global context.
