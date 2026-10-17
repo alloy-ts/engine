@@ -4,6 +4,12 @@ import { Context, Engine, JSContext } from "./main.ts";
 describe("napi: Context & Engine bindings", () => {
   test("creates Context with full, base, custom, builder, and fromRaw constructors", () => {
     const engine = new Engine();
+    expect(typeof Context.fromRaw).toBe("function");
+    expect(typeof Context.base).toBe("function");
+    expect(typeof Context.custom).toBe("function");
+    expect(typeof Context.full).toBe("function");
+    expect(typeof Context.builder).toBe("function");
+
     const ctxFull = Context.full(engine);
     expect(ctxFull).toBeDefined();
 
@@ -24,7 +30,12 @@ describe("napi: Context & Engine bindings", () => {
     expect(ctxFromRaw).toBeDefined();
   });
 
-  test("prototype methods: asRaw, getEnginePtr, Engine, and with", () => {
+  test("prototype methods exist on Context.prototype: asRaw, getEnginePtr, Engine, and with", () => {
+    expect(typeof Context.prototype.asRaw).toBe("function");
+    expect(typeof Context.prototype.getEnginePtr).toBe("function");
+    expect(typeof Context.prototype.Engine).toBe("function");
+    expect(typeof Context.prototype.with).toBe("function");
+
     const engine = new Engine();
     const ctx = Context.full(engine);
 
@@ -68,7 +79,6 @@ describe("napi: Context & Engine bindings", () => {
   test("compiles valid script without executing side-effects", () => {
     const ctx = new Context();
     expect(() => ctx.compile("let a = 1;", "test.js", true)).not.toThrow();
-    // Verify side-effect didn't run: 'a' is not defined in global context
     expect(() => ctx.eval("a")).toThrow();
   });
 
