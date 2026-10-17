@@ -26,6 +26,10 @@ impl JsRuntime {
         Ok(JsRuntime { inner })
     }
 
+    pub(crate) fn from_inner(inner: QjsRuntime) -> Self {
+        JsRuntime { inner }
+    }
+
     /// Configure module loading and resolution using a [`JsLoader`].
     #[napi(js_name = "set_loader")]
     pub fn set_loader(&self, loader: &crate::loader::JsLoader) -> napi::Result<()> {

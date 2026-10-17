@@ -1,3 +1,4 @@
+use napi::bindgen_prelude::{Function, Unknown};
 use napi::Error;
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
@@ -6,16 +7,15 @@ use rquickjs::{
     context::EvalOptions, Ctx, FromJs, Runtime as QjsRuntime, Context as QjsContext, Type, Value,
 };
 
+use crate::engine::JsEngine;
+use crate::runtime::JsRuntime;
+
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
 fn to_napi_err(e: rquickjs::Error) -> Error {
     Error::from_reason(e.to_string())
 }
 
 /// Convert a QuickJS value into a JSON value Node can receive directly.
-///
-/// Data types (objects, arrays, numbers, strings, booleans, null) round-trip
-/// losslessly. Functions / symbols / promises are not JSON-representable and
-/// collapse to `null` for now (see module docs).
 fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonValue> {
     use rquickjs::String as QjsString;
 
@@ -37,9 +37,6 @@ fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonVal
                 .to_string()
                 .map_err(to_napi_err)?,
         )),
-        // Objects, arrays, functions, symbols and promises: try JSON first.
-        // Functions/symbols/promises stringify to `undefined`, which we surface
-        // as `null`.
         _ => match ctx.json_stringify(value).map_err(to_napi_err)? {
             Some(s) => serde_json::from_str(&s.to_string().map_err(to_napi_err)?)
                 .map_err(|e| Error::from_reason(e.to_string())),
@@ -49,28 +46,15 @@ fn value_to_json<'js>(ctx: &Ctx<'js>, value: Value<'js>) -> napi::Result<JsonVal
 }
 
 /// NAPI class wrapping an embedded QuickJS [`Context`](rquickjs::Context).
-///
-/// JS:
-/// ```ts
-/// const ctx = new Context();
-/// const v = ctx.eval("1 + 1"); // 2
-/// ```
 #[napi(js_name = "Context")]
 pub struct JsContext {
     /// The embedded QuickJS context. It keeps its runtime alive for us.
-    inner: QjsContext,
+    pub(crate) inner: QjsContext,
 }
 
 #[napi]
 impl JsContext {
     /// Create a `Context` backed by a freshly-created *private* QuickJS runtime.
-    ///
-    /// This is the self-contained form. When `runtime.rs` lands, prefer
-    /// `runtime.create_context()` to share one engine across several contexts.
-    ///
-    /// Declared as a `factory` (not a plain `constructor`) because `Context`
-    /// owns an opaque `rquickjs::Context` that is *not* `FromNapiValue`; a plain
-    /// constructor would force napi to try to deserialize the field from JS.
     #[napi(factory)]
     pub fn new() -> napi::Result<Self> {
         let runtime = QjsRuntime::new().map_err(to_napi_err)?;
@@ -78,14 +62,101 @@ impl JsContext {
         Ok(JsContext { inner })
     }
 
+    /// Context.fromRaw() / Context.from_raw()
+    #[napi(factory, js_name = "fromRaw")]
+    pub fn from_raw_camel(engine: &JsEngine) -> napi::Result<Self> {
+        let inner = QjsContext::full(&engine.runtime).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    #[napi(factory, js_name = "from_raw")]
+    pub fn from_raw(engine: &JsEngine) -> napi::Result<Self> {
+        Self::from_raw_camel(engine)
+    }
+
+    /// Context.base()
+    #[napi(factory)]
+    pub fn base(engine: Option<&JsEngine>) -> napi::Result<Self> {
+        let runtime = match engine {
+            Some(e) => e.runtime.clone(),
+            None => QjsRuntime::new().map_err(to_napi_err)?,
+        };
+        let inner = QjsContext::base(&runtime).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Context.custom()
+    #[napi(factory)]
+    pub fn custom(engine: Option<&JsEngine>) -> napi::Result<Self> {
+        let runtime = match engine {
+            Some(e) => e.runtime.clone(),
+            None => QjsRuntime::new().map_err(to_napi_err)?,
+        };
+        let inner = QjsContext::base(&runtime).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Context.full()
+    #[napi(factory)]
+    pub fn full(engine: Option<&JsEngine>) -> napi::Result<Self> {
+        let runtime = match engine {
+            Some(e) => e.runtime.clone(),
+            None => QjsRuntime::new().map_err(to_napi_err)?,
+        };
+        let inner = QjsContext::full(&runtime).map_err(to_napi_err)?;
+        Ok(JsContext { inner })
+    }
+
+    /// Context.builder()
+    #[napi(factory)]
+    pub fn builder() -> napi::Result<Self> {
+        Self::new()
+    }
+
     pub(crate) fn from_inner(inner: QjsContext) -> Self {
         JsContext { inner }
     }
 
+    /// Context.prototype.asRaw() / Context.prototype.as_raw()
+    #[napi(js_name = "asRaw")]
+    pub fn as_raw_camel(&self) -> String {
+        format!("{:p}", self.inner.as_raw().as_ptr())
+    }
+
+    #[napi(js_name = "as_raw")]
+    pub fn as_raw(&self) -> String {
+        self.as_raw_camel()
+    }
+
+    /// Context.prototype.getEnginePtr() / Context.prototype.get_engine_ptr()
+    #[napi(js_name = "getEnginePtr")]
+    pub fn get_engine_ptr_camel(&self) -> String {
+        format!("{:p}", self.inner.get_runtime_ptr())
+    }
+
+    #[napi(js_name = "get_engine_ptr")]
+    pub fn get_engine_ptr(&self) -> String {
+        self.get_engine_ptr_camel()
+    }
+
+    /// Context.prototype.Engine() / Context.prototype.engine()
+    #[napi(js_name = "Engine")]
+    pub fn engine_capital(&self) -> JsRuntime {
+        JsRuntime::from_inner(self.inner.runtime().clone())
+    }
+
+    #[napi(js_name = "engine")]
+    pub fn engine(&self) -> JsRuntime {
+        self.engine_capital()
+    }
+
+    /// Context.prototype.with(callback)
+    #[napi]
+    pub fn with<'env>(&self, callback: Function<'env, (), Unknown<'env>>) -> napi::Result<Unknown<'env>> {
+        self.inner.with(|_ctx| callback.call(()))
+    }
+
     /// Evaluate `source` as a global script and return the result as a JS value.
-    ///
-    /// Runs in QuickJS strict mode. Throws (as a JS exception) if the script
-    /// throws or fails to parse.
     #[napi]
     pub fn eval(&self, source: String) -> napi::Result<JsonValue> {
         self.inner.with(|ctx| {
@@ -169,8 +240,6 @@ impl JsContext {
     }
 
     /// Run one pending microtask/job (e.g. after a top-level `await`).
-    ///
-    /// Returns `true` if a job actually ran. Call in a loop to drain the queue.
     #[napi(js_name = "execute_pending_job")]
     pub fn execute_pending_job(&self) -> napi::Result<bool> {
         Ok(self.inner.with(|ctx| ctx.execute_pending_job()))

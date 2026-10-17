@@ -5,22 +5,45 @@ The `Context` class wraps a QuickJS execution context (`rquickjs::Context`).
 ## Overview
 
 ```ts
-import { Context } from "@alloy-ts/engine";
-
-// Standalone context with its own private runtime
-const ctx = Context.new();
-```
-
-Or created from an `Engine` or `Runtime`:
-
-```ts
-import { Engine } from "@alloy-ts/engine";
+import { Context, Engine } from "@alloy-ts/engine";
 
 const engine = new Engine();
-const ctx = engine.create_context();
+const ctx = Context.full(engine);
 ```
 
-## Methods
+## Static Constructors
+
+- **`Context.new(): Context`**
+  Creates a standalone context with its own private runtime.
+
+- **`Context.fromRaw(engine: Engine): Context` / `Context.from_raw(engine: Engine): Context`**
+  Creates a context from a given Engine instance.
+
+- **`Context.base(engine?: Engine): Context`**
+  Creates a base context with standard minimal functions registered.
+
+- **`Context.custom(engine?: Engine): Context`**
+  Creates a context with custom intrinsics registered.
+
+- **`Context.full(engine?: Engine): Context`**
+  Creates a context with all standard intrinsics registered.
+
+- **`Context.builder(): Context`**
+  Returns a context created via context builder configuration.
+
+## Prototype Methods
+
+- **`asRaw(): string` / `as_raw(): string`**
+  Returns the raw JSContext pointer address string.
+
+- **`getEnginePtr(): string` / `get_engine_ptr(): string`**
+  Returns the pointer address string of the associated JSRuntime/JSEngine.
+
+- **`Engine(): Runtime` / `engine(): Runtime`**
+  Returns a handle to the associated runtime engine.
+
+- **`with(callback: () => any): any`**
+  Locks the runtime and executes `callback` safely within the context lock scope.
 
 - **`eval(source: string): any`**
   Evaluates `source` as a global script in strict mode and returns the result.
