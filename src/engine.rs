@@ -16,6 +16,7 @@ use crate::loader::JsLoader;
 use crate::script::Script;
 
 /// Map a [`rquickjs::Error`] into a `napi::Error` so JS sees a thrown exception.
+#[cfg(feature = "quickjs")]
 fn to_napi_err(e: rquickjs::Error) -> Error {
     Error::from_reason(e.to_string())
 }
