@@ -4,6 +4,7 @@ export function main(): string {
 
 export {
   Context,
+  Engine,
   Global,
   Parser,
   Realm,

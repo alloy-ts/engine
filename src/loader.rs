@@ -1,27 +1,24 @@
+#[cfg(feature = "quickjs")]
 use std::collections::HashMap;
+#[cfg(feature = "quickjs")]
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "quickjs")]
 use napi_derive::napi;
+#[cfg(feature = "quickjs")]
 use rquickjs::{
     loader::{ImportAttributes, Loader, Resolver},
     Ctx, Error, Module, Result as QjsResult,
 };
 
 /// The shared module registry: specifier -> module source text.
-///
-/// Wrapped in `Arc<Mutex<..>>` so the `Resolver`/`Loader` trait objects handed to
-/// the runtime share the *same* state as the JS `Loader` object — modules added
-/// after `set_loader` are still visible, and the registry outlives the JS handle.
+#[cfg(feature = "quickjs")]
 #[derive(Default)]
 struct LoaderData {
     modules: HashMap<String, String>,
 }
 
-/// Resolve a module specifier against a base module name.
-///
-/// Bare specifiers (`"math"`) are used verbatim; relative specifiers
-/// (`"./x"`, `"../y"`) are resolved against the base module's directory and
-/// path-normalized.
+#[cfg(feature = "quickjs")]
 fn resolve_path(base: &str, name: &str) -> String {
     if !name.starts_with('.') {
         return name.to_string();
@@ -38,7 +35,7 @@ fn resolve_path(base: &str, name: &str) -> String {
     normalize(&joined)
 }
 
-/// Normalize a `/`-separated path, collapsing `.` and `..` segments.
+#[cfg(feature = "quickjs")]
 fn normalize(path: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     for seg in path.split('/') {
@@ -61,10 +58,11 @@ fn normalize(path: &str) -> String {
     }
 }
 
-/// The Rust-side `Resolver` + `Loader`, sharing state with a JS `Loader`.
+#[cfg(feature = "quickjs")]
 #[derive(Clone)]
 pub(crate) struct SharedModules(Arc<Mutex<LoaderData>>);
 
+#[cfg(feature = "quickjs")]
 impl Resolver for SharedModules {
     fn resolve<'js>(
         &mut self,
@@ -83,6 +81,7 @@ impl Resolver for SharedModules {
     }
 }
 
+#[cfg(feature = "quickjs")]
 impl Loader for SharedModules {
     fn load<'js>(
         &mut self,
@@ -90,7 +89,6 @@ impl Loader for SharedModules {
         name: &str,
         _attributes: Option<ImportAttributes<'js>>,
     ) -> QjsResult<Module<'js>> {
-        // Clone the source out so the mutex guard is dropped before compiling.
         let source = {
             let guard = self.0.lock().unwrap();
             guard.modules.get(name).cloned()
@@ -102,14 +100,15 @@ impl Loader for SharedModules {
     }
 }
 
+#[cfg(feature = "quickjs")]
 #[napi]
 pub struct JsLoader {
     inner: Arc<Mutex<LoaderData>>,
 }
 
+#[cfg(feature = "quickjs")]
 #[napi]
 impl JsLoader {
-    /// Create an empty loader.
     #[napi(constructor)]
     pub fn new() -> Self {
         JsLoader {
@@ -117,46 +116,38 @@ impl JsLoader {
         }
     }
 
-    /// Register (or replace) a module's source text under `name`.
     #[napi]
     pub fn add(&self, name: String, source: String) {
         self.inner.lock().unwrap().modules.insert(name, source);
     }
 
-    /// Remove a module. Returns `true` if it existed.
     #[napi]
     pub fn remove(&self, name: String) -> bool {
         self.inner.lock().unwrap().modules.remove(&name).is_some()
     }
 
-    /// Whether a module with this name is registered.
     #[napi]
     pub fn has(&self, name: String) -> bool {
         self.inner.lock().unwrap().modules.contains_key(&name)
     }
 
-    /// The registered module names.
     #[napi]
     pub fn keys(&self) -> Vec<String> {
         self.inner.lock().unwrap().modules.keys().cloned().collect()
     }
 
-    /// Remove all registered modules.
     #[napi]
     pub fn clear(&self) {
         self.inner.lock().unwrap().modules.clear();
     }
 }
 
+#[cfg(feature = "quickjs")]
 impl JsLoader {
-    /// A [`Resolver`] sharing this loader's registry. `pub(crate)` — only the
-    /// runtime needs it, to hand to `set_loader`.
     pub(crate) fn resolver(&self) -> SharedModules {
         SharedModules(self.inner.clone())
     }
 
-    /// A [`Loader`] sharing this loader's registry. `pub(crate)` — only the
-    /// runtime needs it, to hand to `set_loader`.
     pub(crate) fn loader(&self) -> SharedModules {
         SharedModules(self.inner.clone())
     }
