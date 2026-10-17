@@ -1,6 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import {
   Context,
+  Engine,
   realmEval,
   realmGlobalKeys,
   realmRegisterProperty,
@@ -23,6 +24,7 @@ test("new Context() default builds a boa-backed context", () => {
 
 test("Context.builder() produces a working context", () => {
   const b = Context.builder();
+  b.canBlock(false);
   const ctx = b.build();
   expect(ctx.eval("7 * 6")).toBe(42);
   ctx.dispose();
@@ -81,7 +83,7 @@ test("registerGlobalProperty + globalKeys", () => {
 
 test("registerGlobalCallable bridges to a JS function", () => {
   const ctx = new Context();
-  ctx.registerGlobalCallable("add", 2, (a, b) => a + b);
+  ctx.registerGlobalCallable("add", 2, (a: any, b: any) => a + b);
   expect(ctx.eval("typeof add")).toBe("function");
   expect(ctx.eval("add(2, 3)")).toBe(5);
   ctx.dispose();
@@ -89,7 +91,7 @@ test("registerGlobalCallable bridges to a JS function", () => {
 
 test("registerGlobalBuiltinCallable is not a constructor", () => {
   const ctx = new Context();
-  ctx.registerGlobalBuiltinCallable("sub", 2, (a, b) => a - b);
+  ctx.registerGlobalBuiltinCallable("sub", 2, (a: any, b: any) => a - b);
   expect(ctx.eval("sub(5, 2)")).toBe(3);
   expect(() => ctx.eval("new sub(1, 2)")).toThrow();
   ctx.dispose();
@@ -233,4 +235,25 @@ test("realmRunJobs drains promises in a realm", () => {
   realmRunJobs(realm);
   expect(realmEval(realm, "globalThis.__rp")).toBe(9);
   ctx.dispose();
+});
+
+// ---------------------------------------------------------------------------
+// Engine API & Backend Selection
+// ---------------------------------------------------------------------------
+
+test("Engine default constructor and backend selection", () => {
+  const defaultEngine = new Engine();
+  expect(defaultEngine.backendName()).toBe("boa");
+  expect(defaultEngine.eval("10 + 20")).toBe(30);
+
+  const boaEngine = Engine.boa();
+  expect(boaEngine.backendName()).toBe("boa");
+
+  const qjsEngine = Engine.quickjs();
+  expect(qjsEngine.backendName()).toBe("quickjs");
+
+  expect(defaultEngine.backend).toEqual({
+    boa: "boa",
+    quickJs: "quickjs",
+  });
 });

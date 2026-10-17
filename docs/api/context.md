@@ -44,66 +44,66 @@ registers a `console` global with `log` / `info` / `debug` / `error` / `warn` /
 
 ## NAPI surface (JS names)
 
-| JS method | Rust | Notes |
-|---|---|---|
-| `new Context()` | `Context::new` | builds `BoaContext::builder().build()` + console |
-| `Context.builder()` | `Context::builder` (factory) | returns `ContextBuilder` |
-| `ctx.dispose()` | `Context::dispose` | removes the entry from the registry |
-| `ctx.eval(src)` | `Context::eval` | returns JSON completion value |
-| `ctx.runJobs()` | `Context::run_jobs` | drains boa microtasks, then JS `enqueueJob` callbacks |
-| `ctx.enqueueJob(cb)` | `Context::enqueue_job` | `Env` injected automatically |
-| `ctx.strict(mode)` | `Context::strict` | sets the strict-mode flag |
-| `ctx.registerGlobalProperty(key, value, attribute)` | `Context::register_global_property` | `attribute` = 1\|2\|4 (writable/enumerable/configurable) |
-| `ctx.registerGlobalCallable(name, length, cb)` | `Context::register_global_callable` | callable **and** constructable |
-| `ctx.registerGlobalBuiltinCallable(name, length, cb)` | `Context::register_global_builtin_callable` | callable only |
-| `ctx.globalKeys()` | `Context::global_keys` | `Object.keys(globalThis)` |
-| `ctx.globalObject()` | `Context::global_object` | global object, JSON-marshalled |
-| `ctx.canBlock()` | `Context::can_block` | `Atomics.wait` suspendability |
-| `ctx.runtimeLimits()` | `Context::runtime_limits` | `RuntimeLimitsView` |
-| `ctx.setRuntimeLimits(limits)` | `Context::set_runtime_limits` | partial update |
-| `ctx.optimizerOptions()` | `Context::optimizer_options` | `OptimizerOptionsView` |
-| `ctx.setOptimizerOptions(opts)` | `Context::set_optimizer_options` | partial update |
-| `ctx.stackTrace()` | `Context::stack_trace` | `StackFrameView[]` (most-recent first) |
-| `ctx.createRealm()` | `Context::create_realm` | returns `Realm { id, ctxId }` |
-| `ctx.enterRealm(realm)` | `Context::enter_realm` | returns previous `Realm` |
-| `ctx.realm()` | `Context::realm` | current active `Realm` |
-| `ctx.insertData(key, value)` | `Context::insert_data` | host-defined keyed store (JSON) |
-| `ctx.hasData(key)` | `Context::has_data` | |
-| `ctx.getData(key)` | `Context::get_data` | |
-| `ctx.removeData(key)` | `Context::remove_data` | |
-| `ctx.clearKeptObjects()` | `Context::clear_kept_objects` | weak-ref bookkeeping |
+| JS method                                             | Rust                                        | Notes                                                    |
+| ----------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------- |
+| `new Context()`                                       | `Context::new`                              | builds `BoaContext::builder().build()` + console         |
+| `Context.builder()`                                   | `Context::builder` (factory)                | returns `ContextBuilder`                                 |
+| `ctx.dispose()`                                       | `Context::dispose`                          | removes the entry from the registry                      |
+| `ctx.eval(src)`                                       | `Context::eval`                             | returns JSON completion value                            |
+| `ctx.runJobs()`                                       | `Context::run_jobs`                         | drains boa microtasks, then JS `enqueueJob` callbacks    |
+| `ctx.enqueueJob(cb)`                                  | `Context::enqueue_job`                      | `Env` injected automatically                             |
+| `ctx.strict(mode)`                                    | `Context::strict`                           | sets the strict-mode flag                                |
+| `ctx.registerGlobalProperty(key, value, attribute)`   | `Context::register_global_property`         | `attribute` = 1\|2\|4 (writable/enumerable/configurable) |
+| `ctx.registerGlobalCallable(name, length, cb)`        | `Context::register_global_callable`         | callable **and** constructable                           |
+| `ctx.registerGlobalBuiltinCallable(name, length, cb)` | `Context::register_global_builtin_callable` | callable only                                            |
+| `ctx.globalKeys()`                                    | `Context::global_keys`                      | `Object.keys(globalThis)`                                |
+| `ctx.globalObject()`                                  | `Context::global_object`                    | global object, JSON-marshalled                           |
+| `ctx.canBlock()`                                      | `Context::can_block`                        | `Atomics.wait` suspendability                            |
+| `ctx.runtimeLimits()`                                 | `Context::runtime_limits`                   | `RuntimeLimitsView`                                      |
+| `ctx.setRuntimeLimits(limits)`                        | `Context::set_runtime_limits`               | partial update                                           |
+| `ctx.optimizerOptions()`                              | `Context::optimizer_options`                | `OptimizerOptionsView`                                   |
+| `ctx.setOptimizerOptions(opts)`                       | `Context::set_optimizer_options`            | partial update                                           |
+| `ctx.stackTrace()`                                    | `Context::stack_trace`                      | `StackFrameView[]` (most-recent first)                   |
+| `ctx.createRealm()`                                   | `Context::create_realm`                     | returns `Realm { id, ctxId }`                            |
+| `ctx.enterRealm(realm)`                               | `Context::enter_realm`                      | returns previous `Realm`                                 |
+| `ctx.realm()`                                         | `Context::realm`                            | current active `Realm`                                   |
+| `ctx.insertData(key, value)`                          | `Context::insert_data`                      | host-defined keyed store (JSON)                          |
+| `ctx.hasData(key)`                                    | `Context::has_data`                         |                                                          |
+| `ctx.getData(key)`                                    | `Context::get_data`                         |                                                          |
+| `ctx.removeData(key)`                                 | `Context::remove_data`                      |                                                          |
+| `ctx.clearKeptObjects()`                              | `Context::clear_kept_objects`               | weak-ref bookkeeping                                     |
 
 `ContextBuilder`: `canBlock(bool) -> this`, `build() -> Context`.
 
 ## Parity with `boa_engine::Context`
 
-| boa method | Exposed? | Reason |
-|---|---|---|
-| `builder` / `Default` | ✅ | `new Context()` / `Context.builder()` |
-| `eval` | ✅ | `eval` (JSON result) |
-| `register_global_property` | ✅ | `registerGlobalProperty` |
-| `register_global_callable` | ✅ | `registerGlobalCallable` |
-| `register_global_builtin_callable` | ✅ | `registerGlobalBuiltinCallable` |
-| `register_global_class` / `unregister_global_class` / `has_global_class` / `get_global_class` | ❌ | Rust native-class system; no JS equivalent and the `Class` trait is not serializable |
-| `global_object` | ✅ | `globalObject()` (JSON view) |
-| `realm` | ✅ | `realm()` |
-| `create_realm` / `enter_realm` | ✅ | `createRealm` / `enterRealm` |
-| `strict` | ✅ | `strict` |
-| `enqueue_job` | ✅ | `enqueueJob` (JS callback form) |
-| `run_jobs` | ✅ | `runJobs` |
-| `clear_kept_objects` | ✅ | `clearKeptObjects` |
-| `stack_trace` | ✅ | `stackTrace` |
-| `runtime_limits` / `set_runtime_limits` / `runtime_limits_mut` | ✅ | `runtimeLimits` / `setRuntimeLimits` |
-| `can_block` | ✅ | `canBlock` |
-| `optimizer_options` / `set_optimizer_options` | ✅ | `optimizerOptions` / `setOptimizerOptions` |
-| `interner` / `interner_mut` | ❌ | internal string interner |
-| `intrinsics` | ❌ | returns boa-internal `Intrinsics` (not napi-serializable) |
-| `root_shape` / `host_hooks` / `clock` | ❌ | internal handles |
-| `downcast_job_executor` / `downcast_module_loader` | ❌ | internal trait downcasts |
-| `insert_data` / `has_data` / `remove_data` / `get_data` (typed `Any`) | ⚠️ | exposed as a **JSON keyed store** (`insertData` …) rather than the typed `HostDefined` |
-| `set_trace` | ❌ | gated behind boa's `trace` feature (off) |
-| `optimize_statement_list` | ❌ | internal optimizer hook |
-| `eval_module` | ⏳ | stretch goal (module loader not yet wired through NAPI) |
+| boa method                                                                                    | Exposed? | Reason                                                                                 |
+| --------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `builder` / `Default`                                                                         | ✅       | `new Context()` / `Context.builder()`                                                  |
+| `eval`                                                                                        | ✅       | `eval` (JSON result)                                                                   |
+| `register_global_property`                                                                    | ✅       | `registerGlobalProperty`                                                               |
+| `register_global_callable`                                                                    | ✅       | `registerGlobalCallable`                                                               |
+| `register_global_builtin_callable`                                                            | ✅       | `registerGlobalBuiltinCallable`                                                        |
+| `register_global_class` / `unregister_global_class` / `has_global_class` / `get_global_class` | ❌       | Rust native-class system; no JS equivalent and the `Class` trait is not serializable   |
+| `global_object`                                                                               | ✅       | `globalObject()` (JSON view)                                                           |
+| `realm`                                                                                       | ✅       | `realm()`                                                                              |
+| `create_realm` / `enter_realm`                                                                | ✅       | `createRealm` / `enterRealm`                                                           |
+| `strict`                                                                                      | ✅       | `strict`                                                                               |
+| `enqueue_job`                                                                                 | ✅       | `enqueueJob` (JS callback form)                                                        |
+| `run_jobs`                                                                                    | ✅       | `runJobs`                                                                              |
+| `clear_kept_objects`                                                                          | ✅       | `clearKeptObjects`                                                                     |
+| `stack_trace`                                                                                 | ✅       | `stackTrace`                                                                           |
+| `runtime_limits` / `set_runtime_limits` / `runtime_limits_mut`                                | ✅       | `runtimeLimits` / `setRuntimeLimits`                                                   |
+| `can_block`                                                                                   | ✅       | `canBlock`                                                                             |
+| `optimizer_options` / `set_optimizer_options`                                                 | ✅       | `optimizerOptions` / `setOptimizerOptions`                                             |
+| `interner` / `interner_mut`                                                                   | ❌       | internal string interner                                                               |
+| `intrinsics`                                                                                  | ❌       | returns boa-internal `Intrinsics` (not napi-serializable)                              |
+| `root_shape` / `host_hooks` / `clock`                                                         | ❌       | internal handles                                                                       |
+| `downcast_job_executor` / `downcast_module_loader`                                            | ❌       | internal trait downcasts                                                               |
+| `insert_data` / `has_data` / `remove_data` / `get_data` (typed `Any`)                         | ⚠️       | exposed as a **JSON keyed store** (`insertData` …) rather than the typed `HostDefined` |
+| `set_trace`                                                                                   | ❌       | gated behind boa's `trace` feature (off)                                               |
+| `optimize_statement_list`                                                                     | ❌       | internal optimizer hook                                                                |
+| `eval_module`                                                                                 | ⏳       | stretch goal (module loader not yet wired through NAPI)                                |
 
 ## Known limitations / future work
 

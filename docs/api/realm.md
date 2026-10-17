@@ -5,7 +5,7 @@
 In the ECMAScript spec a **Realm Record** is the top-level scope that holds an
 independent global object, global environment, intrinsic constructors
 (`Object`, `Array`, `Promise`, …) and a module table. Code in different realms
-sees *different* intrinsics and globals even when running on the same engine.
+sees _different_ intrinsics and globals even when running on the same engine.
 
 boa models this as `boa_engine::realm::Realm` (pasted in the review). The
 interesting parts:
@@ -48,34 +48,34 @@ internal helpers (`environment`, `loaded_modules`, `resize_global_env`,
    `HostDefined`, `Module`). They have **no** JS-facing equivalent and are not
    reachable from a consumer crate.
 
-So our NAPI `Realm` is an **opaque handle** — the *faithful* subset of the API
+So our NAPI `Realm` is an **opaque handle** — the _faithful_ subset of the API
 that is meaningful across the boundary — not a re-export of boa's struct.
 
 ### What is faithfully mirrored
 
-| boa `Realm` | NAPI binding | Fidelity |
-|---|---|---|
-| `create(host_hooks, root_shape)` | `ctx.createRealm()` | ✅ (uses the owning context's hooks/shape) |
-| `enter_realm(realm)` (swap) | `ctx.enterRealm(realm)` | ✅ returns previous realm handle |
-| `realm()` (active) | `ctx.realm()` | ✅ |
-| `register_property(key, value, attr, ctx)` | `realmRegisterProperty` | ✅ `define_property_or_throw` semantics preserved |
-| `global_object` (JSON) | `realmGlobalObject` | ✅ marshalled to JSON |
-| `global_this` (JSON) | `realmGlobalThis` | ✅ marshalled to JSON |
-| `Object.keys(this)` convenience | `realmGlobalKeys` | ➕ convenience (boa has no such method) |
-| `eval` *inside* the realm | `realmEval` | ➕ convenience; re-enters the realm, evaluates, restores |
-| `run_jobs` *inside* the realm | `realmRunJobs` | ➕ convenience; re-enters the realm, drains jobs |
+| boa `Realm`                                | NAPI binding            | Fidelity                                                 |
+| ------------------------------------------ | ----------------------- | -------------------------------------------------------- |
+| `create(host_hooks, root_shape)`           | `ctx.createRealm()`     | ✅ (uses the owning context's hooks/shape)               |
+| `enter_realm(realm)` (swap)                | `ctx.enterRealm(realm)` | ✅ returns previous realm handle                         |
+| `realm()` (active)                         | `ctx.realm()`           | ✅                                                       |
+| `register_property(key, value, attr, ctx)` | `realmRegisterProperty` | ✅ `define_property_or_throw` semantics preserved        |
+| `global_object` (JSON)                     | `realmGlobalObject`     | ✅ marshalled to JSON                                    |
+| `global_this` (JSON)                       | `realmGlobalThis`       | ✅ marshalled to JSON                                    |
+| `Object.keys(this)` convenience            | `realmGlobalKeys`       | ➕ convenience (boa has no such method)                  |
+| `eval` _inside_ the realm                  | `realmEval`             | ➕ convenience; re-enters the realm, evaluates, restores |
+| `run_jobs` _inside_ the realm              | `realmRunJobs`          | ➕ convenience; re-enters the realm, drains jobs         |
 
 ### What is intentionally **not** exposed
 
-| boa `Realm` | Why omitted |
-|---|---|
-| `intrinsics()` | returns boa-internal `&Intrinsics` (not napi-serializable) |
-| `has_class::<C>` / `get_class::<C>` | keyed by Rust `TypeId` of a `Class` — no JS type system |
-| `register_class` / `unregister_class` | native Rust class registration; no JS equivalent |
-| `host_defined` / `host_defined_mut` | `HostDefined` is boa-internal rustc-anymap state |
-| `scope()` / `environment()` | `Scope` / `DeclarativeEnvironment` are GC-internal |
-| `loaded_modules` / `template_map` | boa-internal caches |
-| `create` (free) | requires `HostHooks` + `RootShape` we don't expose; use `ctx.createRealm()` instead |
+| boa `Realm`                           | Why omitted                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------------------- |
+| `intrinsics()`                        | returns boa-internal `&Intrinsics` (not napi-serializable)                          |
+| `has_class::<C>` / `get_class::<C>`   | keyed by Rust `TypeId` of a `Class` — no JS type system                             |
+| `register_class` / `unregister_class` | native Rust class registration; no JS equivalent                                    |
+| `host_defined` / `host_defined_mut`   | `HostDefined` is boa-internal rustc-anymap state                                    |
+| `scope()` / `environment()`           | `Scope` / `DeclarativeEnvironment` are GC-internal                                  |
+| `loaded_modules` / `template_map`     | boa-internal caches                                                                 |
+| `create` (free)                       | requires `HostHooks` + `RootShape` we don't expose; use `ctx.createRealm()` instead |
 
 ## Our NAPI design
 
@@ -108,17 +108,17 @@ fn with_entered_realm<R>(realm: &Realm, f: impl FnOnce(&mut BoaContext) -> napi:
 `#[napi(object)]` structs cannot carry methods, so realm operations are **free
 functions** (napi converts `snake_case` → `camelCase`):
 
-| JS | Rust |
-|---|---|
-| `ctx.createRealm()` | `Context::create_realm` |
-| `ctx.enterRealm(realm)` | `Context::enter_realm` |
-| `ctx.realm()` | `Context::realm` |
-| `realmEval(realm, src)` | `realm_eval` |
-| `realmGlobalKeys(realm)` | `realm_global_keys` |
-| `realmGlobalObject(realm)` | `realm_global_object` |
-| `realmGlobalThis(realm)` | `realm_global_this` |
+| JS                                                                                | Rust                      |
+| --------------------------------------------------------------------------------- | ------------------------- |
+| `ctx.createRealm()`                                                               | `Context::create_realm`   |
+| `ctx.enterRealm(realm)`                                                           | `Context::enter_realm`    |
+| `ctx.realm()`                                                                     | `Context::realm`          |
+| `realmEval(realm, src)`                                                           | `realm_eval`              |
+| `realmGlobalKeys(realm)`                                                          | `realm_global_keys`       |
+| `realmGlobalObject(realm)`                                                        | `realm_global_object`     |
+| `realmGlobalThis(realm)`                                                          | `realm_global_this`       |
 | `realmRegisterProperty(realm, key, value, writable?, enumerable?, configurable?)` | `realm_register_property` |
-| `realmRunJobs(realm)` | `realm_run_jobs` |
+| `realmRunJobs(realm)`                                                             | `realm_run_jobs`          |
 
 All are re-exported from `src/main.ts`, e.g.:
 
@@ -126,9 +126,9 @@ All are re-exported from `src/main.ts`, e.g.:
 import { Context, realmEval, realmRegisterProperty, realmRunJobs } from "./main.ts";
 
 const ctx = new Context();
-const realm = ctx.createRealm();            // { id, ctxId }
+const realm = ctx.createRealm(); // { id, ctxId }
 realmRegisterProperty(realm, "answer", 42, true, true, true);
-console.log(realmEval(realm, "answer"));    // 42
+console.log(realmEval(realm, "answer")); // 42
 realmRunJobs(realm);
 ```
 

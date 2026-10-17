@@ -4,9 +4,9 @@ export function main(): string {
 
 export {
   Context,
+  ContextBuilder,
+  Engine,
   Global,
-  Parser,
-  Realm,
   Script,
   realmEval,
   realmGlobalKeys,
@@ -15,3 +15,5 @@ export {
   realmRegisterProperty,
   realmRunJobs,
 } from "../dist/index.js";
+
+export type { Realm } from "../dist/index.js";
