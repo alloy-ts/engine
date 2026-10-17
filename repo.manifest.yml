@@ -1,0 +1,19 @@
+name: core
+version: 0.0.0
+type: metadata
+owner: alloy-ts
+description: Versioned repo for alloy-ts projects.
+config:
+  - init.defaultBranch: main
+  - user.signingKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJCszY3BbvFvz7XT2jS4Q6qjmm1uau5/ofiOJ1aWAPiq
+  - gpg.format: ssh
+  - gpg.ssh.program: ssh-keygen
+  - gpg.ssh.allowedSignersFile: .gitsigners
+  - commit.gpgsign: true
+remote:
+  - https://repo.chen.software/alloy-ts/core
+  - https://codeberg.org/alloy-ts/core
+  - https://github.com/alloy-ts/core
+  - https://gitlab.com/alloy-ts/core
+  - https://bitbucket.org/alloy-ts/core
+  - https://dev.azure.com/ChenSoftware/alloy-ts/_git/core
