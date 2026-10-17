@@ -33,9 +33,10 @@ describe("napi: Context", () => {
 
   test("eval_module returns the module namespace", () => {
     const ctx = new Context();
-    const ns = ctx.eval_module(
-      "export const x = 5; export const arr = [1, 2, 3];",
-    ) as { x: number; arr: number[] };
+    const ns = ctx.eval_module("export const x = 5; export const arr = [1, 2, 3];") as {
+      x: number;
+      arr: number[];
+    };
     expect(ns.x).toBe(5);
     expect(ns.arr).toEqual([1, 2, 3]);
   });
