@@ -57,10 +57,19 @@ thread_local! {
 static NEXT_REALM_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Insert a boa realm into the registry, returning its opaque id.
+/// If the realm is already registered, returns its existing id.
 pub(crate) fn insert_realm(realm: BoaRealm) -> u32 {
-    let id = NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed);
-    REALM_REGISTRY.with(|r| r.borrow_mut().insert(id, realm));
-    id
+    REALM_REGISTRY.with(|r| {
+        let mut reg = r.borrow_mut();
+        for (&id, existing) in reg.iter() {
+            if existing == &realm {
+                return id;
+            }
+        }
+        let id = NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed);
+        reg.insert(id, realm);
+        id
+    })
 }
 
 /// Look up a boa realm in the registry by id (if still registered).
@@ -181,26 +190,20 @@ pub fn realm_register_property(
 #[napi]
 pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("globalThis"))
-            .and_then(|v| v.to_json(ctx))
-            .map(|json| json.unwrap_or(JsonValue::Null))
-            .map_err(to_err)
+        let global_obj = ctx.global_object();
+        context::serialize_global_object(&global_obj, ctx)
     })
 }
 
 /// Faithful mapping of [`boa_engine::realm::Realm::global_this`] (JSON form).
 ///
 /// Returns `globalThis` of this realm. Under boa's `DefaultHooks` this is the
-/// same object as [`realm_global_object`]; custom `HostHooks` may diverge, but
-/// boa's `global_this()` is `pub(crate)` so the binding reads it via the realm's
-/// own `this`.
+/// same object as [`realm_global_object`].
 #[napi]
 pub fn realm_global_this(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("this"))
-            .and_then(|v| v.to_json(ctx))
-            .map(|json| json.unwrap_or(JsonValue::Null))
-            .map_err(to_err)
+        let global_obj = ctx.global_object();
+        context::serialize_global_object(&global_obj, ctx)
     })
 }
 

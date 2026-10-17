@@ -26,6 +26,7 @@ test("Context default + eval returns the completion value directly", () => {
   expect(ctx.eval('"hello" + " " + "world"')).toBe("hello world");
   expect(ctx.eval("1 + 1 === 2")).toBe(true);
   expect(ctx.eval("[1, 2, 3].length")).toBe(3);
+  expect(ctx.eval("console.log(3 + 3.33333)")).toBe(null);
 });
 
 test("Context.eval returns objects/arrays as JSON", () => {
@@ -40,7 +41,7 @@ test("Context.strict toggles strict mode", () => {
   ctx.strict(true);
   expect(
     ctx.eval("(() => { 'use strict'; return (function () { return this; })(); })()"),
-  ).toBe(undefined);
+  ).toBe(null);
   ctx.strict(false);
 });
 
@@ -171,8 +172,8 @@ test("Realm.registerProperty: errors on non-configurable redefinition (boa seman
   const ctx = new Context();
   const r = ctx.createRealm();
   realmRegisterProperty(r, "x", 1, true, true, true); // configurable
-  realmRegisterProperty(r, "x", 2, true, true, false); // now non-configurable
-  // redefining a non-configurable property throws, mirroring
+  realmRegisterProperty(r, "x", 2, false, true, false); // now non-writable & non-configurable
+  // redefining a non-configurable non-writable property throws, mirroring
   // `define_property_or_throw`.
-  expect(() => realmRegisterProperty(r, "x", 3, true, true, false)).toThrow();
+  expect(() => realmRegisterProperty(r, "x", 3, false, true, false)).toThrow();
 });

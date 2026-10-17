@@ -64,6 +64,14 @@ impl JsEngine {
         Ok(JsEngine { inner, env, alive })
     }
 
+    pub(crate) fn get_runtime(&self) -> &QjsRuntime {
+        &self.inner
+    }
+
+    pub(crate) fn from_runtime(inner: QjsRuntime, env: Env, alive: Arc<AtomicBool>) -> Self {
+        JsEngine { inner, env, alive }
+    }
+
     /// Attach (or replace) the module loader/resolver for this engine.
     ///
     /// After this, `import` statements in any of this engine's contexts resolve
