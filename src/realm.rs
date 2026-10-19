@@ -181,10 +181,12 @@ pub fn realm_register_property(
 #[napi]
 pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("globalThis"))
-            .and_then(|v| v.to_json(ctx))
-            .map(|json| json.unwrap_or(JsonValue::Null))
-            .map_err(to_err)
+        ctx.eval(Source::from_bytes(
+            b"(function() { const seen = new WeakSet(); function safe(val) { if (val === null || typeof val !== 'object') { return (typeof val === 'function' || typeof val === 'symbol') ? null : val; } if (seen.has(val)) return null; seen.add(val); if (Array.isArray(val)) return val.map(safe); const obj = {}; for (const k of Object.keys(val)) { try { obj[k] = safe(val[k]); } catch (_) {} } return obj; } return safe(this); })()",
+        ))
+        .and_then(|v| v.to_json(ctx))
+        .map(|json| json.unwrap_or(JsonValue::Null))
+        .map_err(to_err)
     })
 }
 
@@ -197,10 +199,12 @@ pub fn realm_global_object(realm: Realm) -> Result<JsonValue> {
 #[napi]
 pub fn realm_global_this(realm: Realm) -> Result<JsonValue> {
     with_entered_realm(&realm, |ctx| {
-        ctx.eval(Source::from_bytes("this"))
-            .and_then(|v| v.to_json(ctx))
-            .map(|json| json.unwrap_or(JsonValue::Null))
-            .map_err(to_err)
+        ctx.eval(Source::from_bytes(
+            b"(function() { const seen = new WeakSet(); function safe(val) { if (val === null || typeof val !== 'object') { return (typeof val === 'function' || typeof val === 'symbol') ? null : val; } if (seen.has(val)) return null; seen.add(val); if (Array.isArray(val)) return val.map(safe); const obj = {}; for (const k of Object.keys(val)) { try { obj[k] = safe(val[k]); } catch (_) {} } return obj; } return safe(this); })()",
+        ))
+        .and_then(|v| v.to_json(ctx))
+        .map(|json| json.unwrap_or(JsonValue::Null))
+        .map_err(to_err)
     })
 }
 
