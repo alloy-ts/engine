@@ -1,7 +1,7 @@
 {
-  "name": "repository",
+  "name": "@alloy-ts/engine",
   "version": "0.0.0",
-  "description": "Versioned repository for yumin-chen projects.",
+  "description": "Versioned module repo for alloy-ts projects.",
   "keywords": [
     "git",
     "repository",
@@ -12,7 +12,7 @@
   "author": "Yumin Chen",
   "repository": {
     "type": "git",
-    "url": "git+https://repo.chen.software/yumin-chen/repository.git"
+    "url": "git+https://repo.chen.software/alloy-ts/engine.git"
   },
   "type": "module",
   "exports": {
@@ -29,7 +29,8 @@
     "lint": "vp lint && cargo clippy --all-targets",
     "fix": "vp fmt && cargo clippy --fix --all-targets --allow-dirty --allow-staged && vp check --fix",
     "prepublishOnly": "npm run build",
-    "prepare": "vp config"
+    "install": "npm run build",
+    "prepare": "node --import @oxc-node/core/register scripts/setup.ts"
   },
   "devDependencies": {
     "@emnapi/core": "^1.11.3",
@@ -47,7 +48,7 @@
     "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0"
   },
   "napi": {
-    "binaryName": "repository",
+    "binaryName": "alloy-engine",
     "targets": [
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",

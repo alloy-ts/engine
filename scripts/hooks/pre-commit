@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Project pre-commit hook, run by the Vite+ dispatcher in scripts/hooks/_.
+# `vp staged --fail-on-changes` executes the `staged` task defined in
+# vite.config.ts (vp check --fix, and *.rs -> cargo clippy/fmt) against only
+# the files staged for this commit, and fails if it changed any of them so the
+# auto-fix is reviewed and re-staged (lint-staged style).
+vp staged --fail-on-changes

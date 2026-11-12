@@ -1,9 +1,10 @@
 [package]
-name = "repository"
+name = "alloy-engine"
 version = "0.0.0"
 edition = "2024"
 
 [lib]
+name = "alloy_engine"
 crate-type = ["cdylib"]
 
 [dependencies]
