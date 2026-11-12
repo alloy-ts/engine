@@ -10,6 +10,7 @@ config:
   - gpg.ssh.program: ssh-keygen
   - gpg.ssh.allowedSignersFile: .gitsigners
   - commit.gpgsign: true
+  - core.hooksPath: scripts/hooks/_
 remote:
   - https://repo.chen.software/alloy-ts/core
   - https://codeberg.org/alloy-ts/core

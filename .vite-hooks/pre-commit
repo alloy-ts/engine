@@ -1,8 +1,0 @@
-#!/usr/bin/env sh
-# Pre-commit hook (invoked by the Vite+ hook dispatcher at .vite-hooks/_/pre-commit).
-# Runs the staged-files task defined in vite.config.ts (`vp check --fix`) against
-# the files staged for this commit, and fails if it changed any of them so the
-# fix is reviewed and re-staged (lint-staged style).
-# The dispatcher already runs this script with `sh -e`, so a non-zero exit blocks
-# the commit.
-vp staged --fail-on-changes
