@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Pre-commit hook (invoked by the Vite+ hook dispatcher at .vite-hooks/_/pre-commit).
+# Runs `npm run fix` to auto-format and auto-fix across both toolchains:
+#   vp fmt && vp check --fix && cargo clippy --fix --all-targets --allow-dirty --allow-staged
+# The dispatcher already runs this script with `sh -e`, so a non-zero exit blocks the commit.
+npm run fix
