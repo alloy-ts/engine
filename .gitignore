@@ -9,3 +9,4 @@ target/
 dist/
 
 .vitest/
+.build-head
