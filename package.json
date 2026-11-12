@@ -27,7 +27,7 @@
     "check": "vp check && cargo check --all-targets",
     "fmt": "vp fmt && cargo fmt",
     "lint": "vp lint && cargo clippy --all-targets",
-    "fix": "vp fmt && vp check --fix && cargo clippy --fix --all-targets --allow-dirty --allow-staged",
+    "fix": "npm run build && vp fmt && vp check --fix && cargo clippy --fix --all-targets --allow-dirty --allow-staged",
     "prepublishOnly": "npm run build",
     "prepare": "vp config"
   },
@@ -38,13 +38,13 @@
     "@oxc-node/core": "^0.1.7",
     "@types/node": "^26.6.5",
     "emnapi": "^1.11.3",
-    "vite-plus": "^1.3.0"
+    "vite-plus": "1.6.0"
   },
   "peerDependencies": {
     "typescript": "^7.0.2"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.6.0"
   },
   "napi": {
     "binaryName": "repository",
