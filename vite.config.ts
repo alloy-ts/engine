@@ -19,6 +19,15 @@ export default defineConfig({
   },
   staged: {
     "*": "vp check --fix",
+    // Cargo-backed steps for Rust sources. A function task receives the matched
+    // staged files and controls invocation (lint-staged does not auto-append
+    // files to function tasks, and runs no shell). `cargo clippy --fix` runs on
+    // the whole crate; `cargo fmt -- <files>` formats only the staged files so
+    // unrelated working-tree .rs files are left untouched.
+    "*.rs": (files) => [
+      "cargo clippy --fix --all-targets --allow-dirty --allow-staged",
+      `cargo fmt -- ${files.join(" ")}`,
+    ],
   },
   fmt: {},
   lint: {
