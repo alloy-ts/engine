@@ -27,7 +27,7 @@
     "check": "vp check && cargo check --all-targets",
     "fmt": "vp fmt && cargo fmt",
     "lint": "vp lint && cargo clippy --all-targets",
-    "fix": "npm run build && vp fmt && vp check --fix && cargo clippy --fix --all-targets --allow-dirty --allow-staged",
+    "fix": "vp fmt && cargo clippy --fix --all-targets --allow-dirty --allow-staged && node scripts/ensure-built.mjs && vp check --fix",
     "prepublishOnly": "npm run build",
     "prepare": "vp config"
   },
