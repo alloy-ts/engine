@@ -1,15 +1,8 @@
 #!/usr/bin/env sh
 # Pre-commit hook (invoked by the Vite+ hook dispatcher at .vite-hooks/_/pre-commit).
-# Runs `npm run fix` to auto-format and auto-fix across both toolchains:
-#   vp fmt && vp check --fix && cargo clippy --fix --all-targets --allow-dirty --allow-staged
-# The dispatcher already runs this script with `sh -e`, so a non-zero exit blocks the commit.
-
-# Snapshot the files already staged for this commit, so we can re-stage them
-# after the hook modifies them in place (otherwise fixes wouldn't be committed).
-STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
-
-npm run fix
-
-# Re-stage the originally staged files so the hook's auto-formatting/fixing
-# is included in the commit. Unrelated working-tree changes are left untouched.
-[ -n "$STAGED" ] && echo "$STAGED" | xargs -r git add -u --
+# Runs the staged-files task defined in vite.config.ts (`vp check --fix`) against
+# the files staged for this commit, and fails if it changed any of them so the
+# fix is reviewed and re-staged (lint-staged style).
+# The dispatcher already runs this script with `sh -e`, so a non-zero exit blocks
+# the commit.
+vp staged --fail-on-changes
