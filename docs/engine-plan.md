@@ -28,6 +28,11 @@ are non-strict (sloppy) code.
   uses abrupt Completion Records with `[[Target]]`, preserves the loop's
   accumulated completion value, and validates label and iteration targets as
   early SyntaxErrors.
+- `do...while` with block and single-statement bodies. The body always runs
+  once, `continue` evaluates the condition before the next iteration, and
+  labelled or unlabeled `break` / `continue` preserve and consume completion
+  targets using the same rules as `while`. Lexical declarations remain
+  invalid in single-statement positions.
 - `throw` and `try` / `catch` / `finally`, including optional catch bindings,
   catch lexical scope, primitive thrown values, Realm-owned native error
   handles, and finally-block replacement of an earlier abrupt completion.
@@ -94,7 +99,7 @@ See [architecture.md](architecture.md#architectural-invariants).
 
 Not started, in rough order:
 
-1. Control flow: additional loops.
+1. Control flow: `for`, `for...in`, and `for...of` loops.
 2. Objects, arrays, functions (return completions), closures, classes and
    prototypes; an execution-context stack and a real global object; GC.
 3. Promises, jobs, modules.

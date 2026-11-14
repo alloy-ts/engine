@@ -69,6 +69,26 @@ void test("explicit throw preserves primitive values at the host boundary", () =
   }
 });
 
+void test("do...while executes once and preserves loop completions", () => {
+  assert.equal(engine.createContext().eval("do 1; while (false)"), 1);
+  assert.equal(engine.createContext().eval("1; do {} while (false)"), 1);
+  assert.equal(engine.createContext().eval("let x = 0; do x += 1; while (x < 3); x"), 3);
+  assert.equal(
+    engine
+      .createContext()
+      .eval(
+        "let x = 0; outer: do { x += 1; if (x < 3) continue outer; break outer; } while (true); x",
+      ),
+    3,
+  );
+  assert.equal(
+    engine
+      .createContext()
+      .eval("let y = 0; do { try { y += 1; continue; } finally { y += 1; } } while (y < 3); y"),
+    4,
+  );
+});
+
 void test("caught native errors remain internal to the primitive host boundary", () => {
   const context = engine.createContext();
   assert.equal(context.eval("try { missing } catch (error) { typeof error }"), "object");

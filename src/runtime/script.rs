@@ -82,6 +82,10 @@ pub enum Statement {
         condition: Expr,
         body: Box<Statement>,
     },
+    DoWhile {
+        body: Box<Statement>,
+        condition: Expr,
+    },
     Labelled {
         label: Box<str>,
         body: Box<Statement>,
@@ -132,6 +136,7 @@ pub(super) fn var_declared_names(list: &[Statement]) -> Vec<&str> {
                 }
             }
             Statement::While { body, .. } => collect_statement(body, names),
+            Statement::DoWhile { body, .. } => collect_statement(body, names),
             Statement::Labelled { body, .. } => collect_statement(body, names),
             Statement::Try {
                 body,

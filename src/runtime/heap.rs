@@ -33,7 +33,6 @@ impl Heap {
     pub fn error(&self, handle: ErrorHandle) -> &Exception {
         &self.errors[handle.0]
     }
-
 }
 
 #[cfg(test)]

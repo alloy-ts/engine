@@ -68,6 +68,7 @@ fn check_declarations(list: &[Statement]) -> Result<(), Exception> {
                 Ok(())
             }
             Statement::While { body, .. } => check_nested(body),
+            Statement::DoWhile { body, .. } => check_nested(body),
             Statement::Labelled { body, .. } => check_nested(body),
             Statement::Try {
                 body,
@@ -78,8 +79,7 @@ fn check_declarations(list: &[Statement]) -> Result<(), Exception> {
                 if let Some(catch) = catch {
                     check_declarations(&catch.body)?;
                     if let Some(binding) = &catch.binding
-                        && lexically_declared_names(&catch.body)
-                            .any(|(_, name)| name == &**binding)
+                        && lexically_declared_names(&catch.body).any(|(_, name)| name == &**binding)
                     {
                         return Err(redeclaration(binding));
                     }
@@ -120,6 +120,7 @@ fn describe(kind: &TokenKind) -> String {
         TokenKind::If => "if",
         TokenKind::Else => "else",
         TokenKind::While => "while",
+        TokenKind::Do => "do",
         TokenKind::Break => "break",
         TokenKind::Continue => "continue",
         TokenKind::Throw => "throw",
@@ -210,6 +211,7 @@ impl Parser {
             }
             TokenKind::If => return self.if_statement(),
             TokenKind::While => return self.while_statement(),
+            TokenKind::Do => return self.do_while_statement(),
             TokenKind::Break => return self.loop_control(false),
             TokenKind::Continue => return self.loop_control(true),
             TokenKind::Throw => return self.throw_statement(),
@@ -221,9 +223,7 @@ impl Parser {
             }
             TokenKind::Var => DeclarationKind::Var,
             TokenKind::Const => DeclarationKind::Const,
-            TokenKind::Identifier(_)
-                if matches!(self.peek_at(1).kind, TokenKind::Colon) =>
-            {
+            TokenKind::Identifier(_) if matches!(self.peek_at(1).kind, TokenKind::Colon) => {
                 return self.labelled_statement();
             }
             // `let` is a contextual keyword: followed by a binding identifier
@@ -383,7 +383,7 @@ impl Parser {
         {
             offset += 2;
         }
-        self.peek_at(offset).kind == TokenKind::While
+        matches!(self.peek_at(offset).kind, TokenKind::While | TokenKind::Do)
     }
 
     fn if_statement(&mut self) -> Result<Statement, Exception> {
@@ -454,6 +454,40 @@ impl Parser {
         Ok(Statement::While {
             condition,
             body: Box::new(body),
+        })
+    }
+
+    fn do_while_statement(&mut self) -> Result<Statement, Exception> {
+        self.pos += 1;
+        self.loop_depth += 1;
+        let body = self.nested(Self::statement);
+        self.loop_depth -= 1;
+        let body = body?;
+        if matches!(
+            body,
+            Statement::Declaration(DeclarationKind::Let | DeclarationKind::Const, _)
+        ) {
+            return Err(Exception::syntax(
+                "Lexical declaration cannot appear in a single-statement context",
+            ));
+        }
+        if self.peek().kind != TokenKind::While {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        if self.peek().kind != TokenKind::LParen {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        let condition = self.nested(Self::expression)?.0;
+        if self.peek().kind != TokenKind::RParen {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        self.end_statement()?;
+        Ok(Statement::DoWhile {
+            body: Box::new(body),
+            condition,
         })
     }
 
@@ -883,6 +917,37 @@ mod tests {
     }
 
     #[test]
+    fn do_while_statements() {
+        assert!(matches!(
+            parse("do { 1; } while (false);").unwrap().as_slice(),
+            [Statement::DoWhile { body, condition: Expr::Boolean(false) }]
+                if matches!(&**body, Statement::Block(statements)
+                    if matches!(statements.as_slice(), [Statement::Expression(Expr::Number(1.0))]))
+        ));
+        assert!(matches!(
+            parse("do x += 1; while (x < 3);").unwrap().as_slice(),
+            [Statement::DoWhile { body, .. }]
+                if matches!(&**body, Statement::Expression(Expr::Assign(Some(BinaryOp::Add), name, _))
+                    if &**name == "x")
+        ));
+        assert!(matches!(
+            parse("outer: do { continue outer; } while (false);")
+                .unwrap()
+                .as_slice(),
+            [Statement::Labelled { label, body }]
+                if &**label == "outer"
+                    && matches!(&**body, Statement::DoWhile { .. })
+        ));
+        assert_eq!(
+            syntax_error("do let x = 1; while (false)"),
+            "Lexical declaration cannot appear in a single-statement context"
+        );
+        assert_eq!(syntax_error("do {} while true"), "Unexpected token 'true'");
+        assert_eq!(syntax_error("do {} false"), "Unexpected token 'false'");
+        assert_eq!(syntax_error("do {} while (true"), "Unexpected end of input");
+    }
+
+    #[test]
     fn labelled_break_and_continue() {
         assert!(matches!(
             parse("outer: inner: while (true) { continue outer; break inner; }")
@@ -932,10 +997,7 @@ mod tests {
         assert!(parse("try {} catch {}").is_ok());
         assert!(parse("try {} finally {}").is_ok());
         assert_eq!(syntax_error("throw\n1"), "Illegal newline after throw");
-        assert_eq!(
-            syntax_error("try {}"),
-            "Missing catch or finally after try"
-        );
+        assert_eq!(syntax_error("try {}"), "Missing catch or finally after try");
         assert_eq!(syntax_error("try 1 catch {}"), "Unexpected number");
         assert_eq!(
             syntax_error("try {} catch (true) {}"),

@@ -167,9 +167,8 @@ impl ScriptContext<'_> {
                     },
                 ),
             },
-            Statement::While { condition, body } => {
-                self.while_statement(condition, body, &[])
-            }
+            Statement::While { condition, body } => self.while_statement(condition, body, &[]),
+            Statement::DoWhile { body, condition } => self.do_while_statement(body, condition, &[]),
             Statement::Labelled { label, body } => self.labelled_statement(label, body),
             Statement::Break(target) => CompletionRecord::Break {
                 value: None,
@@ -227,8 +226,9 @@ impl ScriptContext<'_> {
             item = body;
         }
         let result = match item {
-            Statement::While { condition, body } => {
-                self.while_statement(condition, body, &labels)
+            Statement::While { condition, body } => self.while_statement(condition, body, &labels),
+            Statement::DoWhile { body, condition } => {
+                self.do_while_statement(body, condition, &labels)
             }
             statement => self.statement(statement),
         };
@@ -236,9 +236,7 @@ impl ScriptContext<'_> {
             CompletionRecord::Break {
                 value,
                 target: Some(target),
-            } if labels.iter().any(|label| **label == *target) => {
-                CompletionRecord::Normal(value)
-            }
+            } if labels.iter().any(|label| **label == *target) => CompletionRecord::Normal(value),
             other => other,
         }
     }
@@ -249,13 +247,13 @@ impl ScriptContext<'_> {
         body: &Statement,
         labels: &[&str],
     ) -> CompletionRecord {
-        let mut value = Some(Value::Undefined);
+        let mut value = None;
         loop {
             let condition = match self.expression(condition) {
                 Ok(value) => value,
-                        Err(error) => {
-                            return CompletionRecord::Throw(self.realm.alloc_error(error));
-                        }
+                Err(error) => {
+                    return CompletionRecord::Throw(self.realm.alloc_error(error));
+                }
             };
             if !to_boolean(self.realm.heap(), condition) {
                 return CompletionRecord::Normal(value);
@@ -279,6 +277,45 @@ impl ScriptContext<'_> {
                     return CompletionRecord::Normal(value);
                 }
                 abrupt => return abrupt,
+            }
+        }
+    }
+
+    fn do_while_statement(
+        &mut self,
+        body: &Statement,
+        condition: &Expr,
+        labels: &[&str],
+    ) -> CompletionRecord {
+        let mut value = None;
+        loop {
+            match self.statement(body).update_empty(value) {
+                CompletionRecord::Normal(next) => value = next,
+                CompletionRecord::Continue {
+                    value: next,
+                    target,
+                } if target
+                    .as_deref()
+                    .is_none_or(|target| labels.contains(&target)) =>
+                {
+                    value = next;
+                }
+                CompletionRecord::Break { value, target }
+                    if target
+                        .as_deref()
+                        .is_none_or(|target| labels.contains(&target)) =>
+                {
+                    return CompletionRecord::Normal(value);
+                }
+                abrupt => return abrupt,
+            }
+
+            let condition = match self.expression(condition) {
+                Ok(value) => value,
+                Err(error) => return CompletionRecord::Throw(self.realm.alloc_error(error)),
+            };
+            if !to_boolean(self.realm.heap(), condition) {
+                return CompletionRecord::Normal(value);
             }
         }
     }
@@ -606,7 +643,10 @@ mod tests {
         check(&[
             ("x; if (false) var x = 1; x", "undefined:undefined"),
             ("if (true) var x = 1; else var y = 2; x", "number:1"),
-            ("if (true) var x = 1; else var y = 2; y", "undefined:undefined"),
+            (
+                "if (true) var x = 1; else var y = 2; y",
+                "undefined:undefined",
+            ),
         ]);
     }
 
@@ -625,6 +665,43 @@ mod tests {
                 "number:2",
             ),
             ("x; while (false) var x = 1; x", "undefined:undefined"),
+        ]);
+    }
+
+    #[test]
+    fn do_while_runs_once_and_tests_condition_after_the_body() {
+        check(&[
+            ("do 1; while (false)", "number:1"),
+            ("1; do {} while (false)", "number:1"),
+            ("let x = 0; do x += 1; while (false); x", "number:1"),
+            ("let x = 0; do x += 1; while (x < 3); x", "number:3"),
+            (
+                "let x = 0; let checks = 0; do { x += 1; if (x === 1) continue; } while ((checks += 1) < 3); x",
+                "number:3",
+            ),
+            ("do { 7; break; } while (true)", "number:7"),
+        ]);
+    }
+
+    #[test]
+    fn do_while_labels_and_finally_preserve_completion_semantics() {
+        check(&[
+            (
+                "let x = 0; outer: do { x += 1; if (x < 3) continue outer; break outer; } while (true); x",
+                "number:3",
+            ),
+            (
+                "let x = 0; do { try { x += 1; continue; } finally { x += 1; } } while (x < 3); x",
+                "number:4",
+            ),
+            (
+                "let x = 0; outer: do { try { break outer; } finally { x = 3; } } while (true); x",
+                "number:3",
+            ),
+            (
+                "let x = 0; do { try { continue; } finally { x += 1; } } while (x < 2); x",
+                "number:2",
+            ),
         ]);
     }
 
@@ -654,10 +731,19 @@ mod tests {
             ("try { missing; } catch (e) { typeof e; }", "string:object"),
             ("try { throw 1; } catch { 2; }", "number:2"),
             ("try { 1; } finally { 2; }", "number:1"),
-            ("try { throw 1; } catch (e) { e + 1; } finally { 9; }", "number:2"),
+            (
+                "try { throw 1; } catch (e) { e + 1; } finally { 9; }",
+                "number:2",
+            ),
             ("try { throw 1; } finally { throw 2; }", "throw:2"),
-            ("let x = 0; while (true) { try { break; } finally { x = 3; } } x", "number:3"),
-            ("let x = 0; outer: while (x < 2) { try { x += 1; continue outer; } finally { x += 1; } } x", "number:2"),
+            (
+                "let x = 0; while (true) { try { break; } finally { x = 3; } } x",
+                "number:3",
+            ),
+            (
+                "let x = 0; outer: while (x < 2) { try { x += 1; continue outer; } finally { x += 1; } } x",
+                "number:2",
+            ),
             ("x; try { var x = 1; } finally { var y = 2; } y", "number:2"),
         ]);
         assert_eq!(

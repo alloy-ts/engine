@@ -21,6 +21,7 @@ pub enum TokenKind {
     If,
     Else,
     While,
+    Do,
     Break,
     Continue,
     Throw,
@@ -331,6 +332,7 @@ impl Lexer {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "while" => TokenKind::While,
+            "do" => TokenKind::Do,
             "break" => TokenKind::Break,
             "continue" => TokenKind::Continue,
             "throw" => TokenKind::Throw,
@@ -511,7 +513,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            kinds("true false null typeof if else while break continue $_x1 ünï"),
+            kinds("true false null typeof if else while do break continue $_x1 ünï"),
             vec![
                 True,
                 False,
@@ -520,6 +522,7 @@ mod tests {
                 If,
                 Else,
                 While,
+                Do,
                 Break,
                 Continue,
                 Identifier("$_x1".into()),

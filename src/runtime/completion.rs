@@ -67,8 +67,8 @@ pub enum CompletionType {
 /// - `[[Type]]` is the variant ([`CompletionRecord::completion_type`]).
 /// - `[[Value]]` is the payload. A normal completion's value is a language
 ///   value or *empty* (`None`); a throw completion carries the thrown Value.
-/// - `[[Target]]` is present only for labelled break/continue. Labels are not
-///   parsed yet, but the representation is ready for them.
+/// - `[[Target]]` is present only for labelled break/continue and is consumed
+///   by the matching labelled statement or iteration statement.
 #[derive(Clone, Debug)]
 pub enum CompletionRecord {
     Normal(Option<Value>),

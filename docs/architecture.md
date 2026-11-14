@@ -120,7 +120,7 @@ in its temporal dead zone for the life of the Realm, as in the spec.
 The ownership boundaries and staged Node compatibility work are defined in
 [roadmap.md](roadmap.md).
 
-- Control flow: additional loops. Realm-owned native error handles become
+- Control flow: `for`, `for...in`, and `for...of` loops. Realm-owned native error handles become
   ordinary Error objects when the object model is implemented.
 - Objects, functions and prototypes in the runtime, closures and an
   execution-context stack, a real global object, and a garbage-collected
