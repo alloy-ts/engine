@@ -16,7 +16,7 @@ mod realm;
 mod script;
 mod value;
 
-pub use completion::{Completion, ErrorKind, Exception};
+pub use completion::{Completion, CompletionRecord, CompletionType, ErrorKind, Exception};
 pub use context::{Disposed, RuntimeContext};
 pub use evaluator::evaluate_script;
 pub use heap::Heap;
