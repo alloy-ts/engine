@@ -7,7 +7,9 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 type ConfigEntry = { key: string; value: string };
 
-// Parse the top-level `config:` mapping from repository.manifest.yml.
+const MANIFEST = "repo.manifest.yml";
+
+// Parse the top-level `config:` mapping from repo.manifest.yml.
 // Each entry is a list item of the form `  - key: value`; the value may itself
 // contain colons (e.g. an ssh public key), so we split only on the first colon.
 function parseManifestConfig(text: string): ConfigEntry[] {
@@ -60,10 +62,10 @@ function vp(args: string[]): void {
 }
 
 function main(): void {
-  const manifest = readFileSync(join(root, "repository.manifest.yml"), "utf8");
+  const manifest = readFileSync(join(root, MANIFEST), "utf8");
   const entries = parseManifestConfig(manifest);
   if (entries.length === 0) {
-    throw new Error("repository.manifest.yml: no `config:` entries found");
+    throw new Error(`${MANIFEST}: no \`config:\` entries found`);
   }
 
   const hooksPathEntry = entries.find((e) => e.key === "core.hooksPath");
