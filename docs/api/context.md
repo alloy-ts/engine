@@ -29,6 +29,11 @@ Error objects are created with the host's `SyntaxError`/`ReferenceError`/
 `TypeError`/`RangeError` captured when the addon loads, so later patches of
 those globals do not affect them.
 
+A native runtime error caught inside Alloy is currently a Realm-owned
+object-like handle. It may be used inside the script (for example,
+`typeof error === "object"`), but returning it normally from `eval` throws a
+host `TypeError` because the MVP return boundary accepts primitives only.
+
 ## Architectural invariants
 
 - Host values cross the boundary only through checked conversion in
@@ -37,5 +42,5 @@ those globals do not affect them.
 
 ## Planned work
 
-- Thrown runtime values other than errors, and object transfer, once the
-  runtime has objects.
+- Runtime object transfer once the object model and context-bound handle API
+  exist.

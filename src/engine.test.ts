@@ -69,6 +69,15 @@ void test("explicit throw preserves primitive values at the host boundary", () =
   }
 });
 
+void test("caught native errors remain internal to the primitive host boundary", () => {
+  const context = engine.createContext();
+  assert.equal(context.eval("try { missing } catch (error) { typeof error }"), "object");
+  assert.throws(() => context.eval("try { missing } catch (error) { error }"), {
+    name: "TypeError",
+    message: "Cannot transfer a runtime error object; expected a primitive",
+  });
+});
+
 void test("errors use the host constructors captured at addon load", () => {
   const original = globalThis.SyntaxError;
   const context = engine.createContext();

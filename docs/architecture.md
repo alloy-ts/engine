@@ -9,7 +9,7 @@ runtime [`Value`](api/README.md)s.
 ```text
 RuntimeContext (lifecycle)
   └─ Realm ── Global Environment Record (global object + let/const)
-        │   └─ Heap (UTF-8 strings)
+        │   └─ Heap (UTF-8 strings + native error records)
         └─ ScriptRecord ──► evaluator ──► CompletionRecord ──► Completion<Value>
 ```
 
@@ -20,8 +20,8 @@ RuntimeContext (lifecycle)
 | `RuntimeContext`                 | `src/runtime/context.rs`                             | Owns one Realm; `dispose()` drops it                                                                           |
 | `Realm`                          | `src/runtime/realm.rs`                               | `[[GlobalEnv]]` plus the Heap                                                                                  |
 | Environment Records              | `src/runtime/environment.rs`                         | Declarative and Global Environment Records                                                                     |
-| `Heap`                           | `src/runtime/heap.rs`                                | Owns string contents; `StringHandle` indexes it                                                                |
-| `Value`                          | `src/runtime/value.rs`                               | `Undefined`, `Null`, `Boolean`, `Number(f64)`, `String(StringHandle)`                                          |
+| `Heap`                           | `src/runtime/heap.rs`                                | Owns UTF-8 strings and native error records; Realm-local handles index them                                    |
+| `Value`                          | `src/runtime/value.rs`                               | MVP primitives plus `Error(ErrorHandle)`, a temporary object-like value pending the full object model          |
 | `ScriptRecord`                   | `src/runtime/script.rs`                              | Parsed Script: statements, declarations, blocks; declared-name static semantics                                |
 | lexer / parser                   | `src/runtime/lexer.rs`, `src/runtime/parser.rs`      | Source text to `ScriptRecord`, early SyntaxErrors                                                              |
 | evaluator                        | `src/runtime/evaluator.rs`                           | ScriptEvaluation, Global/BlockDeclarationInstantiation, Reference Records, statements to `CompletionRecord`    |
@@ -51,7 +51,7 @@ runtime can produce:
 use it, so a script's value is that of its last value-producing statement
 (`1; let x = 2;`, `1; {}` and `1; var a;` all produce 1). ScriptEvaluation
 turns a remaining empty value into undefined, and embeddings receive the
-simpler `Completion<Value>` (`Normal(value)` or `Throw(exception)`), which
+simpler `Completion<Value>` (`Normal(value)` or `Throw(value)`), which
 an embedding (such as the NAPI facade) turns into a host value or host error.
 
 ### Environments and bindings
@@ -93,7 +93,9 @@ in its temporal dead zone for the life of the Realm, as in the spec.
   environments on a stack whose order is the `[[OuterEnv]]` chain; this is
   enough because nothing (no closures) outlives its block.
 - Bindings record no `deletable` flag, because nothing can delete them.
-- Thrown values are `Exception`s (kind plus message), not language values.
+- Native errors are Realm-owned `Value::Error` handles rather than ordinary
+  ECMAScript Error objects. They can be caught and inspected with `typeof`,
+  but cannot cross the primitive-only host return boundary as normal values.
 
 ## Architectural invariants
 
@@ -123,4 +125,7 @@ The ownership boundaries and staged Node compatibility work are defined in
 - Objects, functions and prototypes in the runtime, closures and an
   execution-context stack, a real global object, and a garbage-collected
   heap. The Heap only grows until its Realm is dropped.
+- CompactCell, literal interning, and the Alloy-owned tracing collector are
+  future storage architecture; the current MVP uses a `Value` enum and a
+  grow-until-Realm-disposal heap.
 - Strings that can hold lone surrogates (UTF-16 or WTF-8 storage).
