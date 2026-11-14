@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -7,7 +7,21 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 type ConfigEntry = { key: string; value: string };
 
-// Parse the top-level `config:` mapping from repository.manifest.yml.
+const MANIFEST_CANDIDATES = ["repo.manifest.yml", "repository.manifest.yml"];
+
+function readManifest(): { name: string; text: string } {
+  for (const name of MANIFEST_CANDIDATES) {
+    const path = join(root, name);
+    if (existsSync(path)) {
+      return { name, text: readFileSync(path, "utf8") };
+    }
+  }
+  throw new Error(
+    `manifest not found: looked for ${MANIFEST_CANDIDATES.join(", ")} in the repository root`,
+  );
+}
+
+// Parse the top-level `config:` mapping from the repo manifest.
 // Each entry is a list item of the form `  - key: value`; the value may itself
 // contain colons (e.g. an ssh public key), so we split only on the first colon.
 function parseManifestConfig(text: string): ConfigEntry[] {
@@ -60,10 +74,10 @@ function vp(args: string[]): void {
 }
 
 function main(): void {
-  const manifest = readFileSync(join(root, "repository.manifest.yml"), "utf8");
-  const entries = parseManifestConfig(manifest);
+  const manifest = readManifest();
+  const entries = parseManifestConfig(manifest.text);
   if (entries.length === 0) {
-    throw new Error("repository.manifest.yml: no `config:` entries found");
+    throw new Error(`${manifest.name}: no \`config:\` entries found`);
   }
 
   const hooksPathEntry = entries.find((e) => e.key === "core.hooksPath");
