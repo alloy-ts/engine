@@ -34,7 +34,8 @@ movement, weak-reference and finalization rules.
    handles and scopes, callbacks, references, exceptions, finalizers, buffers,
    typed arrays, BigInt, dynamic `.node` loading, and conformance tests using
    native test addons. NAPI-RS remains the outer addon facade; it is not the
-   embedded host implementation.
+   embedded host implementation. Phase 0 ABI ownership, loader, lifecycle, and
+   compatibility designs begin in [node-api-host.md](node-api-host.md).
 5. Add async work with an Alloy-owned worker pool and owner-thread completion
    queue. Add libuv interoperability only when a real compatible `uv_loop_t` is
    supplied. Evaluate `napi_sym` when an explicit Node-API ABI manifest exists;

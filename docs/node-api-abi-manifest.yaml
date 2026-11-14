@@ -1,0 +1,277 @@
+schema_version: 1
+status: design_only
+header_policy:
+  source: official_node_api_headers_to_be_vendored_and_checksummed
+  planning_reference: node_modules/emnapi/include/node
+  stable_target_version: 8
+  experimental: false
+
+abi_families:
+  - registration
+  - core
+  - node_extension
+  - buffer_extension
+  - async
+  - libuv
+  - legacy
+  - experimental
+
+opaque_types:
+  - name: napi_env
+    declaration: "typedef struct napi_env__* napi_env"
+    ownership: one_engine_realm_owner_thread
+  - name: napi_value
+    declaration: "typedef struct napi_value__* napi_value"
+    ownership: environment_handle_table_entry
+  - name: napi_callback_info
+    declaration: "typedef struct napi_callback_info__* napi_callback_info"
+    ownership: active_native_callback_only
+  - name: napi_handle_scope
+    declaration: "typedef struct napi_handle_scope__* napi_handle_scope"
+    ownership: environment_scope_stack
+  - name: napi_ref
+    declaration: "typedef struct napi_ref__* napi_ref"
+    ownership: environment_reference_table
+
+symbols:
+  - symbol: napi_register_module_v1
+    kind: addon_export
+    signature: "napi_value NAPI_CDECL (napi_env env, napi_value exports)"
+    header:
+      family: node_api
+      module_abi_version: 1
+    abi_family: registration
+    calling_convention:
+      windows: __cdecl_and_dllexport
+      unix: c_and_default_visibility
+    thread_rule: engine_owner_thread_only
+    rooting_rule: exports_and_return_value_rooted_in_module_scope
+    pending_exception:
+      allowed_on_entry: false
+      on_exit: initialization_fails_if_pending
+    runtime_dependencies: [objects, module_environment]
+    fixture: registration/basic.c
+    status: blocked_runtime
+
+  - symbol: node_api_module_get_api_version_v1
+    kind: optional_addon_export
+    signature: "int32_t NAPI_CDECL (void)"
+    header:
+      family: node_api
+      module_abi_version: 1
+    abi_family: registration
+    calling_convention:
+      windows: __cdecl_and_dllexport
+      unix: c_and_default_visibility
+    thread_rule: loader_thread_before_registration
+    rooting_rule: none
+    pending_exception:
+      allowed_on_entry: not_applicable
+      on_exit: not_applicable
+    runtime_dependencies: []
+    fixture: registration/version.c
+    status: blocked_loader
+
+  - symbol: napi_get_version
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (node_api_basic_env env, uint32_t* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: basic_environment_rules
+    rooting_rule: none
+    pending_exception:
+      allowed_on_entry: true
+      on_failure: no_new_exception
+    runtime_dependencies: [environment]
+    fixture: version/get_version.c
+    status: designed
+
+  - symbol: napi_get_last_error_info
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (node_api_basic_env env, const napi_extended_error_info** result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: basic_environment_rules
+    rooting_rule: result_valid_until_next_environment_api_call
+    pending_exception:
+      allowed_on_entry: true
+      on_failure: no_new_exception
+    runtime_dependencies: [environment, last_error_state]
+    fixture: status/last_error.c
+    status: designed
+
+  - symbol: napi_get_undefined
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, napi_value* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: output_local_handle_in_current_scope
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched
+    runtime_dependencies: [environment, handle_scopes, primitive_values]
+    fixture: primitives/get_undefined.c
+    status: designed
+
+  - symbol: napi_get_null
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, napi_value* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: output_local_handle_in_current_scope
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched
+    runtime_dependencies: [environment, handle_scopes, primitive_values]
+    fixture: primitives/get_null.c
+    status: designed
+
+  - symbol: napi_get_boolean
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, bool value, napi_value* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: output_local_handle_in_current_scope
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched
+    runtime_dependencies: [environment, handle_scopes, primitive_values]
+    fixture: primitives/get_boolean.c
+    status: designed
+
+  - symbol: napi_create_double
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, double value, napi_value* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: output_local_handle_in_current_scope
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched
+    runtime_dependencies: [environment, handle_scopes, primitive_values]
+    fixture: primitives/create_double.c
+    status: designed
+
+  - symbol: napi_create_string_utf8
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, const char* str, size_t length, napi_value* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: output_local_handle_in_current_scope
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched_or_pending_exception_if_allocation_fails
+    runtime_dependencies: [environment, handle_scopes, strings]
+    fixture: strings/create_utf8.c
+    status: designed
+
+  - symbol: napi_typeof
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, napi_value value, napi_valuetype* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: input_must_be_live_handle_in_same_environment
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched
+    runtime_dependencies: [environment, handle_validation, value_types]
+    fixture: values/typeof.c
+    status: designed
+
+  - symbol: napi_open_handle_scope
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, napi_handle_scope* result)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: pushes_new_local_root_scope
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched
+    runtime_dependencies: [environment, handle_scopes]
+    fixture: scopes/open_close.c
+    status: designed
+
+  - symbol: napi_close_handle_scope
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, napi_handle_scope scope)"
+    header:
+      family: js_native_api
+      version_introduced: 1
+    abi_family: core
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: invalidates_scope_local_handles_and_increments_generations
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: no_scope_mutation
+    runtime_dependencies: [environment, handle_scopes]
+    fixture: scopes/open_close.c
+    status: designed
+
+  - symbol: napi_create_buffer
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, size_t length, void** data, napi_value* result)"
+    header:
+      family: node_api
+      version_introduced: 1
+    abi_family: buffer_extension
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: output_local_handle_and_backing_store_owned_by_environment
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: outputs_untouched
+    runtime_dependencies: [objects, array_buffers, node_buffer_semantics]
+    fixture: buffers/create_buffer.c
+    status: blocked_runtime
+
+  - symbol: napi_get_uv_event_loop
+    kind: host_export
+    signature: "napi_status NAPI_CDECL (napi_env env, struct uv_loop_s** loop)"
+    header:
+      family: node_api
+      version_introduced: 1
+    abi_family: libuv
+    calling_convention: { windows: __cdecl, unix: c }
+    thread_rule: engine_owner_thread_only
+    rooting_rule: none
+    pending_exception:
+      allowed_on_entry: false
+      on_failure: output_untouched
+    runtime_dependencies: [real_abi_compatible_uv_loop]
+    fixture: libuv/get_loop.c
+    status: unsupported
