@@ -1,8 +1,10 @@
 use napi::bindgen_prelude::{
-    BigInt, Env, FromNapiValue, Function, JsObjectValue, JsValue, Object as JsObject, Result,
-    Unknown, ValueType,
+    BigInt, Env, FnArgs, FromNapiValue, Function, JsObjectValue, JsValue, Object as JsObject,
+    Result, Unknown, ValueType,
 };
 use napi::{Property, PropertyAttributes};
+use num_bigint::BigUint;
+use num_traits::ToPrimitive;
 
 use crate::value::{function, host, proto, reflect};
 
@@ -16,12 +18,43 @@ fn invalid(message: impl Into<String>) -> napi::Error {
     napi::Error::from_reason(message.into())
 }
 
+/// ECMAScript `Number(bigint)`: round to the nearest f64 (ties to even), and
+/// overflow to an infinity. Summing per-word products double-rounds and turns
+/// overflow into `NaN`, so delegate to num-bigint's correctly rounded
+/// conversion instead.
 pub(crate) fn bigint_to_f64(value: &BigInt) -> f64 {
-    let mut result = 0.0;
-    for (index, word) in value.words.iter().enumerate() {
-        result += (*word as f64) * 2f64.powi((index * 64) as i32);
+    let magnitude = BigUint::new(
+        value
+            .words
+            .iter()
+            .flat_map(|word| [*word as u32, (*word >> 32) as u32])
+            .collect(),
+    );
+    let result = magnitude.to_f64().unwrap_or(f64::INFINITY);
+    // BigInt has no negative zero, so a zero magnitude stays +0.
+    if value.sign_bit && result != 0.0 {
+        -result
+    } else {
+        result
     }
-    if value.sign_bit { -result } else { result }
+}
+
+/// `Number.prototype.toString(radix)` for a Number-family wrapper payload.
+///
+/// Without a radix this is ECMAScript `Number::toString` via
+/// `napi_coerce_to_string` (`"Infinity"`, `"0"` for -0, `"1e+21"`), not Rust's
+/// `f64` formatting. An explicit radix delegates to the captured host
+/// `Number.prototype`, which also performs the spec's RangeError check.
+pub(crate) fn number_to_string(env: &Env, raw: f64, radix: Option<Unknown<'_>>) -> Result<String> {
+    let number = env.create_double(raw)?;
+    match radix {
+        None => number.coerce_to_string()?.into_utf8()?.into_owned(),
+        Some(radix) => {
+            let to_string: Function<FnArgs<(Unknown,)>, String> =
+                host::number_prototype(env)?.get_named_property("toString")?;
+            to_string.apply(number, (radix,).into())
+        }
+    }
 }
 
 fn input_to_f64(env: &Env, input: Unknown<'_>) -> Result<f64> {
@@ -34,6 +67,10 @@ fn input_to_f64(env: &Env, input: Unknown<'_>) -> Result<f64> {
             .map_err(|_| invalid("expected a Float instance")),
         ValueType::Number => input.coerce_to_number()?.get_double(),
         ValueType::BigInt => {
+            // SAFETY: `input` belongs to this callback's live `env` and is still
+            // in scope, and this match arm has just checked
+            // `get_type() == ValueType::BigInt`, so `napi_get_value_bigint_words`
+            // receives a valid BigInt handle.
             let value = unsafe { BigInt::from_napi_value(env.raw(), input.raw())? };
             Ok(bigint_to_f64(&value))
         }
@@ -83,7 +120,8 @@ pub fn register<'env, 'exports>(
     })?;
     let to_string: Function<(), String> = function::from_rust_fn(env, "toString", |ctx| {
         let this: JsObject = ctx.this()?;
-        Ok(unwrap_float(&this)?.raw.to_string())
+        let raw = unwrap_float(&this)?.raw;
+        number_to_string(ctx.env, raw, function::optional_arg::<Unknown>(&ctx, 0)?)
     })?;
     prototype.set_named_property("valueOf", value_of)?;
     prototype.set_named_property("toString", to_string)?;
@@ -94,7 +132,7 @@ pub fn register<'env, 'exports>(
     let constructor = function::constructor_from_rust_fn(env, "Float", |ctx| {
         let receiver: JsObject = ctx.this()?;
         let target_prototype = proto::get_prototype(ctx.env, receiver)?;
-        let raw = match function::optional_arg::<Unknown>(&ctx, 0)? {
+        let raw = match function::optional_input(&ctx, 0)? {
             Some(value) => input_to_f64(ctx.env, value)?,
             None => 0.0,
         };
@@ -138,4 +176,64 @@ pub fn register<'env, 'exports>(
     exports.set_named_property("Float", &float)?;
     let mut global = env.get_global()?;
     global.set_named_property("Float", float)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BigInt, bigint_to_f64};
+    use num_bigint::BigUint;
+
+    fn bigint(sign_bit: bool, decimal: &str) -> BigInt {
+        let magnitude: BigUint = decimal.parse().unwrap();
+        BigInt {
+            sign_bit,
+            words: magnitude.to_u64_digits(),
+        }
+    }
+
+    #[test]
+    fn bigint_to_f64_rounds_like_ecmascript_number() {
+        // Rust's decimal parser is correctly rounded, matching `Number(bigint)`.
+        for decimal in [
+            "0",
+            "9007199254740993",
+            "18446744073709553665",
+            "248061641579783547148052893441146846",
+            "752154885170824791502373561466969566",
+        ] {
+            let expected: f64 = decimal.parse().unwrap();
+            assert_eq!(
+                bigint_to_f64(&bigint(false, decimal)),
+                expected,
+                "{decimal}"
+            );
+            assert_eq!(
+                bigint_to_f64(&bigint(true, decimal)),
+                -expected,
+                "-{decimal}"
+            );
+        }
+    }
+
+    #[test]
+    fn bigint_to_f64_overflows_to_infinity_and_has_no_negative_zero() {
+        let huge = BigUint::from(1u8) << 1100u32;
+        let words = huge.to_u64_digits();
+        let positive = BigInt {
+            sign_bit: false,
+            words: words.clone(),
+        };
+        let negative = BigInt {
+            sign_bit: true,
+            words,
+        };
+        assert_eq!(bigint_to_f64(&positive), f64::INFINITY);
+        assert_eq!(bigint_to_f64(&negative), f64::NEG_INFINITY);
+
+        let zero = bigint_to_f64(&BigInt {
+            sign_bit: true,
+            words: vec![0],
+        });
+        assert_eq!(zero.to_bits(), 0.0f64.to_bits());
+    }
 }

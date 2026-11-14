@@ -1,25 +1,15 @@
 use napi::bindgen_prelude::{
-    Env, FnArgs, Function, JsObjectValue, JsValue, Null, Object as JsObject, Result, ToNapiValue,
-    Unknown,
+    Env, FnArgs, Function, JsValue, Null, Object as JsObject, Result, ToNapiValue, Unknown,
 };
 
 use super::host;
 
-/// Access the host runtime's built-in `Object` constructor.
-pub(crate) fn builtin_object(env: &Env) -> Result<JsObject<'_>> {
-    host::object(env)
-}
-
-pub(crate) fn create<'value>(
-    env: &Env,
-    parent: Option<JsObject<'value>>,
-) -> Result<JsObject<'static>> {
-    let object: JsObject<'static> = env
-        .get_global()?
-        .get_named_property::<Unknown>("Object")?
-        .coerce_to_object()?;
-    let create: Function<'static, FnArgs<(Unknown<'value>,)>, JsObject<'static>> =
-        object.get_named_property("create")?;
+/// `Object.create(parent)` through the function captured at addon
+/// initialization, so later user patches of `Object` or `Object.create` cannot
+/// intercept wrapper or prototype creation.
+pub(crate) fn create<'env>(env: &'env Env, parent: Option<JsObject<'_>>) -> Result<JsObject<'env>> {
+    let create: Function<FnArgs<(Unknown,)>, JsObject<'env>> =
+        host::intrinsic(env, "Object.create")?;
     let parent = match parent {
         Some(value) => value.to_unknown(),
         None => Null.into_unknown(env)?,
@@ -27,16 +17,13 @@ pub(crate) fn create<'value>(
     create.call((parent,).into())
 }
 
-pub(crate) fn assign<'value>(
-    env: &Env,
-    target: JsObject<'value>,
-    source: JsObject<'value>,
-) -> Result<JsObject<'static>> {
-    let object: JsObject<'static> = env
-        .get_global()?
-        .get_named_property::<Unknown>("Object")?
-        .coerce_to_object()?;
-    let assign: Function<'static, FnArgs<(JsObject<'value>, JsObject<'value>)>, JsObject<'static>> =
-        object.get_named_property("assign")?;
+/// `Object.assign(target, source)` through the captured intrinsic.
+pub(crate) fn assign<'env>(
+    env: &'env Env,
+    target: JsObject<'_>,
+    source: JsObject<'_>,
+) -> Result<JsObject<'env>> {
+    let assign: Function<FnArgs<(JsObject, JsObject)>, JsObject<'env>> =
+        host::intrinsic(env, "Object.assign")?;
     assign.call((target, source).into())
 }

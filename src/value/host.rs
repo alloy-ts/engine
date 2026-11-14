@@ -1,5 +1,6 @@
 use napi::bindgen_prelude::{
-    Env, Error, JsObjectValue, JsValue, Object as JsObject, ObjectRef, Result, Status, Unknown,
+    Env, Error, FromNapiValue, JsObjectValue, JsValue, Object as JsObject, ObjectRef, Result,
+    Status, Unknown, ValidateNapiValue,
 };
 
 /// Per-environment references to the host runtime's original intrinsics.
@@ -10,10 +11,12 @@ pub struct Host {
     object: ObjectRef,
     object_prototype: ObjectRef,
     function: ObjectRef,
-    function_prototype: ObjectRef,
     number_prototype: ObjectRef,
     bigint_prototype: ObjectRef,
-    reflect: ObjectRef,
+    /// Private object holding the original `Reflect`/`Object` functions the
+    /// addon calls after initialization. Capturing the `Reflect` namespace alone
+    /// is not enough: user code can still replace its methods in place.
+    intrinsics: ObjectRef,
     symbol: ObjectRef,
     integer_prototype: Option<ObjectRef>,
     float_prototype: Option<ObjectRef>,
@@ -32,9 +35,6 @@ impl Host {
         let function: JsObject = global
             .get_named_property::<Unknown>("Function")?
             .coerce_to_object()?;
-        let function_prototype: JsObject = function
-            .get_named_property::<Unknown>("prototype")?
-            .coerce_to_object()?;
         let number: JsObject = global
             .get_named_property::<Unknown>("Number")?
             .coerce_to_object()?;
@@ -46,6 +46,20 @@ impl Host {
         let reflect: JsObject = global
             .get_named_property::<Unknown>("Reflect")?
             .coerce_to_object()?;
+        let mut intrinsics = JsObject::new(env)?;
+        for name in [
+            "getPrototypeOf",
+            "setPrototypeOf",
+            "defineProperty",
+            "construct",
+        ] {
+            let function: Unknown = reflect.get_named_property(name)?;
+            intrinsics.set_named_property(&format!("Reflect.{name}"), function)?;
+        }
+        for name in ["create", "assign"] {
+            let function: Unknown = object.get_named_property(name)?;
+            intrinsics.set_named_property(&format!("Object.{name}"), function)?;
+        }
         let symbol: JsObject = global
             .get_named_property::<Unknown>("Symbol")?
             .coerce_to_object()?;
@@ -54,10 +68,9 @@ impl Host {
             object: object.create_ref()?,
             object_prototype: object_prototype.create_ref()?,
             function: function.create_ref()?,
-            function_prototype: function_prototype.create_ref()?,
             number_prototype: number_prototype.create_ref()?,
             bigint_prototype: bigint_prototype.create_ref()?,
-            reflect: reflect.create_ref()?,
+            intrinsics: intrinsics.create_ref()?,
             symbol: symbol.create_ref()?,
             integer_prototype: None,
             float_prototype: None,
@@ -69,10 +82,9 @@ impl Host {
         let _ = self.object.unref(env);
         let _ = self.object_prototype.unref(env);
         let _ = self.function.unref(env);
-        let _ = self.function_prototype.unref(env);
         let _ = self.number_prototype.unref(env);
         let _ = self.bigint_prototype.unref(env);
-        let _ = self.reflect.unref(env);
+        let _ = self.intrinsics.unref(env);
         let _ = self.symbol.unref(env);
         if let Some(integer_prototype) = self.integer_prototype {
             let _ = integer_prototype.unref(env);
@@ -116,10 +128,6 @@ pub(crate) fn function(env: &Env) -> Result<JsObject<'_>> {
     get(env)?.function.get_value(env)
 }
 
-pub(crate) fn function_prototype(env: &Env) -> Result<JsObject<'_>> {
-    get(env)?.function_prototype.get_value(env)
-}
-
 pub(crate) fn number_prototype(env: &Env) -> Result<JsObject<'_>> {
     get(env)?.number_prototype.get_value(env)
 }
@@ -128,8 +136,16 @@ pub(crate) fn bigint_prototype(env: &Env) -> Result<JsObject<'_>> {
     get(env)?.bigint_prototype.get_value(env)
 }
 
-pub(crate) fn reflect(env: &Env) -> Result<JsObject<'_>> {
-    get(env)?.reflect.get_value(env)
+/// Look up a captured intrinsic function such as `"Reflect.construct"` or
+/// `"Object.create"` (see `Host::capture` for the list).
+pub(crate) fn intrinsic<'env, T: FromNapiValue + ValidateNapiValue>(
+    env: &'env Env,
+    name: &str,
+) -> Result<T> {
+    get(env)?
+        .intrinsics
+        .get_value(env)?
+        .get_named_property(name)
 }
 
 pub(crate) fn symbol(env: &Env) -> Result<JsObject<'_>> {

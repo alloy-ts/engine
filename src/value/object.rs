@@ -13,27 +13,27 @@ pub mod object_api {
     use super::*;
 
     #[napi]
-    pub fn create(env: Env, parent: Option<JsObject<'static>>) -> Result<JsObject<'static>> {
-        reflect::create(&env, parent)
+    pub fn create<'env>(env: &'env Env, parent: Option<JsObject>) -> Result<JsObject<'env>> {
+        reflect::create(env, parent)
     }
 
     #[napi(js_name = "fromParent")]
-    pub fn from_parent(env: Env, parent: JsObject<'static>) -> Result<JsObject<'static>> {
-        reflect::create(&env, Some(parent))
+    pub fn from_parent<'env>(env: &'env Env, parent: JsObject) -> Result<JsObject<'env>> {
+        reflect::create(env, Some(parent))
     }
 
     #[napi]
-    pub fn extend_from(env: Env, parent: JsObject<'static>) -> Result<JsObject<'static>> {
-        reflect::create(&env, Some(parent))
+    pub fn extend_from<'env>(env: &'env Env, parent: JsObject) -> Result<JsObject<'env>> {
+        reflect::create(env, Some(parent))
     }
 
     #[napi]
-    pub fn assign(
-        env: Env,
-        target: JsObject<'static>,
-        source: JsObject<'static>,
-    ) -> Result<JsObject<'static>> {
-        reflect::assign(&env, target, source)
+    pub fn assign<'env>(
+        env: &'env Env,
+        target: JsObject,
+        source: JsObject,
+    ) -> Result<JsObject<'env>> {
+        reflect::assign(env, target, source)
     }
 }
 

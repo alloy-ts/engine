@@ -45,6 +45,10 @@ fn to_js(value: &NumBigInt) -> BigInt {
 
 fn input(env: &Env, value: Unknown<'_>) -> Result<NumBigInt> {
     match value.get_type()? {
+        // SAFETY: `value` belongs to this callback's live `env` and is still
+        // in scope, and this match arm has just checked
+        // `get_type() == ValueType::BigInt`, so `napi_get_value_bigint_words`
+        // receives a valid BigInt handle.
         ValueType::BigInt => Ok(from_js(&unsafe {
             BigInt::from_napi_value(env.raw(), value.raw())?
         })),
@@ -134,7 +138,7 @@ pub(crate) fn register<'env, 'exports>(
     let constructor = function::constructor_from_rust_fn(env, "Integer", |ctx| {
         let target: JsObject = ctx.this()?;
         let prototype = proto::get_prototype(ctx.env, target)?;
-        let value = match function::optional_arg::<Unknown>(&ctx, 0)? {
+        let value = match function::optional_input(&ctx, 0)? {
             Some(arg) => input(ctx.env, arg)?,
             None => NumBigInt::zero(),
         };

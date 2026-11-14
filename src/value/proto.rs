@@ -4,22 +4,15 @@ use napi::bindgen_prelude::{
 
 use super::{function as native_function, host};
 
-pub(crate) fn object(env: &Env) -> Result<JsObject<'_>> {
-    host::object_prototype(env)
-}
-
-pub(crate) fn function(env: &Env) -> Result<JsObject<'_>> {
-    host::function_prototype(env)
-}
-
 pub(crate) fn set<'value>(
     env: &Env,
     target: JsObject<'value>,
     parent: JsObject<'value>,
 ) -> Result<JsObject<'value>> {
-    let reflect: JsObject<'static> = env.get_global()?.get_named_property("Reflect")?;
-    let set_prototype_of: Function<'static, FnArgs<(JsObject<'value>, JsObject<'value>)>, bool> =
-        reflect.get_named_property("setPrototypeOf")?;
+    // Use the captured intrinsic: wrapper construction must not be observable
+    // through, or breakable by, later patches of `Reflect` or its methods.
+    let set_prototype_of: Function<FnArgs<(JsObject<'value>, JsObject<'value>)>, bool> =
+        host::intrinsic(env, "Reflect.setPrototypeOf")?;
     let set_succeeded = set_prototype_of.call((target, parent).into())?;
     if !set_succeeded {
         return Err(napi::Error::from_reason(
@@ -33,9 +26,8 @@ pub(crate) fn get_prototype<'value>(
     env: &Env,
     target: JsObject<'value>,
 ) -> Result<JsObject<'value>> {
-    let reflect: JsObject<'static> = env.get_global()?.get_named_property("Reflect")?;
-    let get_prototype_of: Function<'static, FnArgs<(JsObject<'value>,)>, JsObject<'value>> =
-        reflect.get_named_property("getPrototypeOf")?;
+    let get_prototype_of: Function<FnArgs<(JsObject<'value>,)>, JsObject<'value>> =
+        host::intrinsic(env, "Reflect.getPrototypeOf")?;
     get_prototype_of.call((target,).into())
 }
 
@@ -47,9 +39,8 @@ pub(crate) fn define_symbol_data_property(
     writable: bool,
     configurable: bool,
 ) -> Result<()> {
-    let reflect = host::reflect(env)?;
     let define_property: Function<FnArgs<(JsObject<'_>, Unknown<'_>, JsObject<'_>)>, bool> =
-        reflect.get_named_property("defineProperty")?;
+        host::intrinsic(env, "Reflect.defineProperty")?;
     let mut descriptor = JsObject::new(env)?;
     descriptor.set_named_property("value", value)?;
     descriptor.set_named_property("writable", writable)?;

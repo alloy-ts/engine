@@ -139,6 +139,10 @@ fn strict_integer_input(env: &Env, input: Unknown<'_>) -> Result<NumBigInt> {
             Ok(slot_value(unwrap_integer(&object)?))
         }
         ValueType::BigInt => {
+            // SAFETY: `input` belongs to this callback's live `env` and is still
+            // in scope, and this match arm has just checked
+            // `get_type() == ValueType::BigInt`, so `napi_get_value_bigint_words`
+            // receives a valid BigInt handle.
             let value = unsafe { BigInt::from_napi_value(env.raw(), input.raw())? };
             Ok(napi_bigint_to_num(&value))
         }
@@ -328,7 +332,7 @@ pub fn register<'env, 'exports>(
         let receiver: JsObject = ctx.this()?;
         let target_prototype = proto::get_prototype(ctx.env, receiver)?;
 
-        let value = match function::optional_arg::<Unknown>(&ctx, 0)? {
+        let value = match function::optional_input(&ctx, 0)? {
             Some(value) => strict_integer_input(ctx.env, value)?,
             None => NumBigInt::zero(),
         };

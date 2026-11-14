@@ -91,7 +91,7 @@ checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn",
 ]
 
 [[package]]
@@ -186,7 +186,7 @@ dependencies = [
  "napi-derive-backend",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn",
 ]
 
 [[package]]
@@ -199,7 +199,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "semver",
- "syn 3.0.9",
+ "syn",
 ]
 
 [[package]]
@@ -277,7 +277,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "num-bigint 0.4.8",
+ "num-bigint",
  "num-traits",
  "serde",
  "serde_json",
@@ -322,7 +322,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn",
 ]
 
 [[package]]

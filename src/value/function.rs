@@ -1,15 +1,10 @@
 use napi::bindgen_prelude::{
     Env, FnArgs, FromNapiValue, Function, FunctionCallContext, JsObjectValue, JsValue,
-    JsValuesTupleIntoVec, Object as JsObject, Result, ToNapiValue, Unknown,
+    JsValuesTupleIntoVec, Object as JsObject, Result, ToNapiValue, Unknown, ValueType,
 };
 use napi_derive::napi;
 
 use super::{host, proto};
-
-/// The host runtime's built-in `Function` constructor.
-pub(crate) fn builtin_function(env: &Env) -> Result<JsObject<'_>> {
-    host::function(env)
-}
 
 /// Turn a Rust callback into a JavaScript function object.
 ///
@@ -43,6 +38,27 @@ pub(crate) fn optional_arg<T: FromNapiValue>(
     }
 }
 
+/// Read an optional constructor *value* argument.
+///
+/// Omitted and `undefined` select the default (default-parameter semantics),
+/// but `null` is returned as a value so the strict input parser rejects it.
+/// `optional_arg::<Unknown>` cannot be used here: napi-rs's `Option<T>`
+/// conversion maps `null` to `None`, silently turning `new Float(null)` into 0.
+pub(crate) fn optional_input<'call>(
+    ctx: &FunctionCallContext<'call>,
+    index: usize,
+) -> Result<Option<Unknown<'call>>> {
+    if index >= ctx.length() {
+        return Ok(None);
+    }
+    let value: Unknown<'call> = ctx.get(index)?;
+    if value.get_type()? == ValueType::Undefined {
+        Ok(None)
+    } else {
+        Ok(Some(value))
+    }
+}
+
 /// Build a real JavaScript constructor around a Rust callback.
 ///
 /// NAPI-RS closure callbacks do not expose `new.target` through
@@ -59,6 +75,9 @@ where
 {
     let bridge: Function<FnArgs<(Unknown, Unknown, Unknown)>, Return> =
         from_rust_fn(env, name, callback)?;
+    // SAFETY: `host::function` returns a handle to the host `Function`
+    // constructor captured at module init (a callable function object) and valid
+    // in the current handle scope of `env`, which is the live environment.
     let host_function: Function<FnArgs<(String, String)>, Unknown> =
         unsafe { Function::from_napi_value(env.raw(), host::function(env)?.raw())? };
     let factory_body = r#"
@@ -66,35 +85,33 @@ where
       "use strict";
       const target = new.target || (this === holder[name] ? holder[name] : undefined);
       if (!target) throw new TypeError("Constructor " + name + " requires 'new'");
-      return reflect.construct(bridge, arguments, target);
+      return construct(bridge, arguments, target);
     } };
     return holder[name];
   "#
     .to_owned();
     let factory_value = host_function.call(
         FnArgs {
-            data: ("bridge, reflect, name".to_owned(), factory_body),
+            data: ("bridge, construct, name".to_owned(), factory_body),
         }
         .into(),
     )?;
+    // SAFETY: calling the `Function` constructor either throws (propagated by
+    // `?` above) or returns a new function object; `factory_value` belongs to the
+    // live `env` and the current handle scope.
     let factory: Function<FnArgs<(Unknown, Unknown, String)>, Unknown> =
         unsafe { Function::from_napi_value(env.raw(), factory_value.raw())? };
     let constructor = factory.call(
         FnArgs {
             data: (
                 bridge.to_unknown(),
-                host::reflect(env)?.to_unknown(),
+                host::intrinsic::<Unknown>(env, "Reflect.construct")?,
                 name.to_owned(),
             ),
         }
         .into(),
     )?;
     constructor.coerce_to_object()
-}
-
-/// The prototype inherited by JavaScript functions.
-pub(crate) fn function_prototype(env: &Env) -> Result<JsObject<'_>> {
-    proto::function(env)
 }
 
 /// Set a constructor's prototype chain through `Reflect`.

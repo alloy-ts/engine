@@ -16,6 +16,10 @@ fn input_to_f64(env: &Env, input: Unknown<'_>) -> Result<f64> {
     match input.get_type()? {
         ValueType::Number => input.coerce_to_number()?.get_double(),
         ValueType::BigInt => {
+            // SAFETY: `input` belongs to this callback's live `env` and is still
+            // in scope, and this match arm has just checked
+            // `get_type() == ValueType::BigInt`, so `napi_get_value_bigint_words`
+            // receives a valid BigInt handle.
             let value = unsafe { BigInt::from_napi_value(env.raw(), input.raw())? };
             Ok(crate::value::float::bigint_to_f64(&value))
         }
@@ -72,7 +76,12 @@ pub fn register<'env, 'exports>(
     })?;
     let to_string: Function<(), String> = function::from_rust_fn(env, "toString", |ctx| {
         let this: JsObject = ctx.this()?;
-        Ok(unwrap_small_number(&this)?.to_f64().to_string())
+        let raw = unwrap_small_number(&this)?.to_f64();
+        crate::value::float::number_to_string(
+            ctx.env,
+            raw,
+            function::optional_arg::<Unknown>(&ctx, 0)?,
+        )
     })?;
     prototype.set_named_property("valueOf", value_of)?;
     prototype.set_named_property("toString", to_string)?;
@@ -83,7 +92,7 @@ pub fn register<'env, 'exports>(
     let constructor = function::constructor_from_rust_fn(env, "SmlNum", |ctx| {
         let receiver: JsObject = ctx.this()?;
         let target_prototype = proto::get_prototype(ctx.env, receiver)?;
-        let raw = match function::optional_arg::<Unknown>(&ctx, 0)? {
+        let raw = match function::optional_input(&ctx, 0)? {
             Some(input) => input_to_f64(ctx.env, input)?,
             None => 0.0,
         };
