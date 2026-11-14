@@ -4,6 +4,7 @@
 //! will validate opaque pointers and delegate to these environment operations.
 
 pub mod abi;
+pub mod bridge;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, ThreadId};
@@ -108,6 +109,17 @@ impl Environment {
 
     pub fn last_error(&self) -> Status {
         self.last_error
+    }
+
+    pub(crate) fn check_basic_operation(&mut self) -> Result<(), Status> {
+        self.check_thread_and_lifecycle()?;
+        self.succeed();
+        Ok(())
+    }
+
+    pub(crate) fn record_failure(&mut self, status: Status) -> Status {
+        self.last_error = status;
+        status
     }
 
     pub fn begin_closing(&mut self) {

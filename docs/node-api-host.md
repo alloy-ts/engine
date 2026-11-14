@@ -176,6 +176,21 @@ The declarations include header-vocabulary aliases for `napi_env`, `napi_value`,
 and `napi_handle_scope`, plus compile-time size and field-offset assertions for
 `napi_extended_error_info` on pointer-width-dependent targets.
 
+### Phase 2 bridge-owner status
+
+`src/node_api_host/bridge.rs` now owns stable opaque environment, value, and
+scope tokens and implements non-exported bridge operations for the declared
+primitive ABI slice. It checks null and foreign environments, null outputs,
+known token identity, live generations, and scope ownership before or during
+delegation. Environment operations continue to enforce owner-thread,
+pending-exception, closing-state, and scope-order rules. Outputs are written
+only after successful delegation.
+
+The bridge cannot prove that an arbitrary non-null C output pointer is writable;
+that remains the caller's ABI safety obligation. Tokens are retained until the
+bridge owner is destroyed, allowing stale pointers to be rejected without
+dereferencing freed memory. No standard `napi_*` symbol is exported yet.
+
 ## Phase 0 acceptance gate
 
 Implementation starts only after agreement on:
