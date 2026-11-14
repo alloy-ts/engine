@@ -28,8 +28,10 @@ RuntimeContext (lifecycle)
 | `CompletionRecord`, `Completion` | `src/runtime/completion.rs`                          | Spec Completion Record and the embedder's view of a script result                                              |
 | abstract operations              | `src/runtime/operations.rs`, `src/runtime/number.rs` | ToNumber, ToString, ToBoolean, IsLessThan, IsLooselyEqual, IsStrictlyEqual, `Number::toString`, StringToNumber |
 
-The public crate API is listed in [api/README.md](api/README.md); the
-supported language subset in [engine-plan.md](engine-plan.md).
+The JavaScript API is documented in [api/engine.md](api/engine.md) and
+[api/context.md](api/context.md), the Rust API of the runtime module in
+[api/README.md](api/README.md), and the supported language subset in
+[engine-plan.md](engine-plan.md).
 
 ### Completion Records
 

@@ -5,10 +5,10 @@ edition = "2024"
 
 [lib]
 name = "alloy_engine"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-napi = { version = "3.14.2", features = ["serde-json"] }
+napi = { version = "3.14.2", features = ["napi6", "serde-json"] }
 napi-derive = "3.6.12"
 futures = "0.3.34"
 num-bigint = "0.4.8"
