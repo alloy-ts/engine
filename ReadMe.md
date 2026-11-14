@@ -30,8 +30,9 @@ build time; there is no handwritten `.d.ts`.
 See [`docs/architecture.md`](docs/architecture.md),
 [`docs/engine-plan.md`](docs/engine-plan.md) for the supported language
 subset, [`docs/roadmap.md`](docs/roadmap.md) for the ownership and Node
-compatibility milestones, and [`docs/api`](docs/api) for the JavaScript and
-Rust APIs.
+compatibility milestones, [`docs/object-model.md`](docs/object-model.md) for
+the CompactCell/object/collector target architecture, and [`docs/api`](docs/api)
+for the JavaScript and Rust APIs.
 
 ## Command line
 

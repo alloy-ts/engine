@@ -26,7 +26,8 @@ movement, weak-reference and finalization rules.
    retaining bounded parsing and specification-shaped Completion Records.
 2. Add Alloy-owned objects, arrays, functions, closures, prototypes, built-ins,
    execution-context stacks, and a tracing collector. Extend host conversion
-   only as these runtime values become representable.
+   only as these runtime values become representable. The detailed invariants
+   and milestone interfaces are in [object-model.md](object-model.md).
 3. Add promises, jobs and modules, followed by incremental Node-compatible
    JavaScript modules and package resolution.
 4. Implement a separate Node-API host subsystem: ABI symbols, environments,
