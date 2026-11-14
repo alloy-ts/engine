@@ -3,6 +3,8 @@
 //! This module intentionally exports no C ABI symbols. The eventual ABI layer
 //! will validate opaque pointers and delegate to these environment operations.
 
+pub mod abi;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, ThreadId};
 

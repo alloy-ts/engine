@@ -162,6 +162,17 @@ error handles. General objects and functions wait for the object-model
 milestone; BigInt and Symbol wait for their runtime value representations.
 Phase 1 therefore does not imply support for those Node-API value categories.
 
+## Phase 2 ABI declaration checkpoint
+
+`src/node_api_host/abi.rs` defines the version-8 C-layout status and value-type
+enums, opaque type declarations, extended-error-info layout, and exact function
+pointer signatures for the Phase 1 operations. Internal-only failures have an
+explicit mapping to stable `napi_status` values.
+
+These are compile-time ABI declarations, not ambient symbol exports. The next
+Phase 2 step is a dedicated bridge owner that validates raw inputs and delegates
+to `Environment`; the outer NAPI-RS addon must never export these names itself.
+
 ## Phase 0 acceptance gate
 
 Implementation starts only after agreement on:
