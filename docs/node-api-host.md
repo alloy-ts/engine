@@ -2,9 +2,11 @@
 
 ## Status
 
-This is a Phase 0 design. It defines ABI ownership and implementation gates;
-it does not export Node-API symbols, load native libraries, add `napi_sym`, or
-claim `.node` compatibility.
+Phase 0 design is complete. Phase 1 now has a safe Rust substrate for
+environment ownership, local handles and scopes, primitive Realm values,
+value-type inspection, and pending exceptions. It deliberately does not export
+Node-API symbols, load native libraries, add `napi_sym`, or claim `.node`
+compatibility.
 
 The outer `@alloy-ts/engine` addon and the embedded host are different roles:
 
@@ -140,6 +142,20 @@ The first code-bearing PR after Phase 0 should remain smaller than a loader:
 Objects, callbacks, module registration, and the controlled native fixture
 follow only when the Alloy object/function milestones provide the necessary
 semantics.
+
+### Phase 1 implementation status
+
+`src/node_api_host/mod.rs` implements the safe operations that a later C ABI
+layer will call. Its handles carry environment identity, slot index, and
+generation; they are not raw pointers and never point at Realm storage. Scope
+closure invalidates local handles before slots can be reused. Environments
+also enforce owner-thread, pending-exception, and closing-state rules.
+
+UTF-8 and scalar-valid UTF-16 inputs allocate ordinary Realm strings. A UTF-16
+input containing a lone surrogate returns `Status::StringEncoding`, preserving
+the documented MVP limitation rather than replacing data. No manifest entry is
+marked as exported yet: the C declarations, pointer validation, and platform
+symbol visibility remain a later ABI-layer milestone.
 
 ## Phase 0 acceptance gate
 

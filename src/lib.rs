@@ -4,4 +4,5 @@
 //! that exposes it to JavaScript as the `Engine` and `Context` classes.
 
 pub mod engine;
+pub mod node_api_host;
 pub mod runtime;
