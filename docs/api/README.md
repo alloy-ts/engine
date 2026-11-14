@@ -32,7 +32,7 @@ used with another.
 `Infinity`. `get_global(name)` returns a binding or `None`.
 `set_global(name, value)` creates or updates a writable binding and returns a
 `TypeError` `Exception` for a name that is not a usable identifier or for a
-read-only binding. `alloc_string` interns a string on the Realm's heap and
+read-only binding. `alloc_string` copies a string onto the Realm's heap and
 returns a `Value::String`. `heap()` borrows the heap. `evaluate(source)`
 parses a Script and evaluates it, returning `Completion<Value>` (`Throw` for
 syntax or runtime errors, without leaving the Realm unusable).
