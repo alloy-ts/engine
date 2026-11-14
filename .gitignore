@@ -1,11 +1,2 @@
-# Dependencies
-node_modules/
-
-# Log files
+/target
 *.log
-
-# Generated artifacts
-target/
-dist/
-
-.vitest/

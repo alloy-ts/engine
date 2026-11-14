@@ -1,21 +1,26 @@
-use napi_derive::napi;
+//! Alloy's embedded ECMAScript runtime (MVP subset).
+//!
+//! This crate is a pure Rust library: it has no napi or Node dependency and
+//! contains no `unsafe` code. Host conversion between `napi_value`s and
+//! runtime [`Value`]s happens only in the NAPI facade in alloy-ts/core.
 
-pub mod engine;
-pub mod runtime;
-pub mod value;
+mod completion;
+mod context;
+mod evaluator;
+mod heap;
+mod lexer;
+mod number;
+mod operations;
+mod parser;
+mod realm;
+mod script;
+mod value;
 
-#[napi]
-pub fn add(left: u32, right: u32) -> u32 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use completion::{Completion, ErrorKind, Exception};
+pub use context::{Disposed, RuntimeContext};
+pub use evaluator::evaluate_script;
+pub use heap::Heap;
+pub use number::number_to_string;
+pub use realm::Realm;
+pub use script::ScriptRecord;
+pub use value::{StringHandle, Value};

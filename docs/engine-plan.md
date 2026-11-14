@@ -55,4 +55,5 @@ Not started, in rough order:
 2. Declarations, assignment, lexical environments, execution-context stack.
 3. Objects, arrays, functions, closures, classes and prototypes; GC.
 4. Promises, jobs, modules.
-5. Host-integration work (Node-API hosting, `.node` loading inside Alloy).
+5. Host-integration work in an embedding (Node-API hosting, `.node` loading
+   inside Alloy). That work lives outside this crate.
