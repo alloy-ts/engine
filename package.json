@@ -3,10 +3,12 @@
   "version": "0.0.0",
   "description": "Versioned module repo for alloy-ts projects.",
   "keywords": [
-    "git",
-    "repository",
-    "scm",
-    "version-control"
+    "ecmascript",
+    "interpreter",
+    "javascript",
+    "napi",
+    "napi-rs",
+    "runtime"
   ],
   "license": "Unlicense",
   "author": "Yumin Chen",
