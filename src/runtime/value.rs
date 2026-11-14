@@ -10,7 +10,14 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StringHandle(pub(super) usize);
 
-/// An ECMAScript language value restricted to the MVP primitive types.
+/// Handle to a Realm-owned native error record. This is the first
+/// object-like runtime value and will become an ordinary Error object when
+/// the object model is introduced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ErrorHandle(pub(super) usize);
+
+/// An ECMAScript language value restricted to the MVP primitives plus a
+/// Realm-owned native Error handle pending the full object model.
 #[derive(Clone, Copy, Debug)]
 pub enum Value {
     Undefined,
@@ -18,4 +25,5 @@ pub enum Value {
     Boolean(bool),
     Number(f64),
     String(StringHandle),
+    Error(ErrorHandle),
 }

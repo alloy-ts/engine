@@ -1,4 +1,5 @@
-use super::value::StringHandle;
+use super::completion::Exception;
+use super::value::{ErrorHandle, StringHandle};
 
 /// Per-Realm storage for string contents.
 ///
@@ -7,6 +8,7 @@ use super::value::StringHandle;
 #[derive(Debug, Default)]
 pub struct Heap {
     strings: Vec<Box<str>>,
+    errors: Vec<Exception>,
 }
 
 impl Heap {
@@ -22,6 +24,16 @@ impl Heap {
     pub fn string(&self, handle: StringHandle) -> &str {
         &self.strings[handle.0]
     }
+
+    pub(crate) fn alloc_error(&mut self, error: Exception) -> ErrorHandle {
+        self.errors.push(error);
+        ErrorHandle(self.errors.len() - 1)
+    }
+
+    pub fn error(&self, handle: ErrorHandle) -> &Exception {
+        &self.errors[handle.0]
+    }
+
 }
 
 #[cfg(test)]

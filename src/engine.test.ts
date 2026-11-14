@@ -49,6 +49,26 @@ void test("throw completions become host errors of the matching type", () => {
   assert.equal(context.eval("2"), 2);
 });
 
+void test("explicit throw preserves primitive values at the host boundary", () => {
+  const context = engine.createContext();
+  const cases: [string, unknown][] = [
+    ["throw undefined", undefined],
+    ["throw null", null],
+    ["throw false", false],
+    ["throw 42", 42],
+    ["throw 'x'", "x"],
+  ];
+  for (const [source, expected] of cases) {
+    let caught: unknown = Symbol("not thrown");
+    try {
+      context.eval(source);
+    } catch (error) {
+      caught = error;
+    }
+    assert.deepEqual(caught, expected);
+  }
+});
+
 void test("errors use the host constructors captured at addon load", () => {
   const original = globalThis.SyntaxError;
   const context = engine.createContext();

@@ -25,7 +25,8 @@ const STRICT: bool = false;
 pub fn evaluate_script(realm: &mut Realm, script: &ScriptRecord) -> Completion<Value> {
     let statements = script.statements();
     if let Err(error) = global_declaration_instantiation(realm, statements) {
-        return Completion::Throw(error);
+        let value = realm.alloc_error(error);
+        return Completion::Throw(value);
     }
     let mut context = ScriptContext {
         realm,
@@ -116,7 +117,11 @@ impl ScriptContext<'_> {
         for statement in list {
             let value = match completion {
                 CompletionRecord::Normal(value) => value,
-                CompletionRecord::Throw(_) => unreachable!("abrupt completions return early"),
+                CompletionRecord::Break { .. }
+                | CompletionRecord::Continue { .. }
+                | CompletionRecord::Throw(_) => {
+                    unreachable!("abrupt completions return early")
+                }
             };
             completion = self.statement(statement).update_empty(value);
             if completion.is_abrupt() {
@@ -128,25 +133,152 @@ impl ScriptContext<'_> {
 
     fn statement(&mut self, statement: &Statement) -> CompletionRecord {
         match statement {
+            Statement::Empty => CompletionRecord::EMPTY,
             // ExpressionStatement (§14.5.1).
             Statement::Expression(expr) => match self.expression(expr) {
                 Ok(value) => CompletionRecord::Normal(Some(value)),
-                Err(error) => error.into(),
+                Err(error) => CompletionRecord::Throw(self.realm.alloc_error(error)),
             },
             // VariableStatement (§14.3.2.1) and LexicalDeclaration
             // (§14.3.1.2) complete with empty.
             Statement::Declaration(kind, bindings) => match self.declaration(*kind, bindings) {
                 Ok(()) => CompletionRecord::EMPTY,
-                Err(error) => error.into(),
+                Err(error) => CompletionRecord::Throw(self.realm.alloc_error(error)),
             },
             // Block (§14.2.2).
             Statement::Block(body) if body.is_empty() => CompletionRecord::EMPTY,
-            Statement::Block(body) => {
-                self.scopes.push(block_declaration_instantiation(body));
-                let completion = self.statement_list(body);
-                // Restored however the block completes.
-                self.scopes.pop();
+            Statement::Block(body) => self.block(body),
+            // IfStatement (§14.6.2), including UpdateEmpty for the selected
+            // branch as required by the evaluation algorithm.
+            Statement::If {
+                condition,
+                consequent,
+                alternate,
+            } => match self.expression(condition) {
+                Err(error) => CompletionRecord::Throw(self.realm.alloc_error(error)),
+                Ok(value) if to_boolean(self.realm.heap(), value) => self
+                    .statement(consequent)
+                    .update_empty(Some(Value::Undefined)),
+                Ok(_) => alternate.as_deref().map_or_else(
+                    || CompletionRecord::Normal(Some(Value::Undefined)),
+                    |statement| {
+                        self.statement(statement)
+                            .update_empty(Some(Value::Undefined))
+                    },
+                ),
+            },
+            Statement::While { condition, body } => {
+                self.while_statement(condition, body, &[])
+            }
+            Statement::Labelled { label, body } => self.labelled_statement(label, body),
+            Statement::Break(target) => CompletionRecord::Break {
+                value: None,
+                target: target.clone(),
+            },
+            Statement::Continue(target) => CompletionRecord::Continue {
+                value: None,
+                target: target.clone(),
+            },
+            Statement::Throw(expression) => match self.expression(expression) {
+                Ok(value) => CompletionRecord::Throw(value),
+                Err(error) => CompletionRecord::Throw(self.realm.alloc_error(error)),
+            },
+            Statement::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                let mut completion = self.block(body);
+                if let CompletionRecord::Throw(thrown) = &completion
+                    && let Some(catch) = catch
+                {
+                    let mut catch_environment = DeclarativeEnvironment::default();
+                    if let Some(binding) = &catch.binding {
+                        catch_environment.create_mutable_binding(binding);
+                        catch_environment.initialize_binding(binding, *thrown);
+                    }
+                    self.scopes.push(catch_environment);
+                    completion = self.block(&catch.body);
+                    self.scopes.pop();
+                }
+                if let Some(finally) = finally {
+                    let final_completion = self.block(finally);
+                    if final_completion.is_abrupt() {
+                        return final_completion;
+                    }
+                }
                 completion
+            }
+        }
+    }
+
+    fn block(&mut self, body: &[Statement]) -> CompletionRecord {
+        self.scopes.push(block_declaration_instantiation(body));
+        let completion = self.statement_list(body);
+        self.scopes.pop();
+        completion
+    }
+
+    fn labelled_statement(&mut self, label: &str, body: &Statement) -> CompletionRecord {
+        let mut labels = vec![label];
+        let mut item = body;
+        while let Statement::Labelled { label, body } = item {
+            labels.push(label);
+            item = body;
+        }
+        let result = match item {
+            Statement::While { condition, body } => {
+                self.while_statement(condition, body, &labels)
+            }
+            statement => self.statement(statement),
+        };
+        match result {
+            CompletionRecord::Break {
+                value,
+                target: Some(target),
+            } if labels.iter().any(|label| **label == *target) => {
+                CompletionRecord::Normal(value)
+            }
+            other => other,
+        }
+    }
+
+    fn while_statement(
+        &mut self,
+        condition: &Expr,
+        body: &Statement,
+        labels: &[&str],
+    ) -> CompletionRecord {
+        let mut value = Some(Value::Undefined);
+        loop {
+            let condition = match self.expression(condition) {
+                Ok(value) => value,
+                        Err(error) => {
+                            return CompletionRecord::Throw(self.realm.alloc_error(error));
+                        }
+            };
+            if !to_boolean(self.realm.heap(), condition) {
+                return CompletionRecord::Normal(value);
+            }
+            match self.statement(body).update_empty(value) {
+                CompletionRecord::Normal(next) => value = next,
+                CompletionRecord::Continue {
+                    value: next,
+                    target,
+                } if target
+                    .as_deref()
+                    .is_none_or(|target| labels.contains(&target)) =>
+                {
+                    value = next;
+                }
+                CompletionRecord::Break { value, target }
+                    if target
+                        .as_deref()
+                        .is_none_or(|target| labels.contains(&target)) =>
+                {
+                    return CompletionRecord::Normal(value);
+                }
+                abrupt => return abrupt,
             }
         }
     }
@@ -243,18 +375,42 @@ impl ScriptContext<'_> {
             Expr::Null => Value::Null,
             Expr::Identifier(name) => self.get_value(&self.resolve_binding(name))?,
             Expr::Unary(op, operand) => {
+                if *op == UnaryOp::Typeof
+                    && let Expr::Identifier(name) = &**operand
+                    && matches!(self.resolve_binding(name).base, Base::Unresolvable)
+                {
+                    return Ok(self.realm.alloc_string("undefined"));
+                }
                 let value = self.expression(operand)?;
                 let heap = self.realm.heap();
                 match op {
                     UnaryOp::Plus => Value::Number(to_number(heap, value)),
                     UnaryOp::Minus => Value::Number(-to_number(heap, value)),
                     UnaryOp::Not => Value::Boolean(!to_boolean(heap, value)),
+                    UnaryOp::Typeof => {
+                        let name = match value {
+                            Value::Undefined => "undefined",
+                            Value::Null => "object",
+                            Value::Boolean(_) => "boolean",
+                            Value::Number(_) => "number",
+                            Value::String(_) => "string",
+                            Value::Error(_) => "object",
+                        };
+                        self.realm.alloc_string(name)
+                    }
                 }
             }
             Expr::Binary(op, left, right) => {
                 let left = self.expression(left)?;
-                let right = self.expression(right)?;
-                binary(self.realm, *op, left, right)
+                match op {
+                    BinaryOp::LogicalAnd if !to_boolean(self.realm.heap(), left) => left,
+                    BinaryOp::LogicalOr if to_boolean(self.realm.heap(), left) => left,
+                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => self.expression(right)?,
+                    _ => {
+                        let right = self.expression(right)?;
+                        binary(self.realm, *op, left, right)
+                    }
+                }
             }
             // AssignmentExpression (§13.15.2): the target reference is
             // resolved before the right-hand side is evaluated.
@@ -280,6 +436,9 @@ fn binary(realm: &mut Realm, op: BinaryOp, x: Value, y: Value) -> Value {
     let heap = realm.heap();
     let number = |f: fn(f64, f64) -> f64| Value::Number(f(to_number(heap, x), to_number(heap, y)));
     match op {
+        BinaryOp::LogicalOr | BinaryOp::LogicalAnd => {
+            unreachable!("logical operators are evaluated with short-circuiting")
+        }
         BinaryOp::Add => {
             if matches!(x, Value::String(_)) || matches!(y, Value::String(_)) {
                 let joined = format!("{}{}", to_string(heap, x), to_string(heap, y));
@@ -323,10 +482,17 @@ mod tests {
                     Value::Boolean(_) => "boolean",
                     Value::Number(_) => "number",
                     Value::String(_) => unreachable!(),
+                    Value::Error(_) => "object",
                 };
                 format!("{kind}:{}", to_string(realm.heap(), value))
             }
-            Completion::Throw(error) => format!("{}: {}", error.kind.name(), error.message),
+            Completion::Throw(Value::Error(handle)) => {
+                let error = realm.heap().error(handle);
+                format!("{}: {}", error.kind.name(), error.message)
+            }
+            Completion::Throw(value) => {
+                format!("throw:{}", to_string(realm.heap(), value))
+            }
         }
     }
 
@@ -381,6 +547,123 @@ mod tests {
             ("1 + 2 < 4 === true", "boolean:true"),
             ("!1 == 0", "boolean:true"),
         ]);
+    }
+
+    #[test]
+    fn typeof_operator() {
+        check(&[
+            ("typeof undefined", "string:undefined"),
+            ("typeof missing", "string:undefined"),
+            ("typeof null", "string:object"),
+            ("typeof false", "string:boolean"),
+            ("typeof 1", "string:number"),
+            ("typeof 'x'", "string:string"),
+            ("typeof typeof 1", "string:string"),
+            ("typeof 1 + '!'", "string:number!"),
+        ]);
+        assert_eq!(
+            run("{ typeof x; let x = 1; }"),
+            "ReferenceError: Cannot access 'x' before initialization"
+        );
+    }
+
+    #[test]
+    fn logical_operators_short_circuit_and_return_values() {
+        check(&[
+            ("0 || 2", "number:2"),
+            ("1 || 2", "number:1"),
+            ("0 && 2", "number:0"),
+            ("1 && 2", "number:2"),
+            ("'' || 'fallback'", "string:fallback"),
+            ("'left' && 'right'", "string:right"),
+            ("false || true && false", "boolean:false"),
+            ("false && missing", "boolean:false"),
+            ("true || missing", "boolean:true"),
+            ("let x = 0; false && (x = 1); x", "number:0"),
+            ("let x = 0; true || (x = 1); x", "number:0"),
+            ("let x = 0; true && (x = 1); x", "number:1"),
+        ]);
+    }
+
+    #[test]
+    fn if_else_selects_one_branch_and_propagates_completion() {
+        check(&[
+            ("if (true) 1; else 2", "number:1"),
+            ("if (false) 1; else 2", "number:2"),
+            ("if (0) 1; else 2", "number:2"),
+            ("if ('x') 1", "number:1"),
+            ("if (false) 1", "undefined:undefined"),
+            ("1; if (false);", "undefined:undefined"),
+            ("if (true) { 1; 2; } else 3", "number:2"),
+            ("if (false) 1; else if (true) 2; else 3", "number:2"),
+            ("let x = 0; if (true) x = 1; else x = 2; x", "number:1"),
+            ("let x = 0; if (false) x = 1; else x = 2; x", "number:2"),
+            ("if (false) missing; else 1", "number:1"),
+        ]);
+
+        // `var` declarations in either branch are instantiated before the
+        // condition runs, while only the selected initializer executes.
+        check(&[
+            ("x; if (false) var x = 1; x", "undefined:undefined"),
+            ("if (true) var x = 1; else var y = 2; x", "number:1"),
+            ("if (true) var x = 1; else var y = 2; y", "undefined:undefined"),
+        ]);
+    }
+
+    #[test]
+    fn while_break_and_continue_follow_completion_semantics() {
+        check(&[
+            ("while (false) 1", "undefined:undefined"),
+            ("let x = 0; while (x < 3) x += 1", "number:3"),
+            ("while (true) { 7; break; }", "number:7"),
+            (
+                "let x = 0; let sum = 0; while (x < 5) { x += 1; if (x === 2) continue; sum += x; if (x === 4) break; } sum",
+                "number:8",
+            ),
+            (
+                "let outer = 0; let hits = 0; while (outer < 2) { outer += 1; let inner = 0; while (inner < 3) { inner += 1; if (inner === 2) break; hits += 1; } } hits",
+                "number:2",
+            ),
+            ("x; while (false) var x = 1; x", "undefined:undefined"),
+        ]);
+    }
+
+    #[test]
+    fn labelled_control_flow_uses_completion_targets() {
+        check(&[
+            ("done: { 7; break done; 9; }", "number:7"),
+            (
+                "let x = 0; outer: while (x < 4) { x += 1; let y = 0; while (y < 3) { y += 1; if (y === 2) continue outer; } x = 99; } x",
+                "number:4",
+            ),
+            (
+                "let outer = 0; let hits = 0; top: while (outer < 3) { outer += 1; while (true) { hits += 1; break top; } } hits",
+                "number:1",
+            ),
+            (
+                "let x = 0; first: second: while (x < 3) { x += 1; continue first; } x",
+                "number:3",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn throw_try_catch_finally_follow_completion_semantics() {
+        check(&[
+            ("try { throw 1; } catch (e) { e; }", "number:1"),
+            ("try { missing; } catch (e) { typeof e; }", "string:object"),
+            ("try { throw 1; } catch { 2; }", "number:2"),
+            ("try { 1; } finally { 2; }", "number:1"),
+            ("try { throw 1; } catch (e) { e + 1; } finally { 9; }", "number:2"),
+            ("try { throw 1; } finally { throw 2; }", "throw:2"),
+            ("let x = 0; while (true) { try { break; } finally { x = 3; } } x", "number:3"),
+            ("let x = 0; outer: while (x < 2) { try { x += 1; continue outer; } finally { x += 1; } } x", "number:2"),
+            ("x; try { var x = 1; } finally { var y = 2; } y", "number:2"),
+        ]);
+        assert_eq!(
+            run("try { throw 1; } catch (e) {} e"),
+            "ReferenceError: e is not defined"
+        );
     }
 
     #[test]

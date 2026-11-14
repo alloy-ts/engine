@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use super::completion::{ErrorKind, Exception};
 use super::lexer::{Token, TokenKind, tokenize};
 use super::script::{
-    BinaryOp, DeclarationKind, Expr, Statement, UnaryOp, VariableBinding, lexically_declared_names,
-    var_declared_names,
+    BinaryOp, CatchClause, DeclarationKind, Expr, Statement, UnaryOp, VariableBinding,
+    lexically_declared_names, var_declared_names,
 };
 
 /// Maximum syntax-tree depth. Parsing, evaluation and dropping the tree all
@@ -25,6 +25,8 @@ pub fn parse(source: &str) -> Result<Vec<Statement>, Exception> {
         tokens,
         pos: 0,
         depth: 0,
+        loop_depth: 0,
+        labels: Vec::new(),
     };
     let statements = parser.statement_list(TokenKind::Eof)?;
     check_declarations(&statements)?;
@@ -51,10 +53,47 @@ fn check_declarations(list: &[Statement]) -> Result<(), Exception> {
     {
         return Err(redeclaration(name));
     }
-    for statement in list {
-        if let Statement::Block(body) = statement {
-            check_declarations(body)?;
+    fn check_nested(statement: &Statement) -> Result<(), Exception> {
+        match statement {
+            Statement::Block(body) => check_declarations(body),
+            Statement::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                check_nested(consequent)?;
+                if let Some(alternate) = alternate {
+                    check_nested(alternate)?;
+                }
+                Ok(())
+            }
+            Statement::While { body, .. } => check_nested(body),
+            Statement::Labelled { body, .. } => check_nested(body),
+            Statement::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                check_declarations(body)?;
+                if let Some(catch) = catch {
+                    check_declarations(&catch.body)?;
+                    if let Some(binding) = &catch.binding
+                        && lexically_declared_names(&catch.body)
+                            .any(|(_, name)| name == &**binding)
+                    {
+                        return Err(redeclaration(binding));
+                    }
+                }
+                if let Some(finally) = finally {
+                    check_declarations(finally)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
+    }
+    for statement in list {
+        check_nested(statement)?;
     }
     Ok(())
 }
@@ -77,6 +116,16 @@ fn describe(kind: &TokenKind) -> String {
         TokenKind::Null => "null",
         TokenKind::Var => "var",
         TokenKind::Const => "const",
+        TokenKind::Typeof => "typeof",
+        TokenKind::If => "if",
+        TokenKind::Else => "else",
+        TokenKind::While => "while",
+        TokenKind::Break => "break",
+        TokenKind::Continue => "continue",
+        TokenKind::Throw => "throw",
+        TokenKind::Try => "try",
+        TokenKind::Catch => "catch",
+        TokenKind::Finally => "finally",
         TokenKind::Plus => "+",
         TokenKind::Minus => "-",
         TokenKind::Star => "*",
@@ -91,12 +140,15 @@ fn describe(kind: &TokenKind) -> String {
         TokenKind::NotEq => "!=",
         TokenKind::EqEqEq => "===",
         TokenKind::NotEqEq => "!==",
+        TokenKind::AndAnd => "&&",
+        TokenKind::OrOr => "||",
         TokenKind::LParen => "(",
         TokenKind::RParen => ")",
         TokenKind::LBrace => "{",
         TokenKind::RBrace => "}",
         TokenKind::Comma => ",",
         TokenKind::Semicolon => ";",
+        TokenKind::Colon => ":",
         TokenKind::Assign => "=",
         TokenKind::CompoundAssign(op) => match op {
             BinaryOp::Add => "+=",
@@ -117,6 +169,10 @@ struct Parser {
     pos: usize,
     /// Current recursion depth through unary operators and parentheses.
     depth: usize,
+    /// Iteration statements containing the statement currently being parsed.
+    loop_depth: usize,
+    /// Active labels and whether each ultimately labels an iteration.
+    labels: Vec<(Box<str>, bool)>,
 }
 
 impl Parser {
@@ -148,6 +204,16 @@ impl Parser {
 
     fn statement(&mut self) -> Result<Statement, Exception> {
         let kind = match &self.peek().kind {
+            TokenKind::Semicolon => {
+                self.pos += 1;
+                return Ok(Statement::Empty);
+            }
+            TokenKind::If => return self.if_statement(),
+            TokenKind::While => return self.while_statement(),
+            TokenKind::Break => return self.loop_control(false),
+            TokenKind::Continue => return self.loop_control(true),
+            TokenKind::Throw => return self.throw_statement(),
+            TokenKind::Try => return self.try_statement(),
             TokenKind::LBrace => {
                 self.pos += 1;
                 let body = self.nested(|parser| parser.statement_list(TokenKind::RBrace))?;
@@ -155,6 +221,11 @@ impl Parser {
             }
             TokenKind::Var => DeclarationKind::Var,
             TokenKind::Const => DeclarationKind::Const,
+            TokenKind::Identifier(_)
+                if matches!(self.peek_at(1).kind, TokenKind::Colon) =>
+            {
+                return self.labelled_statement();
+            }
             // `let` is a contextual keyword: followed by a binding identifier
             // it starts a LexicalDeclaration, otherwise it is an identifier.
             TokenKind::Identifier(word)
@@ -172,6 +243,218 @@ impl Parser {
         let bindings = self.binding_list(kind)?;
         self.end_statement()?;
         Ok(Statement::Declaration(kind, bindings))
+    }
+
+    fn loop_control(&mut self, is_continue: bool) -> Result<Statement, Exception> {
+        self.pos += 1;
+        let target = if !self.peek().newline_before {
+            if let TokenKind::Identifier(name) = &self.peek().kind {
+                let name = name.clone();
+                self.pos += 1;
+                Some(name)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        match target.as_deref() {
+            Some(label) => match self.labels.iter().rev().find(|(name, _)| &**name == label) {
+                None => return Err(Exception::syntax(format!("Undefined label '{label}'"))),
+                Some((_, false)) if is_continue => {
+                    return Err(Exception::syntax(format!(
+                        "Illegal continue statement: '{label}' does not denote an iteration statement"
+                    )));
+                }
+                Some(_) => {}
+            },
+            None if self.loop_depth == 0 => {
+                let kind = if is_continue { "continue" } else { "break" };
+                return Err(Exception::syntax(format!("Illegal {kind} statement")));
+            }
+            None => {}
+        }
+
+        self.end_statement()?;
+        Ok(if is_continue {
+            Statement::Continue(target)
+        } else {
+            Statement::Break(target)
+        })
+    }
+
+    fn throw_statement(&mut self) -> Result<Statement, Exception> {
+        self.pos += 1;
+        if self.peek().newline_before {
+            return Err(Exception::syntax("Illegal newline after throw"));
+        }
+        let value = self.expression()?.0;
+        self.end_statement()?;
+        Ok(Statement::Throw(value))
+    }
+
+    fn try_statement(&mut self) -> Result<Statement, Exception> {
+        self.pos += 1;
+        let body = self.block_body()?;
+        let catch = if self.peek().kind == TokenKind::Catch {
+            self.pos += 1;
+            let binding = if self.peek().kind == TokenKind::LParen {
+                self.pos += 1;
+                let TokenKind::Identifier(name) = &self.peek().kind else {
+                    return Err(self.unexpected());
+                };
+                let name = name.clone();
+                self.pos += 1;
+                if self.peek().kind != TokenKind::RParen {
+                    return Err(self.unexpected());
+                }
+                self.pos += 1;
+                Some(name)
+            } else {
+                None
+            };
+            Some(CatchClause {
+                binding,
+                body: self.block_body()?,
+            })
+        } else {
+            None
+        };
+        let finally = if self.peek().kind == TokenKind::Finally {
+            self.pos += 1;
+            Some(self.block_body()?)
+        } else {
+            None
+        };
+        if catch.is_none() && finally.is_none() {
+            return Err(Exception::syntax("Missing catch or finally after try"));
+        }
+        Ok(Statement::Try {
+            body,
+            catch,
+            finally,
+        })
+    }
+
+    fn block_body(&mut self) -> Result<Vec<Statement>, Exception> {
+        if self.peek().kind != TokenKind::LBrace {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        self.nested(|parser| parser.statement_list(TokenKind::RBrace))
+    }
+
+    fn labelled_statement(&mut self) -> Result<Statement, Exception> {
+        let TokenKind::Identifier(label) = &self.peek().kind else {
+            unreachable!()
+        };
+        let label = label.clone();
+        if self.labels.iter().any(|(active, _)| active == &label) {
+            return Err(Exception::syntax(format!(
+                "Label '{}' has already been declared",
+                label
+            )));
+        }
+        self.pos += 2;
+        let iteration = self.labelled_item_is_iteration();
+        self.labels.push((label.clone(), iteration));
+        let body = self.nested(Self::statement);
+        self.labels.pop();
+        let body = body?;
+        if matches!(
+            body,
+            Statement::Declaration(DeclarationKind::Let | DeclarationKind::Const, _)
+        ) {
+            return Err(Exception::syntax(
+                "Lexical declaration cannot appear in a single-statement context",
+            ));
+        }
+        Ok(Statement::Labelled {
+            label,
+            body: Box::new(body),
+        })
+    }
+
+    fn labelled_item_is_iteration(&self) -> bool {
+        let mut offset = 0;
+        while matches!(self.peek_at(offset).kind, TokenKind::Identifier(_))
+            && matches!(self.peek_at(offset + 1).kind, TokenKind::Colon)
+        {
+            offset += 2;
+        }
+        self.peek_at(offset).kind == TokenKind::While
+    }
+
+    fn if_statement(&mut self) -> Result<Statement, Exception> {
+        self.pos += 1;
+        if self.peek().kind != TokenKind::LParen {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        let condition = self.nested(Self::expression)?.0;
+        if self.peek().kind != TokenKind::RParen {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        let consequent = self.nested(Self::statement)?;
+        if matches!(
+            consequent,
+            Statement::Declaration(DeclarationKind::Let | DeclarationKind::Const, _)
+        ) {
+            return Err(Exception::syntax(
+                "Lexical declaration cannot appear in a single-statement context",
+            ));
+        }
+        let alternate = if self.peek().kind == TokenKind::Else {
+            self.pos += 1;
+            let statement = self.nested(Self::statement)?;
+            if matches!(
+                statement,
+                Statement::Declaration(DeclarationKind::Let | DeclarationKind::Const, _)
+            ) {
+                return Err(Exception::syntax(
+                    "Lexical declaration cannot appear in a single-statement context",
+                ));
+            }
+            Some(Box::new(statement))
+        } else {
+            None
+        };
+        Ok(Statement::If {
+            condition,
+            consequent: Box::new(consequent),
+            alternate,
+        })
+    }
+
+    fn while_statement(&mut self) -> Result<Statement, Exception> {
+        self.pos += 1;
+        if self.peek().kind != TokenKind::LParen {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        let condition = self.nested(Self::expression)?.0;
+        if self.peek().kind != TokenKind::RParen {
+            return Err(self.unexpected());
+        }
+        self.pos += 1;
+        self.loop_depth += 1;
+        let body = self.nested(Self::statement);
+        self.loop_depth -= 1;
+        let body = body?;
+        if matches!(
+            body,
+            Statement::Declaration(DeclarationKind::Let | DeclarationKind::Const, _)
+        ) {
+            return Err(Exception::syntax(
+                "Lexical declaration cannot appear in a single-statement context",
+            ));
+        }
+        Ok(Statement::While {
+            condition,
+            body: Box::new(body),
+        })
     }
 
     /// A VariableDeclarationList or BindingList, with the LexicalDeclaration
@@ -238,7 +521,7 @@ impl Parser {
     /// The target must be an identifier (optionally parenthesized), else it
     /// is an early SyntaxError.
     fn assignment(&mut self) -> Result<Node, Exception> {
-        let (target, depth) = self.equality()?;
+        let (target, depth) = self.logical_or()?;
         let op = match self.peek().kind {
             TokenKind::Assign => None,
             TokenKind::CompoundAssign(op) => Some(op),
@@ -253,6 +536,20 @@ impl Parser {
             return Err(too_deep());
         }
         Ok((Expr::Assign(op, name, Box::new(value)), value_depth + 1))
+    }
+
+    fn logical_or(&mut self) -> Result<Node, Exception> {
+        self.binary_level(Self::logical_and, |kind| match kind {
+            TokenKind::OrOr => Some(BinaryOp::LogicalOr),
+            _ => None,
+        })
+    }
+
+    fn logical_and(&mut self) -> Result<Node, Exception> {
+        self.binary_level(Self::equality, |kind| match kind {
+            TokenKind::AndAnd => Some(BinaryOp::LogicalAnd),
+            _ => None,
+        })
     }
 
     fn binary_level(
@@ -328,6 +625,7 @@ impl Parser {
             TokenKind::Plus => UnaryOp::Plus,
             TokenKind::Minus => UnaryOp::Minus,
             TokenKind::Bang => UnaryOp::Not,
+            TokenKind::Typeof => UnaryOp::Typeof,
             _ => return self.primary(),
         };
         self.pos += 1;
@@ -430,6 +728,32 @@ mod tests {
                 ),
             ]
         );
+        assert_eq!(
+            exprs("typeof typeof x").unwrap(),
+            vec![Expr::Unary(
+                UnaryOp::Typeof,
+                Box::new(Expr::Unary(
+                    UnaryOp::Typeof,
+                    Box::new(Expr::Identifier("x".into()))
+                ))
+            )]
+        );
+        assert_eq!(
+            exprs("a || b && c == d").unwrap(),
+            vec![Expr::Binary(
+                BinaryOp::LogicalOr,
+                Box::new(Expr::Identifier("a".into())),
+                Box::new(Expr::Binary(
+                    BinaryOp::LogicalAnd,
+                    Box::new(Expr::Identifier("b".into())),
+                    Box::new(Expr::Binary(
+                        BinaryOp::LooseEq,
+                        Box::new(Expr::Identifier("c".into())),
+                        Box::new(Expr::Identifier("d".into()))
+                    ))
+                ))
+            )]
+        );
     }
 
     #[test]
@@ -496,6 +820,131 @@ mod tests {
         assert_eq!(syntax_error("const = 1"), "Unexpected token '='");
         assert_eq!(syntax_error("var a,"), "Unexpected end of input");
         assert_eq!(syntax_error("{ var a = }"), "Unexpected token '}'");
+    }
+
+    #[test]
+    fn if_else_statements() {
+        let parsed = parse("if (true) 1; else if (false) 2; else { 3; }").unwrap();
+        assert!(matches!(
+            parsed.as_slice(),
+            [Statement::If {
+                condition: Expr::Boolean(true),
+                consequent,
+                alternate: Some(alternate),
+            }] if matches!(&**consequent, Statement::Expression(Expr::Number(1.0)))
+                && matches!(&**alternate, Statement::If { .. })
+        ));
+        assert!(matches!(
+            parse("if (true); else;").unwrap().as_slice(),
+            [Statement::If {
+                consequent,
+                alternate: Some(alternate),
+                ..
+            }] if matches!(&**consequent, Statement::Empty)
+                && matches!(&**alternate, Statement::Empty)
+        ));
+        assert_eq!(
+            syntax_error("if (true) let x = 1"),
+            "Lexical declaration cannot appear in a single-statement context"
+        );
+        assert_eq!(
+            syntax_error("if (true) 1; else const x = 1"),
+            "Lexical declaration cannot appear in a single-statement context"
+        );
+        assert_eq!(syntax_error("if true 1"), "Unexpected token 'true'");
+        assert_eq!(syntax_error("if (true 1"), "Unexpected number");
+        assert_eq!(syntax_error("if (true)"), "Unexpected end of input");
+        assert_eq!(syntax_error("else 1"), "Unexpected token 'else'");
+    }
+
+    #[test]
+    fn while_and_loop_control_statements() {
+        assert!(matches!(
+            parse("while (true) { if (false) continue; break; }")
+                .unwrap()
+                .as_slice(),
+            [Statement::While { body, .. }]
+                if matches!(&**body, Statement::Block(statements)
+                    if matches!(statements.as_slice(),
+                        [Statement::If { .. }, Statement::Break(None)]))
+        ));
+        assert_eq!(syntax_error("break"), "Illegal break statement");
+        assert_eq!(syntax_error("continue"), "Illegal continue statement");
+        assert_eq!(syntax_error("while true break"), "Unexpected token 'true'");
+        assert_eq!(syntax_error("while (true"), "Unexpected end of input");
+        assert_eq!(
+            syntax_error("while (true) let x = 1"),
+            "Lexical declaration cannot appear in a single-statement context"
+        );
+        assert_eq!(
+            syntax_error("while (true) break label"),
+            "Undefined label 'label'"
+        );
+    }
+
+    #[test]
+    fn labelled_break_and_continue() {
+        assert!(matches!(
+            parse("outer: inner: while (true) { continue outer; break inner; }")
+                .unwrap()
+                .as_slice(),
+            [Statement::Labelled { label, body }]
+                if &**label == "outer"
+                    && matches!(&**body, Statement::Labelled { label, .. }
+                        if &**label == "inner")
+        ));
+        assert!(parse("done: { break done; }").is_ok());
+        assert_eq!(
+            syntax_error("missing: { break other; }"),
+            "Undefined label 'other'"
+        );
+        assert_eq!(
+            syntax_error("block: { continue block; }"),
+            "Illegal continue statement: 'block' does not denote an iteration statement"
+        );
+        assert_eq!(
+            syntax_error("same: { same: while (true) break same; }"),
+            "Label 'same' has already been declared"
+        );
+        assert_eq!(
+            syntax_error("label: let x = 1"),
+            "Lexical declaration cannot appear in a single-statement context"
+        );
+        assert_eq!(syntax_error("break missing"), "Undefined label 'missing'");
+        assert_eq!(
+            syntax_error("continue missing"),
+            "Undefined label 'missing'"
+        );
+    }
+
+    #[test]
+    fn throw_try_catch_and_finally_statements() {
+        assert!(matches!(
+            parse("try { throw 1; } catch (error) { error; } finally { 2; }")
+                .unwrap()
+                .as_slice(),
+            [Statement::Try {
+                catch: Some(CatchClause { binding: Some(binding), .. }),
+                finally: Some(_),
+                ..
+            }] if &**binding == "error"
+        ));
+        assert!(parse("try {} catch {}").is_ok());
+        assert!(parse("try {} finally {}").is_ok());
+        assert_eq!(syntax_error("throw\n1"), "Illegal newline after throw");
+        assert_eq!(
+            syntax_error("try {}"),
+            "Missing catch or finally after try"
+        );
+        assert_eq!(syntax_error("try 1 catch {}"), "Unexpected number");
+        assert_eq!(
+            syntax_error("try {} catch (true) {}"),
+            "Unexpected token 'true'"
+        );
+        assert_eq!(
+            syntax_error("try {} catch (e) { let e; }"),
+            "Identifier 'e' has already been declared"
+        );
     }
 
     #[test]

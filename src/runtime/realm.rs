@@ -43,6 +43,10 @@ impl Realm {
         Value::String(self.heap.alloc_string(contents))
     }
 
+    pub(crate) fn alloc_error(&mut self, error: Exception) -> Value {
+        Value::Error(self.heap.alloc_error(error))
+    }
+
     /// The value a global identifier reference would produce: the global
     /// lexical (`let`/`const`) binding if there is one, else the global
     /// object property. A ReferenceError for a missing name or for a lexical
@@ -83,7 +87,7 @@ impl Realm {
     pub fn evaluate(&mut self, source: &str) -> Completion<Value> {
         match ScriptRecord::parse(source) {
             Ok(script) => evaluate_script(self, &script),
-            Err(error) => Completion::Throw(error),
+            Err(error) => Completion::Throw(self.alloc_error(error)),
         }
     }
 }

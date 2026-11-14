@@ -91,8 +91,8 @@ impl Context {
         let source = host_string(env, source)?;
         let realm = self.runtime.realm_mut().map_err(disposed)?;
         match realm.evaluate(&source) {
-            Completion::Normal(value) => Ok(to_host(realm, value)),
-            Completion::Throw(exception) => Err(throw(env, &exception)),
+            Completion::Normal(value) => to_host(env, realm, value),
+            Completion::Throw(value) => Err(throw_value(env, realm, value)),
         }
     }
 
@@ -104,7 +104,7 @@ impl Context {
         let name = host_string(env, name)?;
         let realm = self.runtime.realm().map_err(disposed)?;
         match realm.get_binding_value(&name) {
-            Ok(value) => Ok(to_host(realm, value)),
+            Ok(value) => to_host(env, realm, value),
             Err(exception) => Err(throw(env, &exception)),
         }
     }
@@ -158,6 +158,24 @@ fn throw(env: &Env, exception: &Exception) -> Error {
     }
 }
 
+fn throw_value(env: &Env, realm: &Realm, value: Value) -> Error {
+    if let Value::Error(handle) = value {
+        return throw(env, realm.heap().error(handle));
+    }
+    let thrown = match value {
+        Value::Undefined => env.throw(()),
+        Value::Null => env.throw(Null),
+        Value::Boolean(value) => env.throw(value),
+        Value::Number(value) => env.throw(value),
+        Value::String(handle) => env.throw(realm.heap().string(handle).to_owned()),
+        Value::Error(_) => unreachable!(),
+    };
+    match thrown {
+        Ok(()) => Error::new(Status::PendingException, "script threw a value"),
+        Err(error) => error,
+    }
+}
+
 fn type_error(env: &Env, message: String) -> Error {
     throw(env, &Exception::new(ErrorKind::TypeError, message))
 }
@@ -175,14 +193,20 @@ fn host_string(env: &Env, string: JsString) -> Result<String> {
     })
 }
 
-fn to_host(realm: &Realm, value: Value) -> HostPrimitive {
-    match value {
+fn to_host(env: &Env, realm: &Realm, value: Value) -> Result<HostPrimitive> {
+    Ok(match value {
         Value::Undefined => Either5::A(()),
         Value::Null => Either5::B(Null),
         Value::Boolean(b) => Either5::C(b),
         Value::Number(n) => Either5::D(n),
         Value::String(handle) => Either5::E(realm.heap().string(handle).to_owned()),
-    }
+        Value::Error(_) => {
+            return Err(type_error(
+                env,
+                "Cannot transfer a runtime error object; expected a primitive".into(),
+            ));
+        }
+    })
 }
 
 enum Imported {

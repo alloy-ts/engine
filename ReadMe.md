@@ -29,7 +29,9 @@ build time; there is no handwritten `.d.ts`.
 
 See [`docs/architecture.md`](docs/architecture.md),
 [`docs/engine-plan.md`](docs/engine-plan.md) for the supported language
-subset, and [`docs/api`](docs/api) for the JavaScript and Rust APIs.
+subset, [`docs/roadmap.md`](docs/roadmap.md) for the ownership and Node
+compatibility milestones, and [`docs/api`](docs/api) for the JavaScript and
+Rust APIs.
 
 ## Command line
 

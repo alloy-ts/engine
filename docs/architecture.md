@@ -38,12 +38,14 @@ The JavaScript API is documented in [api/engine.md](api/engine.md) and
 `CompletionRecord` follows ECMA-262 §6.2.4 for the completion types the
 runtime can produce:
 
-- `[[Type]]`: `normal` or `throw` (`CompletionType`). `break`, `continue`
-  and `return` are added with the statements that produce them.
-- `[[Value]]`: a normal completion holds a `Value` or _empty_ (`None`). A
-  throw completion holds an `Exception` (error kind plus message), because
-  the runtime has no error objects yet.
-- `[[Target]]`: always empty, as the spec requires for normal and throw.
+- `[[Type]]`: `normal`, `break`, `continue` or `throw` (`CompletionType`).
+  `return` is added with functions.
+- `[[Value]]`: normal, break and continue hold a `Value` or _empty_ (`None`).
+  A throw completion holds the thrown `Value`. Parser/runtime errors are
+  represented by Realm-owned native error handles until ordinary Error
+  objects exist.
+- `[[Target]]`: empty for normal, throw and unlabeled loop control; labelled
+  break/continue carry their label until the matching statement consumes it.
 
 `CompletionRecord::update_empty` is UpdateEmpty (§6.2.4.4). Statement lists
 use it, so a script's value is that of its last value-producing statement
@@ -113,10 +115,11 @@ in its temporal dead zone for the life of the Realm, as in the spec.
 
 ## Planned work
 
-- Control flow: `if`, loops, `break` / `continue` (adding those completion
-  types and `[[Target]]` labels), `throw` and `try` / `catch` / `finally`
-  with the spec's finally-block completion replacement. Thrown values then
-  become runtime Values (error objects) instead of kind plus message.
+The ownership boundaries and staged Node compatibility work are defined in
+[roadmap.md](roadmap.md).
+
+- Control flow: additional loops. Realm-owned native error handles become
+  ordinary Error objects when the object model is implemented.
 - Objects, functions and prototypes in the runtime, closures and an
   execution-context stack, a real global object, and a garbage-collected
   heap. The Heap only grows until its Realm is dropped.

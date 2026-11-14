@@ -1,5 +1,5 @@
-//! ECMA-262 abstract operations restricted to the MVP primitive types.
-//! Every value is already primitive, so ToPrimitive is the identity.
+//! ECMA-262 abstract operations for the MVP values. Native error handles use
+//! their Error-style string form until the full object/ToPrimitive model.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -16,6 +16,7 @@ pub fn to_number(heap: &Heap, value: Value) -> f64 {
         Value::Boolean(b) => f64::from(u8::from(b)),
         Value::Number(n) => n,
         Value::String(s) => string_to_number(heap.string(s)),
+        Value::Error(error) => string_to_number(&format_error(heap, error)),
     }
 }
 
@@ -26,6 +27,7 @@ pub fn to_boolean(heap: &Heap, value: Value) -> bool {
         Value::Boolean(b) => b,
         Value::Number(n) => !(n == 0.0 || n.is_nan()),
         Value::String(s) => !heap.string(s).is_empty(),
+        Value::Error(_) => true,
     }
 }
 
@@ -38,6 +40,7 @@ pub fn to_string(heap: &Heap, value: Value) -> Cow<'_, str> {
         Value::Boolean(false) => "false".into(),
         Value::Number(n) => number_to_string(n).into(),
         Value::String(s) => heap.string(s).into(),
+        Value::Error(error) => format_error(heap, error).into(),
     }
 }
 
@@ -49,8 +52,14 @@ pub fn is_strictly_equal(heap: &Heap, x: Value, y: Value) -> bool {
         // Number::equal: NaN is unequal to itself and +0 equals -0.
         (Value::Number(a), Value::Number(b)) => a == b,
         (Value::String(a), Value::String(b)) => heap.string(a) == heap.string(b),
+        (Value::Error(a), Value::Error(b)) => a == b,
         _ => false,
     }
+}
+
+fn format_error(heap: &Heap, handle: super::value::ErrorHandle) -> String {
+    let error = heap.error(handle);
+    format!("{}: {}", error.kind.name(), error.message)
 }
 
 /// IsLooselyEqual (§7.2.14) for primitives.

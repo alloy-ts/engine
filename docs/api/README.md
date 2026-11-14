@@ -57,13 +57,15 @@ the same Realm.
 
 ## `Value` and `Heap`
 
-`Value` is the runtime language value, restricted to the MVP primitives:
+`Value` is the runtime language value, restricted to the MVP primitives plus
+a temporary Realm-owned error handle:
 
 - `Undefined`
 - `Null`
 - `Boolean(bool)`
 - `Number(f64)`
 - `String(StringHandle)`
+- `Error(ErrorHandle)`
 
 `StringHandle` indexes a UTF-8 string owned by a Realm's `Heap`. A handle is
 only meaningful with the heap that allocated it. `Heap::alloc_string` and
@@ -73,18 +75,18 @@ its Realm is dropped.
 ## `Completion`, `CompletionRecord`, `CompletionType`, `Exception`, `ErrorKind`
 
 `Completion<T>` is what embeddings receive from evaluating a Script:
-`Normal(T)` with the script's completion value, or `Throw(Exception)`. Its
+`Normal(T)` with the script's completion value, or `Throw(T)`. Its
 variants are unchanged from the MVP.
 
 `CompletionRecord` is the ECMA-262 Completion Record the evaluator works
-with: `Normal(Option<Value>)` (`None` is _empty_) or `Throw(Exception)`.
-`completion_type()` returns `[[Type]]` (`CompletionType::Normal` or
-`Throw`), `target()` returns `[[Target]]` (always `None` for these types),
+with: `Normal(Option<Value>)`, `Break`, `Continue`, or `Throw(Value)`.
+`None` is an empty `[[Value]]`; break and continue also carry an optional
+`[[Target]]` reserved for labelled control flow. `completion_type()` returns
+`[[Type]]`, `target()` returns `[[Target]]`,
 `is_abrupt()` reports a non-normal type, `update_empty(value)` is
 UpdateEmpty, and `CompletionRecord::EMPTY` is NormalCompletion(empty).
 `Completion::<Value>::from(record)` applies ScriptEvaluation's final step,
-turning an empty value into undefined. `break`, `continue` and `return`
-types arrive with the statements that produce them.
+turning an empty value into undefined. `return` arrives with functions.
 
 `Exception` records an `ErrorKind` (`SyntaxError`, `ReferenceError`,
 `TypeError`, `RangeError`) and a message. The runtime has no error objects

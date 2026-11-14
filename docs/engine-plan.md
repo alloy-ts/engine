@@ -21,6 +21,16 @@ are non-strict (sloppy) code.
     declaration runs is a ReferenceError.
   - Assigning a `const` is a TypeError.
 - Blocks `{ ... }`, each with its own scope for `let` / `const`.
+- `if` / `else`, including dangling-`else` association, operand coercion,
+  branch completion values, and `var` hoisting from both branches. Lexical
+  declarations in a single-statement branch require a surrounding block.
+- `while` with labelled and unlabeled `break` and `continue`. Loop control
+  uses abrupt Completion Records with `[[Target]]`, preserves the loop's
+  accumulated completion value, and validates label and iteration targets as
+  early SyntaxErrors.
+- `throw` and `try` / `catch` / `finally`, including optional catch bindings,
+  catch lexical scope, primitive thrown values, Realm-owned native error
+  handles, and finally-block replacement of an earlier abrupt completion.
 - Identifier references resolve through block scopes, then global
   `let` / `const`, then the global object. An unknown name is a
   ReferenceError (`x is not defined`). Seeded non-writable, non-configurable
@@ -30,8 +40,12 @@ are non-strict (sloppy) code.
   assignment reads it before evaluating the right side. Assigning an
   undeclared name creates a global; assigning a read-only global is ignored.
   Any other target is an early SyntaxError.
-- Parentheses; unary `+ - !`; binary `* / %`, `+ -`, `< <= > >=`,
-  `== != === !==` with ECMA-262 precedence and left associativity.
+- Parentheses; unary `+ - ! typeof`; binary `* / %`, `+ -`, `< <= > >=`,
+  `== != === !==`, `&&` and `||` with ECMA-262 precedence and left
+  associativity. Logical operators short-circuit and return an operand value.
+  `typeof` returns the standard primitive type strings, including `"object"`
+  for null, and returns `"undefined"` for an unresolvable identifier while
+  preserving temporal-dead-zone ReferenceErrors.
 - Statements separated by `;` or by automatic semicolon insertion (before
   `}`, at end of input, or before a token on a new line that cannot continue
   the statement: `1\n+2` is one statement). Empty statements are allowed.
@@ -57,8 +71,8 @@ are non-strict (sloppy) code.
   never panics.
 
 Rejected with SyntaxError because they are outside the subset: other
-reserved words (`typeof`, `if`, `function`, ...), `**`, shifts, logical and
-bitwise operators and their assignment forms, `=>`, `++`/`--`, the comma
+reserved words (`if`, `function`, ...), `**`, shifts, bitwise operators,
+logical and bitwise assignment forms, `=>`, `++`/`--`, the comma
 operator, calls, member access, arrays, objects, destructuring, templates,
 regular expressions, directives (`"use strict"` is an ordinary expression),
 legacy octal literals and escapes, `\u` escapes in identifiers, and string
@@ -80,10 +94,7 @@ See [architecture.md](architecture.md#architectural-invariants).
 
 Not started, in rough order:
 
-1. Control flow: `if`, loops, labels, `break` / `continue` (break and
-   continue completions with `[[Target]]`), `throw`, `try` / `catch` /
-   `finally` with finally-block completion replacement; `typeof` and the
-   logical operators.
+1. Control flow: additional loops.
 2. Objects, arrays, functions (return completions), closures, classes and
    prototypes; an execution-context stack and a real global object; GC.
 3. Promises, jobs, modules.

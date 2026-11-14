@@ -51,11 +51,13 @@ impl Exception {
 
 /// The `[[Type]]` of a [`CompletionRecord`] (ECMA-262 §6.2.4, Table 7).
 ///
-/// Only the types this runtime can produce exist. `break`, `continue` and
-/// `return` are added together with the statements that create them.
+/// Only the types this runtime can produce exist. `return` is added with
+/// functions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompletionType {
     Normal,
+    Break,
+    Continue,
     Throw,
 }
 
@@ -64,14 +66,21 @@ pub enum CompletionType {
 ///
 /// - `[[Type]]` is the variant ([`CompletionRecord::completion_type`]).
 /// - `[[Value]]` is the payload. A normal completion's value is a language
-///   value or *empty* (`None`); a throw completion's value is never empty and
-///   is an [`Exception`] until the runtime has error objects.
-/// - `[[Target]]` must be empty unless `[[Type]]` is break or continue, so it
-///   is always empty here ([`CompletionRecord::target`]).
+///   value or *empty* (`None`); a throw completion carries the thrown Value.
+/// - `[[Target]]` is present only for labelled break/continue. Labels are not
+///   parsed yet, but the representation is ready for them.
 #[derive(Clone, Debug)]
 pub enum CompletionRecord {
     Normal(Option<Value>),
-    Throw(Exception),
+    Break {
+        value: Option<Value>,
+        target: Option<Box<str>>,
+    },
+    Continue {
+        value: Option<Value>,
+        target: Option<Box<str>>,
+    },
+    Throw(Value),
 }
 
 impl CompletionRecord {
@@ -82,13 +91,17 @@ impl CompletionRecord {
     pub fn completion_type(&self) -> CompletionType {
         match self {
             Self::Normal(_) => CompletionType::Normal,
+            Self::Break { .. } => CompletionType::Break,
+            Self::Continue { .. } => CompletionType::Continue,
             Self::Throw(_) => CompletionType::Throw,
         }
     }
 
-    /// `[[Target]]`: always empty for normal and throw completions.
     pub fn target(&self) -> Option<&str> {
-        None
+        match self {
+            Self::Break { target, .. } | Self::Continue { target, .. } => target.as_deref(),
+            Self::Normal(_) | Self::Throw(_) => None,
+        }
     }
 
     pub fn is_abrupt(&self) -> bool {
@@ -101,14 +114,16 @@ impl CompletionRecord {
     pub fn update_empty(self, value: Option<Value>) -> Self {
         match self {
             Self::Normal(None) => Self::Normal(value),
+            Self::Break {
+                value: None,
+                target,
+            } => Self::Break { value, target },
+            Self::Continue {
+                value: None,
+                target,
+            } => Self::Continue { value, target },
             other => other,
         }
-    }
-}
-
-impl From<Exception> for CompletionRecord {
-    fn from(exception: Exception) -> Self {
-        Self::Throw(exception)
     }
 }
 
@@ -121,7 +136,7 @@ impl From<Exception> for CompletionRecord {
 #[derive(Clone, Debug)]
 pub enum Completion<T> {
     Normal(T),
-    Throw(Exception),
+    Throw(T),
 }
 
 impl From<CompletionRecord> for Completion<Value> {
@@ -130,7 +145,10 @@ impl From<CompletionRecord> for Completion<Value> {
     fn from(record: CompletionRecord) -> Self {
         match record {
             CompletionRecord::Normal(value) => Self::Normal(value.unwrap_or(Value::Undefined)),
-            CompletionRecord::Throw(exception) => Self::Throw(exception),
+            CompletionRecord::Throw(value) => Self::Throw(value),
+            CompletionRecord::Break { .. } | CompletionRecord::Continue { .. } => {
+                unreachable!("loop control cannot escape ScriptEvaluation")
+            }
         }
     }
 }
@@ -163,11 +181,33 @@ mod tests {
             .update_empty(Some(Value::Number(1.0)));
         assert_eq!(number(&kept), Some(2.0));
         // A throw completion is never empty and is returned unchanged.
-        let thrown = CompletionRecord::from(Exception::type_error("boom"))
-            .update_empty(Some(Value::Number(1.0)));
+        let thrown = CompletionRecord::Throw(Value::Null).update_empty(Some(Value::Number(1.0)));
         assert!(thrown.is_abrupt());
         assert_eq!(thrown.completion_type(), CompletionType::Throw);
-        assert!(matches!(thrown, CompletionRecord::Throw(e) if e == Exception::type_error("boom")));
+        assert!(matches!(thrown, CompletionRecord::Throw(Value::Null)));
+
+        let broken = CompletionRecord::Break {
+            value: None,
+            target: Some("outer".into()),
+        }
+        .update_empty(Some(Value::Number(3.0)));
+        assert_eq!(broken.completion_type(), CompletionType::Break);
+        assert_eq!(broken.target(), Some("outer"));
+        assert!(matches!(
+            broken,
+            CompletionRecord::Break {
+                value: Some(Value::Number(3.0)),
+                ..
+            }
+        ));
+
+        let continued = CompletionRecord::Continue {
+            value: None,
+            target: None,
+        }
+        .update_empty(Some(Value::Number(4.0)));
+        assert_eq!(continued.completion_type(), CompletionType::Continue);
+        assert_eq!(continued.target(), None);
     }
 
     #[test]
@@ -181,8 +221,8 @@ mod tests {
             Completion::Normal(Value::Null)
         ));
         assert!(matches!(
-            Completion::from(CompletionRecord::from(Exception::syntax("x"))),
-            Completion::Throw(_)
+            Completion::from(CompletionRecord::Throw(Value::Boolean(true))),
+            Completion::Throw(Value::Boolean(true))
         ));
     }
 }

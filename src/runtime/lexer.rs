@@ -17,6 +17,16 @@ pub enum TokenKind {
     Null,
     Var,
     Const,
+    Typeof,
+    If,
+    Else,
+    While,
+    Break,
+    Continue,
+    Throw,
+    Try,
+    Catch,
+    Finally,
     Plus,
     Minus,
     Star,
@@ -31,12 +41,15 @@ pub enum TokenKind {
     NotEq,
     EqEqEq,
     NotEqEq,
+    AndAnd,
+    OrOr,
     LParen,
     RParen,
     LBrace,
     RBrace,
     Comma,
     Semicolon,
+    Colon,
     /// `=`
     Assign,
     /// `+=`, `-=`, `*=`, `/=`, `%=` with the operator they apply.
@@ -199,10 +212,15 @@ impl Lexer {
         let (kind, len) = match (c, self.peek(1), self.peek(2)) {
             ('=', Some('='), Some('=')) => (TokenKind::EqEqEq, 3),
             ('!', Some('='), Some('=')) => (TokenKind::NotEqEq, 3),
+            ('&', Some('&'), Some('=')) | ('|', Some('|'), Some('=')) => {
+                return Err(Exception::syntax(format!("Unexpected token '{c}{c}='")));
+            }
             ('=', Some('='), _) => (TokenKind::EqEq, 2),
             ('!', Some('='), _) => (TokenKind::NotEq, 2),
             ('<', Some('='), _) => (TokenKind::LtEq, 2),
             ('>', Some('='), _) => (TokenKind::GtEq, 2),
+            ('&', Some('&'), _) => (TokenKind::AndAnd, 2),
+            ('|', Some('|'), _) => (TokenKind::OrOr, 2),
             ('=', Some('>'), _) => return Err(Exception::syntax("Unexpected token '=>'")),
             // Longer punctuators the MVP does not support must not be split
             // into supported ones (`--1` is not `-(-1)` in ECMAScript).
@@ -237,6 +255,7 @@ impl Lexer {
             ('}', _, _) => (TokenKind::RBrace, 1),
             (',', _, _) => (TokenKind::Comma, 1),
             (';', _, _) => (TokenKind::Semicolon, 1),
+            (':', _, _) => (TokenKind::Colon, 1),
             _ => return Err(unexpected()),
         };
         self.pos += len;
@@ -308,6 +327,16 @@ impl Lexer {
             "null" => TokenKind::Null,
             "var" => TokenKind::Var,
             "const" => TokenKind::Const,
+            "typeof" => TokenKind::Typeof,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
+            "while" => TokenKind::While,
+            "break" => TokenKind::Break,
+            "continue" => TokenKind::Continue,
+            "throw" => TokenKind::Throw,
+            "try" => TokenKind::Try,
+            "catch" => TokenKind::Catch,
+            "finally" => TokenKind::Finally,
             w if RESERVED_WORDS.contains(&w) => {
                 return Err(Exception::syntax(format!("Unexpected token '{w}'")));
             }
@@ -444,25 +473,31 @@ mod tests {
     #[test]
     fn punctuators_and_words() {
         assert_eq!(
-            kinds("a === b !== c == d != e <= f >= g < h > i + - * / % ! ( ) ;"),
+            kinds("a: b || c && d === e !== f == g != h <= i >= j < k > l + - * / % ! ( ) ;"),
             vec![
                 Identifier("a".into()),
-                EqEqEq,
+                Colon,
                 Identifier("b".into()),
-                NotEqEq,
+                OrOr,
                 Identifier("c".into()),
-                EqEq,
+                AndAnd,
                 Identifier("d".into()),
-                NotEq,
+                EqEqEq,
                 Identifier("e".into()),
-                LtEq,
+                NotEqEq,
                 Identifier("f".into()),
-                GtEq,
+                EqEq,
                 Identifier("g".into()),
-                Lt,
+                NotEq,
                 Identifier("h".into()),
-                Gt,
+                LtEq,
                 Identifier("i".into()),
+                GtEq,
+                Identifier("j".into()),
+                Lt,
+                Identifier("k".into()),
+                Gt,
+                Identifier("l".into()),
                 Plus,
                 Minus,
                 Star,
@@ -476,11 +511,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            kinds("true false null $_x1 ünï"),
+            kinds("true false null typeof if else while break continue $_x1 ünï"),
             vec![
                 True,
                 False,
                 Null,
+                Typeof,
+                If,
+                Else,
+                While,
+                Break,
+                Continue,
                 Identifier("$_x1".into()),
                 Identifier("ünï".into()),
                 Eof
@@ -590,12 +631,12 @@ mod tests {
     #[test]
     fn unsupported_syntax_is_rejected() {
         assert_eq!(error("a => 1"), "Unexpected token '=>'");
-        assert_eq!(error("a ||= 1"), "Invalid or unexpected token");
+        assert_eq!(error("a ||= 1"), "Unexpected token '||='");
+        assert_eq!(error("a &&= 1"), "Unexpected token '&&='");
         assert_eq!(error("--1"), "Unexpected token '--'");
         assert_eq!(error("a++"), "Unexpected token '++'");
         assert_eq!(error("2 ** 3"), "Unexpected token '**'");
         assert_eq!(error("[1]"), "Invalid or unexpected token");
-        assert_eq!(error("typeof x"), "Unexpected token 'typeof'");
         assert_eq!(error("`t`"), "Invalid or unexpected token");
         assert_eq!(error("a\\u0062"), "Invalid or unexpected token");
     }

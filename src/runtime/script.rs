@@ -9,10 +9,13 @@ pub enum UnaryOp {
     Plus,
     Minus,
     Not,
+    Typeof,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinaryOp {
+    LogicalOr,
+    LogicalAnd,
     Mul,
     Div,
     Rem,
@@ -57,12 +60,40 @@ pub struct VariableBinding {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct CatchClause {
+    pub binding: Option<Box<str>>,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Statement {
+    Empty,
     Expression(Expr),
     /// A VariableStatement (`var`) or a LexicalDeclaration (`let`/`const`).
     Declaration(DeclarationKind, Vec<VariableBinding>),
     /// A Block's StatementList.
     Block(Vec<Statement>),
+    If {
+        condition: Expr,
+        consequent: Box<Statement>,
+        alternate: Option<Box<Statement>>,
+    },
+    While {
+        condition: Expr,
+        body: Box<Statement>,
+    },
+    Labelled {
+        label: Box<str>,
+        body: Box<Statement>,
+    },
+    Break(Option<Box<str>>),
+    Continue(Option<Box<str>>),
+    Throw(Expr),
+    Try {
+        body: Vec<Statement>,
+        catch: Option<CatchClause>,
+        finally: Option<Vec<Statement>>,
+    },
 }
 
 /// The `let`/`const` declarations directly in `list` (not in nested
@@ -84,15 +115,43 @@ pub(super) fn lexically_declared_names(
 /// VarDeclaredNames of `list`: `var` names, including those inside nested
 /// blocks, in source order and possibly repeated.
 pub(super) fn var_declared_names(list: &[Statement]) -> Vec<&str> {
+    fn collect_statement<'a>(statement: &'a Statement, names: &mut Vec<&'a str>) {
+        match statement {
+            Statement::Declaration(DeclarationKind::Var, bindings) => {
+                names.extend(bindings.iter().map(|binding| &*binding.name));
+            }
+            Statement::Block(body) => collect(body, names),
+            Statement::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                collect_statement(consequent, names);
+                if let Some(alternate) = alternate {
+                    collect_statement(alternate, names);
+                }
+            }
+            Statement::While { body, .. } => collect_statement(body, names),
+            Statement::Labelled { body, .. } => collect_statement(body, names),
+            Statement::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                collect(body, names);
+                if let Some(catch) = catch {
+                    collect(&catch.body, names);
+                }
+                if let Some(finally) = finally {
+                    collect(finally, names);
+                }
+            }
+            _ => {}
+        }
+    }
     fn collect<'a>(list: &'a [Statement], names: &mut Vec<&'a str>) {
         for statement in list {
-            match statement {
-                Statement::Declaration(DeclarationKind::Var, bindings) => {
-                    names.extend(bindings.iter().map(|binding| &*binding.name));
-                }
-                Statement::Block(body) => collect(body, names),
-                _ => {}
-            }
+            collect_statement(statement, names);
         }
     }
     let mut names = Vec::new();

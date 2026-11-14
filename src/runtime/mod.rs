@@ -24,4 +24,4 @@ pub use heap::Heap;
 pub use number::number_to_string;
 pub use realm::Realm;
 pub use script::ScriptRecord;
-pub use value::{StringHandle, Value};
+pub use value::{ErrorHandle, StringHandle, Value};
