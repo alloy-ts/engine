@@ -172,6 +172,9 @@ explicit mapping to stable `napi_status` values.
 These are compile-time ABI declarations, not ambient symbol exports. The next
 Phase 2 step is a dedicated bridge owner that validates raw inputs and delegates
 to `Environment`; the outer NAPI-RS addon must never export these names itself.
+The declarations include header-vocabulary aliases for `napi_env`, `napi_value`,
+and `napi_handle_scope`, plus compile-time size and field-offset assertions for
+`napi_extended_error_info` on pointer-width-dependent targets.
 
 ## Phase 0 acceptance gate
 

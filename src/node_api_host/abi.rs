@@ -5,6 +5,7 @@
 //! symbol routing and library ownership are implemented.
 
 use std::ffi::{c_char, c_void};
+use std::mem::offset_of;
 
 /// Stable Node-API version targeted by the first bridge.
 pub const NAPI_VERSION: u32 = 8;
@@ -71,6 +72,13 @@ pub struct NapiHandleScope {
     _private: [u8; 0],
 }
 
+#[allow(non_camel_case_types)]
+pub type napi_env = *mut NapiEnv;
+#[allow(non_camel_case_types)]
+pub type napi_value = *mut NapiValue;
+#[allow(non_camel_case_types)]
+pub type napi_handle_scope = *mut NapiHandleScope;
+
 #[repr(C)]
 pub struct NapiExtendedErrorInfo {
     pub error_message: *const c_char,
@@ -79,39 +87,46 @@ pub struct NapiExtendedErrorInfo {
     pub error_code: NapiStatus,
 }
 
-pub type NapiGetVersion = unsafe extern "C" fn(env: *mut NapiEnv, result: *mut u32) -> NapiStatus;
-pub type NapiGetLastErrorInfo = unsafe extern "C" fn(
-    env: *mut NapiEnv,
-    result: *mut *const NapiExtendedErrorInfo,
-) -> NapiStatus;
+const _: () = {
+    let pointer_size = size_of::<*const c_void>();
+    assert!(offset_of!(NapiExtendedErrorInfo, error_message) == 0);
+    assert!(offset_of!(NapiExtendedErrorInfo, engine_reserved) == pointer_size);
+    assert!(offset_of!(NapiExtendedErrorInfo, engine_error_code) == pointer_size * 2);
+    assert!(offset_of!(NapiExtendedErrorInfo, error_code) == pointer_size * 2 + size_of::<u32>());
+    assert!(size_of::<NapiExtendedErrorInfo>() == pointer_size * 2 + size_of::<u32>() * 2);
+};
+
+pub type NapiGetVersion = unsafe extern "C" fn(env: napi_env, result: *mut u32) -> NapiStatus;
+pub type NapiGetLastErrorInfo =
+    unsafe extern "C" fn(env: napi_env, result: *mut *const NapiExtendedErrorInfo) -> NapiStatus;
 pub type NapiGetUndefined =
-    unsafe extern "C" fn(env: *mut NapiEnv, result: *mut *mut NapiValue) -> NapiStatus;
+    unsafe extern "C" fn(env: napi_env, result: *mut napi_value) -> NapiStatus;
 pub type NapiGetNull = NapiGetUndefined;
 pub type NapiGetBoolean =
-    unsafe extern "C" fn(env: *mut NapiEnv, value: bool, result: *mut *mut NapiValue) -> NapiStatus;
+    unsafe extern "C" fn(env: napi_env, value: bool, result: *mut napi_value) -> NapiStatus;
 pub type NapiCreateDouble =
-    unsafe extern "C" fn(env: *mut NapiEnv, value: f64, result: *mut *mut NapiValue) -> NapiStatus;
+    unsafe extern "C" fn(env: napi_env, value: f64, result: *mut napi_value) -> NapiStatus;
 pub type NapiCreateStringUtf8 = unsafe extern "C" fn(
-    env: *mut NapiEnv,
+    env: napi_env,
     value: *const c_char,
     length: usize,
-    result: *mut *mut NapiValue,
+    result: *mut napi_value,
 ) -> NapiStatus;
 pub type NapiCreateStringUtf16 = unsafe extern "C" fn(
-    env: *mut NapiEnv,
+    env: napi_env,
     value: *const u16,
     length: usize,
-    result: *mut *mut NapiValue,
+    result: *mut napi_value,
 ) -> NapiStatus;
 pub type NapiTypeof = unsafe extern "C" fn(
-    env: *mut NapiEnv,
-    value: *mut NapiValue,
+    env: napi_env,
+    value: napi_value,
     result: *mut NapiValueType,
 ) -> NapiStatus;
 pub type NapiOpenHandleScope =
-    unsafe extern "C" fn(env: *mut NapiEnv, result: *mut *mut NapiHandleScope) -> NapiStatus;
+    unsafe extern "C" fn(env: napi_env, result: *mut napi_handle_scope) -> NapiStatus;
 pub type NapiCloseHandleScope =
-    unsafe extern "C" fn(env: *mut NapiEnv, scope: *mut NapiHandleScope) -> NapiStatus;
+    unsafe extern "C" fn(env: napi_env, scope: napi_handle_scope) -> NapiStatus;
 
 impl From<super::Status> for NapiStatus {
     fn from(status: super::Status) -> Self {
@@ -172,9 +187,25 @@ mod tests {
 
     #[test]
     fn declarations_are_pointer_sized_and_c_layout() {
-        assert_eq!(size_of::<*mut NapiEnv>(), size_of::<usize>());
-        assert_eq!(size_of::<*mut NapiValue>(), size_of::<usize>());
+        assert_eq!(size_of::<napi_env>(), size_of::<usize>());
+        assert_eq!(size_of::<napi_value>(), size_of::<usize>());
+        assert_eq!(size_of::<napi_handle_scope>(), size_of::<usize>());
         assert_eq!(size_of::<NapiStatus>(), size_of::<i32>());
         assert_eq!(size_of::<NapiValueType>(), size_of::<i32>());
+        let pointer_size = size_of::<usize>();
+        assert_eq!(offset_of!(NapiExtendedErrorInfo, error_message), 0);
+        assert_eq!(
+            offset_of!(NapiExtendedErrorInfo, engine_reserved),
+            pointer_size
+        );
+        assert_eq!(
+            offset_of!(NapiExtendedErrorInfo, engine_error_code),
+            pointer_size * 2
+        );
+        assert_eq!(
+            offset_of!(NapiExtendedErrorInfo, error_code),
+            pointer_size * 2 + 4
+        );
+        assert_eq!(size_of::<NapiExtendedErrorInfo>(), pointer_size * 2 + 8);
     }
 }
