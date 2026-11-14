@@ -16,6 +16,14 @@
     "type": "git",
     "url": "git+https://repo.chen.software/alloy-ts/engine.git"
   },
+  "bin": {
+    "alloy-engine": "./bin/alloy-engine.mjs",
+    "engine": "./bin/alloy-engine.mjs"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "type": "module",
   "exports": {
     ".": "./dist/index.mjs",

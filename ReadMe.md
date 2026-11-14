@@ -31,6 +31,17 @@ See [`docs/architecture.md`](docs/architecture.md),
 [`docs/engine-plan.md`](docs/engine-plan.md) for the supported language
 subset, and [`docs/api`](docs/api) for the JavaScript and Rust APIs.
 
+## Command line
+
+```sh
+npx @alloy-ts/engine eval "5-888"    # prints -883
+npx @alloy-ts/engine eval -          # read source from stdin
+```
+
+The `alloy-engine` binary evaluates a script with the NAPI `Engine`/`Context`
+facade and prints the completion value. Parse or runtime errors are written to
+stderr and the process exits non-zero. Pass `--help` for usage.
+
 ## Development
 
 Requires Node.js, npm and a Rust toolchain.
