@@ -378,4 +378,17 @@ mod tests {
         env.begin_closing();
         assert_eq!(env.get_undefined(), Err(Status::Closing));
     }
+
+    #[test]
+    fn operations_reject_a_non_owner_thread() {
+        let env = Environment::default();
+        let (status, last_error) = std::thread::spawn(move || {
+            let mut env = env;
+            (env.get_undefined(), env.last_error())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(status, Err(Status::WrongThread));
+        assert_eq!(last_error, Status::WrongThread);
+    }
 }

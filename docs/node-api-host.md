@@ -157,6 +157,11 @@ the documented MVP limitation rather than replacing data. No manifest entry is
 marked as exported yet: the C declarations, pointer validation, and platform
 symbol visibility remain a later ABI-layer milestone.
 
+`ValueType::Object` currently classifies only the Realm's temporary native
+error handles. General objects and functions wait for the object-model
+milestone; BigInt and Symbol wait for their runtime value representations.
+Phase 1 therefore does not imply support for those Node-API value categories.
+
 ## Phase 0 acceptance gate
 
 Implementation starts only after agreement on:
