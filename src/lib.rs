@@ -1,5 +1,7 @@
 use napi_derive::napi;
 
+pub mod engine;
+pub mod runtime;
 pub mod value;
 
 #[napi]

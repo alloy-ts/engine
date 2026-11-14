@@ -60,6 +60,12 @@ impl Host {
             let function: Unknown = object.get_named_property(name)?;
             intrinsics.set_named_property(&format!("Object.{name}"), function)?;
         }
+        // Error constructors the engine facade throws, captured before user
+        // code can replace the globals.
+        for name in ["SyntaxError", "ReferenceError", "TypeError", "RangeError"] {
+            let constructor: Unknown = global.get_named_property(name)?;
+            intrinsics.set_named_property(name, constructor)?;
+        }
         let symbol: JsObject = global
             .get_named_property::<Unknown>("Symbol")?
             .coerce_to_object()?;
@@ -137,7 +143,8 @@ pub(crate) fn bigint_prototype(env: &Env) -> Result<JsObject<'_>> {
 }
 
 /// Look up a captured intrinsic function such as `"Reflect.construct"` or
-/// `"Object.create"` (see `Host::capture` for the list).
+/// `"Object.create"`, or an error constructor such as `"TypeError"` (see
+/// `Host::capture` for the list).
 pub(crate) fn intrinsic<'env, T: FromNapiValue + ValidateNapiValue>(
     env: &'env Env,
     name: &str,

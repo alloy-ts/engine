@@ -1,0 +1,181 @@
+//! NAPI facade over the internal runtime. This is the only module that
+//! converts between host `napi_value`s and runtime `Value`s.
+
+use napi::JsString;
+use napi::bindgen_prelude::{
+    Either5, Env, Error, Function, JsValue, Null, Result, Status, Unknown, ValueType,
+};
+use napi_derive::napi;
+
+use crate::runtime::{Completion, Disposed, ErrorKind, Exception, Realm, RuntimeContext, Value};
+use crate::value::host;
+
+/// A runtime primitive copied out to the host.
+type HostPrimitive = Either5<(), Null, bool, f64, String>;
+
+const PRIMITIVE_TS: &str = "undefined | null | boolean | number | string";
+
+/// Creates isolated execution Contexts. Holds no shared runtime state.
+#[napi]
+pub struct Engine {}
+
+#[napi]
+impl Engine {
+    #[napi(constructor)]
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// A new Context with its own Realm, globals and heap.
+    #[napi]
+    pub fn create_context(&self) -> Context {
+        Context {
+            runtime: RuntimeContext::new(),
+        }
+    }
+}
+
+/// A persistent handle to one Realm. Not an ECMAScript execution context.
+/// Only `Engine.createContext()` creates one.
+#[napi]
+pub struct Context {
+    runtime: RuntimeContext,
+}
+
+#[napi]
+impl Context {
+    /// Evaluates `source` as a Script and returns its completion value.
+    #[napi(ts_return_type = "undefined | null | boolean | number | string")]
+    pub fn eval(&mut self, env: &Env, source: JsString) -> Result<HostPrimitive> {
+        let source = host_string(env, source)?;
+        let realm = self.runtime.realm_mut().map_err(disposed)?;
+        match realm.evaluate(&source) {
+            Completion::Normal(value) => Ok(to_host(realm, value)),
+            Completion::Throw(exception) => Err(throw(env, &exception)),
+        }
+    }
+
+    /// Reads a global binding; throws ReferenceError when it does not exist.
+    #[napi(ts_return_type = "undefined | null | boolean | number | string")]
+    pub fn get(&self, env: &Env, name: JsString) -> Result<HostPrimitive> {
+        let name = host_string(env, name)?;
+        let realm = self.runtime.realm().map_err(disposed)?;
+        match realm.get_global(&name) {
+            Some(value) => Ok(to_host(realm, value)),
+            None => Err(throw(
+                env,
+                &Exception::new(ErrorKind::ReferenceError, format!("{name} is not defined")),
+            )),
+        }
+    }
+
+    /// Creates or updates a writable global binding from a host primitive.
+    #[napi(ts_args_type = "name: string, value: undefined | null | boolean | number | string")]
+    pub fn set(&mut self, env: &Env, name: JsString, value: Unknown) -> Result<()> {
+        let name = host_string(env, name)?;
+        // Check disposal before converting so a disposed context never
+        // allocates.
+        self.runtime.realm().map_err(disposed)?;
+        let value = from_host(env, value)?;
+        let realm = self.runtime.realm_mut().map_err(disposed)?;
+        let value = match value {
+            Imported::Value(value) => value,
+            Imported::String(contents) => realm.alloc_string(contents),
+        };
+        realm
+            .set_global(&name, value)
+            .map_err(|exception| throw(env, &exception))
+    }
+
+    /// Releases the Realm. Idempotent; every later call except `dispose`
+    /// and `disposed` throws.
+    #[napi]
+    pub fn dispose(&mut self) {
+        self.runtime.dispose();
+    }
+
+    #[napi(getter)]
+    pub fn disposed(&self) -> bool {
+        self.runtime.is_disposed()
+    }
+}
+
+fn disposed(_: Disposed) -> Error {
+    Error::from_reason("Context is disposed")
+}
+
+/// Throws a host error of `exception.kind`, using the constructor captured at
+/// addon load so user patches of `globalThis.SyntaxError` etc. are ignored.
+fn throw(env: &Env, exception: &Exception) -> Error {
+    let thrown = (|| -> Result<()> {
+        let constructor: Function<String, Unknown> = host::intrinsic(env, exception.kind.name())?;
+        let error = constructor.new_instance(exception.message.clone())?;
+        env.throw(error)
+    })();
+    match thrown {
+        Ok(()) => Error::new(Status::PendingException, exception.message.clone()),
+        Err(error) => error,
+    }
+}
+
+fn type_error(env: &Env, message: String) -> Error {
+    throw(env, &Exception::new(ErrorKind::TypeError, message))
+}
+
+/// Host strings are UTF-16 and may hold lone surrogates, which the runtime's
+/// UTF-8 strings cannot represent; reject them rather than replace them.
+fn host_string(env: &Env, string: JsString) -> Result<String> {
+    // `as_str` drops the NUL terminator napi-rs appends to the UTF-16 buffer
+    // (`as_slice` includes it) and fails on unpaired surrogates.
+    string.into_utf16()?.as_str().map_err(|_| {
+        type_error(
+            env,
+            "strings containing lone surrogates are not supported".into(),
+        )
+    })
+}
+
+fn to_host(realm: &Realm, value: Value) -> HostPrimitive {
+    match value {
+        Value::Undefined => Either5::A(()),
+        Value::Null => Either5::B(Null),
+        Value::Boolean(b) => Either5::C(b),
+        Value::Number(n) => Either5::D(n),
+        Value::String(handle) => Either5::E(realm.heap().string(handle).to_owned()),
+    }
+}
+
+enum Imported {
+    Value(Value),
+    String(String),
+}
+
+/// Checked conversion of a host value; anything but the MVP primitives is a
+/// TypeError. Coercions below only run on values whose type was just checked,
+/// so they cannot invoke user code.
+fn from_host(env: &Env, value: Unknown) -> Result<Imported> {
+    Ok(match value.get_type()? {
+        ValueType::Undefined => Imported::Value(Value::Undefined),
+        ValueType::Null => Imported::Value(Value::Null),
+        ValueType::Boolean => Imported::Value(Value::Boolean(value.coerce_to_bool()?)),
+        ValueType::Number => {
+            Imported::Value(Value::Number(value.coerce_to_number()?.get_double()?))
+        }
+        ValueType::String => Imported::String(host_string(env, value.coerce_to_string()?)?),
+        other => {
+            let kind = match other {
+                ValueType::Object => "object",
+                ValueType::Function => "function",
+                ValueType::Symbol => "symbol",
+                ValueType::BigInt => "bigint",
+                ValueType::External => "external",
+                _ => "unknown",
+            };
+            return Err(type_error(
+                env,
+                format!("Cannot transfer a host {kind}; expected {PRIMITIVE_TS}"),
+            ));
+        }
+    })
+}
