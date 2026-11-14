@@ -3,16 +3,23 @@ import { test } from "node:test";
 import vm from "node:vm";
 import { Engine } from "../dist/index.js";
 
-type Primitive = undefined | null | boolean | number | string;
+type Primitive = undefined | null | boolean | number | string | bigint | symbol;
 
 type Outcome =
   | { type: "normal"; value: Primitive }
-  | { type: "throw-error"; name: string }
+  | { type: "throw-error"; name: string; message: string }
   | { type: "throw-value"; value: Primitive };
 
 interface Fixture {
   name: string;
   sources: string[];
+  compareErrorMessage?: boolean;
+}
+
+interface DeviationFixture {
+  name: string;
+  source: string;
+  expected: Primitive;
 }
 
 const fixtures: Fixture[] = [
@@ -22,8 +29,8 @@ const fixtures: Fixture[] = [
   { name: "equality", sources: ["null == undefined", "NaN === NaN", "+0 === -0"] },
   { name: "persistent lexical binding", sources: ["let x = 1", "x += 2", "x"] },
   { name: "persistent var binding", sources: ["var x = 1", "x += 2", "x"] },
-  { name: "temporal dead zone", sources: ["{ x; let x = 1; }"] },
-  { name: "redeclaration early error", sources: ["let x; var x;"] },
+  { name: "temporal dead zone", sources: ["{ x; let x = 1; }"], compareErrorMessage: true },
+  { name: "redeclaration early error", sources: ["let x; var x;"], compareErrorMessage: true },
   { name: "typeof unresolvable reference", sources: ["typeof missing"] },
   {
     name: "logical short circuit",
@@ -60,7 +67,9 @@ function isPrimitive(value: unknown): value is Primitive {
     value === null ||
     typeof value === "boolean" ||
     typeof value === "number" ||
-    typeof value === "string"
+    typeof value === "string" ||
+    typeof value === "bigint" ||
+    typeof value === "symbol"
   );
 }
 
@@ -77,7 +86,11 @@ function outcome(run: () => unknown): Outcome {
       "name" in thrown &&
       typeof thrown.name === "string"
     ) {
-      return { type: "throw-error", name: thrown.name };
+      return {
+        type: "throw-error",
+        name: thrown.name,
+        message: "message" in thrown && typeof thrown.message === "string" ? thrown.message : "",
+      };
     }
     throw thrown;
   }
@@ -91,8 +104,34 @@ for (const fixture of fixtures) {
     for (const source of fixture.sources) {
       const expected = outcome(() => vm.runInContext(source, node));
       const actual = outcome(() => alloy.eval(source));
-      assert.deepEqual(actual, expected, source);
+      if (
+        fixture.compareErrorMessage ||
+        expected.type !== "throw-error" ||
+        actual.type !== "throw-error"
+      ) {
+        assert.deepEqual(actual, expected, source);
+      } else {
+        assert.equal(actual.name, expected.name, source);
+      }
     }
+  });
+}
+
+const deviations: DeviationFixture[] = [
+  { name: "bigint primitive", source: "typeof 1n", expected: "bigint" },
+  { name: "bigint arithmetic", source: "1n + 2n", expected: 3n },
+  { name: "symbol primitive", source: "typeof Symbol('x')", expected: "symbol" },
+];
+
+for (const deviation of deviations) {
+  void test(`documented deviation: ${deviation.name} remains host-only`, () => {
+    const alloy = new Engine().createContext();
+    const node = vm.createContext(Object.create(null) as object);
+    const expected = outcome(() => vm.runInContext(deviation.source, node));
+    const actual = outcome(() => alloy.eval(deviation.source));
+
+    assert.deepEqual(expected, { type: "normal", value: deviation.expected });
+    assert.notDeepEqual(actual, expected, deviation.source);
   });
 }
 
@@ -113,6 +152,7 @@ void test("documented deviation: lone UTF-16 surrogates remain host-only", () =>
     {
       type: "throw-error",
       name: "SyntaxError",
+      message: "strings containing lone surrogates are not supported",
     },
   );
 });
