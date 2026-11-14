@@ -5,6 +5,7 @@ use super::number::{
     is_js_whitespace, is_line_terminator, is_unsigned_decimal_literal, parse_decimal,
     parse_radix_digits,
 };
+use super::script::BinaryOp;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenKind {
@@ -14,6 +15,8 @@ pub enum TokenKind {
     True,
     False,
     Null,
+    Var,
+    Const,
     Plus,
     Minus,
     Star,
@@ -30,7 +33,14 @@ pub enum TokenKind {
     NotEqEq,
     LParen,
     RParen,
+    LBrace,
+    RBrace,
+    Comma,
     Semicolon,
+    /// `=`
+    Assign,
+    /// `+=`, `-=`, `*=`, `/=`, `%=` with the operator they apply.
+    CompoundAssign(BinaryOp),
     Eof,
 }
 
@@ -42,9 +52,9 @@ pub struct Token {
     pub newline_before: bool,
 }
 
-/// ECMA-262 ReservedWords other than `true`, `false` and `null`. None of them
-/// is supported syntax in the MVP, so they are rejected rather than treated
-/// as global identifier references.
+/// ECMA-262 ReservedWords other than `true`, `false` and `null`. `var` and
+/// `const` become keyword tokens; every other one is unsupported syntax and
+/// rejected rather than treated as a global identifier reference.
 const RESERVED_WORDS: &[&str] = &[
     "await",
     "break",
@@ -193,6 +203,7 @@ impl Lexer {
             ('!', Some('='), _) => (TokenKind::NotEq, 2),
             ('<', Some('='), _) => (TokenKind::LtEq, 2),
             ('>', Some('='), _) => (TokenKind::GtEq, 2),
+            ('=', Some('>'), _) => return Err(Exception::syntax("Unexpected token '=>'")),
             // Longer punctuators the MVP does not support must not be split
             // into supported ones (`--1` is not `-(-1)` in ECMAScript).
             ('+', Some('+'), _) | ('-', Some('-'), _) | ('*', Some('*'), _) => {
@@ -201,6 +212,17 @@ impl Lexer {
             ('<', Some('<'), _) | ('>', Some('>'), _) => {
                 return Err(Exception::syntax(format!("Unexpected token '{c}{c}'")));
             }
+            ('+' | '-' | '*' | '/' | '%', Some('='), _) => {
+                let operator = match c {
+                    '+' => BinaryOp::Add,
+                    '-' => BinaryOp::Sub,
+                    '*' => BinaryOp::Mul,
+                    '/' => BinaryOp::Div,
+                    _ => BinaryOp::Rem,
+                };
+                (TokenKind::CompoundAssign(operator), 2)
+            }
+            ('=', _, _) => (TokenKind::Assign, 1),
             ('+', _, _) => (TokenKind::Plus, 1),
             ('-', _, _) => (TokenKind::Minus, 1),
             ('*', _, _) => (TokenKind::Star, 1),
@@ -211,6 +233,9 @@ impl Lexer {
             ('>', _, _) => (TokenKind::Gt, 1),
             ('(', _, _) => (TokenKind::LParen, 1),
             (')', _, _) => (TokenKind::RParen, 1),
+            ('{', _, _) => (TokenKind::LBrace, 1),
+            ('}', _, _) => (TokenKind::RBrace, 1),
+            (',', _, _) => (TokenKind::Comma, 1),
             (';', _, _) => (TokenKind::Semicolon, 1),
             _ => return Err(unexpected()),
         };
@@ -281,6 +306,8 @@ impl Lexer {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "null" => TokenKind::Null,
+            "var" => TokenKind::Var,
+            "const" => TokenKind::Const,
             w if RESERVED_WORDS.contains(&w) => {
                 return Err(Exception::syntax(format!("Unexpected token '{w}'")));
             }
@@ -462,6 +489,34 @@ mod tests {
     }
 
     #[test]
+    fn declaration_and_assignment_tokens() {
+        assert_eq!(
+            kinds("var const let { } , = += -= *= /= %= == ==="),
+            vec![
+                Var,
+                Const,
+                Identifier("let".into()),
+                LBrace,
+                RBrace,
+                Comma,
+                Assign,
+                CompoundAssign(BinaryOp::Add),
+                CompoundAssign(BinaryOp::Sub),
+                CompoundAssign(BinaryOp::Mul),
+                CompoundAssign(BinaryOp::Div),
+                CompoundAssign(BinaryOp::Rem),
+                EqEq,
+                EqEqEq,
+                Eof
+            ]
+        );
+        // Unsupported assignment operators are not split into supported ones.
+        assert_eq!(error("a **= 1"), "Unexpected token '**'");
+        assert_eq!(error("a <<= 1"), "Unexpected token '<<'");
+        assert_eq!(error("a &= 1"), "Invalid or unexpected token");
+    }
+
+    #[test]
     fn numeric_literals() {
         assert_eq!(
             kinds("0 42 3.25 .5 5. 1e3 2E-2 1e+2 0x1F 0XfF 0o17 0b101"),
@@ -534,7 +589,8 @@ mod tests {
 
     #[test]
     fn unsupported_syntax_is_rejected() {
-        assert_eq!(error("a = 1"), "Invalid or unexpected token");
+        assert_eq!(error("a => 1"), "Unexpected token '=>'");
+        assert_eq!(error("a ||= 1"), "Invalid or unexpected token");
         assert_eq!(error("--1"), "Unexpected token '--'");
         assert_eq!(error("a++"), "Unexpected token '++'");
         assert_eq!(error("2 ** 3"), "Unexpected token '**'");

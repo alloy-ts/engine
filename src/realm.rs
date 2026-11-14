@@ -1,26 +1,21 @@
-use std::collections::HashMap;
-
 use super::completion::{Completion, ErrorKind, Exception};
+use super::environment::GlobalEnvironment;
 use super::evaluator::evaluate_script;
 use super::heap::Heap;
 use super::lexer::is_binding_identifier;
 use super::script::ScriptRecord;
 use super::value::Value;
 
-#[derive(Clone, Copy, Debug)]
-struct Binding {
-    value: Value,
-    writable: bool,
-}
-
-/// Internal Realm: the global bindings and the heap their strings live in.
+/// Internal Realm: the Global Environment Record (`[[GlobalEnv]]`) and the
+/// heap its strings live in.
 ///
 /// Each Realm is fully independent; Values and string handles from one Realm
-/// must never be used with another.
+/// must never be used with another. Bindings persist across evaluations, so
+/// later Scripts see earlier declarations.
 #[derive(Debug)]
 pub struct Realm {
-    globals: HashMap<Box<str>, Binding>,
-    heap: Heap,
+    pub(super) global_env: GlobalEnvironment,
+    pub(super) heap: Heap,
 }
 
 impl Default for Realm {
@@ -30,25 +25,12 @@ impl Default for Realm {
 }
 
 impl Realm {
-    /// A Realm seeded with the non-writable value properties of the global
-    /// object that the MVP supports (§19.1).
+    /// A Realm whose global object has the non-writable, non-configurable
+    /// value properties the runtime supports (§19.1): `undefined`, `NaN`,
+    /// `Infinity`.
     pub fn new() -> Self {
-        let mut globals = HashMap::new();
-        for (name, value) in [
-            ("undefined", Value::Undefined),
-            ("NaN", Value::Number(f64::NAN)),
-            ("Infinity", Value::Number(f64::INFINITY)),
-        ] {
-            globals.insert(
-                name.into(),
-                Binding {
-                    value,
-                    writable: false,
-                },
-            );
-        }
         Self {
-            globals,
+            global_env: GlobalEnvironment::new(),
             heap: Heap::default(),
         }
     }
@@ -61,13 +43,27 @@ impl Realm {
         Value::String(self.heap.alloc_string(contents))
     }
 
-    pub fn get_global(&self, name: &str) -> Option<Value> {
-        self.globals.get(name).map(|binding| binding.value)
+    /// The value a global identifier reference would produce: the global
+    /// lexical (`let`/`const`) binding if there is one, else the global
+    /// object property. A ReferenceError for a missing name or for a lexical
+    /// binding still in its temporal dead zone.
+    pub fn get_binding_value(&self, name: &str) -> Result<Value, Exception> {
+        self.global_env.get_binding_value(name, true)
     }
 
-    /// Creates or updates a writable global binding. Fails with a TypeError
-    /// for a name the evaluator could never reference or for a read-only
-    /// binding, as a strict-mode assignment would.
+    /// [`Realm::get_binding_value`] without the reason: `None` when the name
+    /// is not defined or is still uninitialized.
+    pub fn get_global(&self, name: &str) -> Option<Value> {
+        self.get_binding_value(name).ok()
+    }
+
+    /// Assigns a global binding from the host, as a strict assignment would,
+    /// except that a missing name is created as a global object property
+    /// (like `globalThis[name] = value`) instead of being a ReferenceError.
+    ///
+    /// A TypeError for a name the evaluator could never reference, a
+    /// read-only global or a `const`; a ReferenceError for a `let`/`const`
+    /// still in its temporal dead zone.
     pub fn set_global(&mut self, name: &str, value: Value) -> Result<(), Exception> {
         if !is_binding_identifier(name) {
             return Err(Exception::new(
@@ -75,25 +71,11 @@ impl Realm {
                 format!("'{name}' is not a valid global binding name"),
             ));
         }
-        match self.globals.get_mut(name) {
-            Some(binding) if !binding.writable => Err(Exception::new(
-                ErrorKind::TypeError,
-                format!("Cannot assign to read only global '{name}'"),
-            )),
-            Some(binding) => {
-                binding.value = value;
-                Ok(())
-            }
-            None => {
-                self.globals.insert(
-                    name.into(),
-                    Binding {
-                        value,
-                        writable: true,
-                    },
-                );
-                Ok(())
-            }
+        if self.global_env.has_binding(name) {
+            self.global_env.set_mutable_binding(name, value, true)
+        } else {
+            self.global_env
+                .set_global_object_property(name, value, true)
         }
     }
 
@@ -156,6 +138,64 @@ mod tests {
                 ErrorKind::TypeError
             );
         }
+    }
+
+    #[test]
+    fn host_access_follows_global_declarations() {
+        let mut realm = Realm::new();
+        assert!(matches!(
+            realm.evaluate("let tdz = missing; let l; const c = 1"),
+            Completion::Throw(_)
+        ));
+        // All three were created by GlobalDeclarationInstantiation, but the
+        // script threw before initializing them, so they stay in their
+        // temporal dead zone for the life of the Realm.
+        for name in ["l", "c", "tdz"] {
+            assert!(realm.get_global(name).is_none());
+            let error = realm.get_binding_value(name).unwrap_err();
+            assert_eq!(error.kind, ErrorKind::ReferenceError);
+            assert_eq!(
+                error.message,
+                format!("Cannot access '{name}' before initialization")
+            );
+            assert_eq!(
+                realm.set_global(name, Value::Null).unwrap_err().kind,
+                ErrorKind::ReferenceError
+            );
+        }
+        assert_eq!(
+            realm.get_binding_value("nope").unwrap_err().message,
+            "nope is not defined"
+        );
+
+        assert!(matches!(
+            realm.evaluate("let m = 1; const k = 2; var v = 3"),
+            Completion::Normal(Value::Undefined)
+        ));
+        realm.set_global("m", Value::Number(10.0)).unwrap();
+        realm.set_global("v", Value::Number(30.0)).unwrap();
+        assert!(matches!(
+            realm.evaluate("m + v"),
+            Completion::Normal(Value::Number(40.0))
+        ));
+        assert_eq!(
+            realm.set_global("k", Value::Null).unwrap_err(),
+            Exception::new(ErrorKind::TypeError, "Assignment to constant variable.")
+        );
+        assert!(matches!(realm.get_global("k"), Some(Value::Number(2.0))));
+
+        // A host-created global is a configurable property: a later `let`
+        // may shadow it, and then the host writes the lexical binding.
+        realm.set_global("h", Value::Number(1.0)).unwrap();
+        assert!(matches!(
+            realm.evaluate("let h = 2; h"),
+            Completion::Normal(Value::Number(2.0))
+        ));
+        realm.set_global("h", Value::Number(3.0)).unwrap();
+        assert!(matches!(
+            realm.evaluate("h"),
+            Completion::Normal(Value::Number(3.0))
+        ));
     }
 
     #[test]

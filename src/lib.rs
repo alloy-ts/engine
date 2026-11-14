@@ -1,4 +1,4 @@
-//! Alloy's embedded ECMAScript runtime (MVP subset).
+//! Alloy's embedded ECMAScript runtime (a growing subset of ECMA-262).
 //!
 //! This crate is a pure Rust library: it has no napi or Node dependency and
 //! contains no `unsafe` code. Host conversion between `napi_value`s and
@@ -6,6 +6,7 @@
 
 mod completion;
 mod context;
+mod environment;
 mod evaluator;
 mod heap;
 mod lexer;

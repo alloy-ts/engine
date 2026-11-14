@@ -39,6 +39,14 @@ impl Exception {
     pub fn syntax(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::SyntaxError, message)
     }
+
+    pub(crate) fn reference(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::ReferenceError, message)
+    }
+
+    pub(crate) fn type_error(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::TypeError, message)
+    }
 }
 
 /// The `[[Type]]` of a [`CompletionRecord`] (ECMA-262 §6.2.4, Table 7).
@@ -155,13 +163,11 @@ mod tests {
             .update_empty(Some(Value::Number(1.0)));
         assert_eq!(number(&kept), Some(2.0));
         // A throw completion is never empty and is returned unchanged.
-        let thrown = CompletionRecord::from(Exception::new(ErrorKind::TypeError, "boom"))
+        let thrown = CompletionRecord::from(Exception::type_error("boom"))
             .update_empty(Some(Value::Number(1.0)));
         assert!(thrown.is_abrupt());
         assert_eq!(thrown.completion_type(), CompletionType::Throw);
-        assert!(
-            matches!(thrown, CompletionRecord::Throw(e) if e == Exception::new(ErrorKind::TypeError, "boom"))
-        );
+        assert!(matches!(thrown, CompletionRecord::Throw(e) if e == Exception::type_error("boom")));
     }
 
     #[test]
